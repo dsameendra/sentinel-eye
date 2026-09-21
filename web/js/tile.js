@@ -2,6 +2,7 @@
 // stream without a black gap (the new stream loads hidden and is swapped in once it plays),
 // watches for stalls and reconnects, and reports stats.
 import { createPlayer } from './player.js';
+import { ZoomPan } from './zoom.js';
 import { esc, icon } from './ui.js';
 
 // H.265 plays natively in Chrome/Edge/Safari. If a browser claims support but fails to decode (or lacks it),
@@ -45,7 +46,10 @@ export class Tile {
       ${opts.chrome ? `<div class="hit"></div>
       <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="dot wait"></span><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="grow"></span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span><span class="tag kind">SD</span></div>
       <div class="ov bottom"><span class="stat"></span></div>
+      <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="tile-actions">
+        <button data-a="zout" title="Zoom out" aria-label="Zoom out">${icon('minus')}</button>
+        <button data-a="zin" title="Zoom in (or scroll / pinch on the picture)" aria-label="Zoom in">${icon('plus')}</button>
         <button class="txt" data-a="quality" title="Switch between SD and HD">HD</button>
         <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
         <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
@@ -57,12 +61,33 @@ export class Tile {
       this.el.querySelector('[data-a=quality]').addEventListener('click', (e) => { e.stopPropagation(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
       this.el.querySelector('[data-a=snap]').addEventListener('click', (e) => { e.stopPropagation(); this.snapshot(); });
       this.el.querySelector('[data-a=focus]').addEventListener('click', (e) => { e.stopPropagation(); opts.onFocus?.(this); });
+      this.enableZoom(this.el.querySelector('.hit'), { dbl: false });   // a click opens the large view, so no double-click zoom here
+      this.el.querySelector('[data-a=zin]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1.6); });
+      this.el.querySelector('[data-a=zout]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1 / 1.6); });
+      this.el.querySelector('.zoomtag').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.reset(); });
     }
     // Always start with the SD stream (it is already flowing, so the picture is instant) and swap to HD when it is ready.
     this.cur = this._spawn('sub', false);
     if (opts.kind === 'main') { this.kind = 'sub'; this.setKind('main'); }
     this._paint();
     this.timer = setInterval(() => this._tick(), 500);
+  }
+
+  /** Attach zoom/pan gestures to `hit` (a transparent element over the picture). */
+  enableZoom(hit, { dbl = true } = {}) {
+    this.zoom = new ZoomPan(this.stage, hit, { dbl, onChange: (st) => { this._paintZoom(); this.opts.onZoom?.(this.cam.id, st); } });
+    if (this.opts.zoomInit) this.zoom.setState(this.opts.zoomInit);
+  }
+
+  _paintZoom() {
+    const z = this.zoom;
+    if (!z) return;
+    const tag = this.el.querySelector('.zoomtag');
+    if (tag) { tag.hidden = !z.zoomed; tag.textContent = `${z.s.toFixed(1)}× · Reset`; }
+    const zin = this.el.querySelector('[data-a=zin]'), zout = this.el.querySelector('[data-a=zout]');
+    if (zin) zin.disabled = z.atMax;
+    if (zout) zout.disabled = !z.zoomed;
+    this.opts.onUpdate?.(this);
   }
 
   _spawn(kind, hidden) {
@@ -218,6 +243,7 @@ export class Tile {
 
   dispose() {
     clearInterval(this.timer);
+    this.zoom?.destroy();
     this.cur?.player.dispose();
     this.pend?.player.dispose();
     this.cur = this.pend = null;

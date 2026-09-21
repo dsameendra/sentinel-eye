@@ -181,7 +181,7 @@ export class SettingsView {
         <div class="hint">Only matters when there are more cameras than fit on one page.</div></div></div></section>
     <section class="card"><h3>Keyboard shortcuts</h3><dl class="kv">
       <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next page, or camera in the large view</dd><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open that camera on the page</dd>
-      <dt><kbd>E</kbd></dt><dd>Arrange mode (drag to reorder)</dd><dt><kbd>F</kbd></dt><dd>Full screen</dd><dt><kbd>H</kbd> / <kbd>S</kbd></dt><dd>Large view: toggle HD / save snapshot</dd><dt><kbd>Esc</kbd></dt><dd>Close large view</dd></dl></section>`;
+      <dt><kbd>E</kbd></dt><dd>Arrange mode (drag to reorder)</dd><dt><kbd>F</kbd></dt><dd>Full screen</dd><dt><kbd>H</kbd> / <kbd>S</kbd></dt><dd>Large view: toggle HD / save snapshot</dd><dt><kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></dt><dd>Large view: zoom in / out / reset (scroll or pinch also works, drag to pan)</dd><dt><kbd>Esc</kbd></dt><dd>Reset zoom, then close the large view</dd></dl></section>`;
   }
 
   statusTab() {

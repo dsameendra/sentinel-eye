@@ -28,7 +28,11 @@ or a trusted network.
 - **Settings**: recorder address/login, encryption toggle + verification code (field disabled while off),
   test connection, channel list (names, order, per-stream fps override, custom RTSP paths), *Detect
   channels* (also reads the recorder's camera names), display options, status.
-- Keys: `←/→` pages or cameras, `1-9` open camera, `E` arrange, `F` full screen, `H` HD/SD, `S` snapshot, `Esc`.
+- **Zoom and pan** in the grid and the large view: scroll wheel, trackpad pinch (Chrome/Edge/Firefox/Safari),
+  touch pinch + one-finger drag, mouse drag to pan, `+`/`-` buttons, double-click/tap in the large view to toggle 2.5x.
+  Reset with the tag/`0`/`Esc`. Works while the video plays; SD/HD swaps keep the view.
+- Keys: `←/→` pages or cameras, `1-9` open camera, `E` arrange, `F` full screen, `H` HD/SD, `S` snapshot,
+  `+`/`-`/`0` zoom (large view), `Esc` (resets zoom, then closes).
 
 ## How it works
 

@@ -15,6 +15,7 @@ export class LiveView {
     this.focus = null;         // { tile, id }
     this.menuOpen = false;
     this.pendingFocusId = null;
+    this.zoomMem = {};          // grid zoom per camera, kept while paging/re-laying out
     this.onKey = (e) => this.key(e);
     document.addEventListener('keydown', this.onKey);
     this.onFs = () => this.syncFullscreen();
@@ -113,6 +114,8 @@ export class LiveView {
       if (cam) {
         const t = new Tile(cam, {
           kind: this.qualityFor(cell), display: this.d, chrome: true,
+          zoomInit: this.zoomMem[cam.id],
+          onZoom: (id, st) => { if (st.s > 1.001) this.zoomMem[id] = st; else delete this.zoomMem[id]; },
           onFocus: () => this.ctx.go(`#/live/${cam.id}`),
           onUpdate: () => this.countLive(),
           onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
@@ -229,6 +232,8 @@ export class LiveView {
         <button class="btn" data-a="close">${icon('left')} Back</button>
         <h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2><span class="pill stat"></span><span class="spacer"></span>
         <div class="seg" role="group" aria-label="Video quality"><button data-k="sub">SD</button><button data-k="main">HD</button></div>
+        <div class="zoomctl" role="group" aria-label="Zoom"><button class="btn icon" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
+          <button class="btn pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
         <button class="btn icon" data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
         <button class="btn icon" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
@@ -242,14 +247,17 @@ export class LiveView {
     f.querySelector('.stage-host').append(tile.el);
     const hit = document.createElement('div');
     hit.className = 'hitzone';
-    hit.addEventListener('dblclick', () => this.toggleFullscreen(f));   // single click does nothing: never pauses the feed
     f.querySelector('.stage-host').append(hit);
+    tile.enableZoom(hit, { dbl: true });   // single click does nothing (never pauses); double click/tap toggles zoom
     this.live.append(f);
     this.focus = { tile, id: cam.id, el: f, idx };
     f.querySelector('[data-a=close]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=x]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
     f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
+    f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
+    f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
+    f.querySelector('[data-a=zreset]').addEventListener('click', () => tile.zoom.reset());
     f.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => tile.setKind(b.dataset.k)));
     f.querySelector('.prev')?.addEventListener('click', () => this.stepFocus(-1));
     f.querySelector('.next')?.addEventListener('click', () => this.stepFocus(1));
@@ -260,6 +268,13 @@ export class LiveView {
     const f = this.focus?.el;
     if (!f || this.focus.tile !== tile) return;
     f.querySelectorAll('[data-k]').forEach((b) => b.setAttribute('aria-pressed', String(tile.kind === b.dataset.k)));
+    const z = tile.zoom;
+    if (z) {
+      f.querySelector('.pct').textContent = `${z.percent}%`;
+      f.querySelector('[data-a=zin]').disabled = z.atMax;
+      f.querySelector('[data-a=zout]').disabled = !z.zoomed;
+      f.querySelector('[data-a=zreset]').disabled = !z.zoomed;
+    }
     const pill = f.querySelector('.stat');
     const pending = tile.pend ? ` · loading ${tile.pend.kind === 'main' ? 'HD' : 'SD'}…` : '';
     pill.textContent = (tile.summary() || (tile.state === 'live' ? 'live' : 'connecting…')) + pending;
@@ -296,7 +311,10 @@ export class LiveView {
     if (document.getElementById('modal-root').firstChild) return;
     const k = e.key;
     if (this.focus) {
-      if (k === 'Escape' && !document.fullscreenElement) this.ctx.go('#/live');
+      if (k === 'Escape' && !document.fullscreenElement) { if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }
+      else if (k === '+' || k === '=') this.focus.tile.zoom?.zoomBy(1.6);
+      else if (k === '-' || k === '_') this.focus.tile.zoom?.zoomBy(1 / 1.6);
+      else if (k === '0') this.focus.tile.zoom?.reset();
       else if (k === 'ArrowLeft') this.stepFocus(-1);
       else if (k === 'ArrowRight') this.stepFocus(1);
       else if (k === 'f' || k === 'F') this.toggleFullscreen(this.focus.el);

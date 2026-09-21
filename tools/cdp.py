@@ -6,7 +6,11 @@ CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
 class Browser:
-    def __init__(self, width=1440, height=900, port=9444, headed=False):
+    def __init__(self, width=1440, height=900, port=None, headed=False):
+        import socket
+        if port is None:   # a free port, so a leftover Chrome from an earlier run can never block this one
+            with socket.socket() as s0:
+                s0.bind(("127.0.0.1", 0)); port = s0.getsockname()[1]
         self.w, self.h, self.port, self.headed = width, height, port, headed
         self.logs = []
 

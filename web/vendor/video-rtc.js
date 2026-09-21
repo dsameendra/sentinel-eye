@@ -464,6 +464,9 @@ export class VideoRTC extends HTMLElement {
                     }
                 }
 
+                // Sentinel Eye patch: this can fire after the player was torn down, when the SourceBuffer is already
+                // detached and reading .buffered throws InvalidStateError. Ignore that.
+                try {
                 if (!sb.updating && sb.buffered && sb.buffered.length) {
                     const end = sb.buffered.end(sb.buffered.length - 1);
                     const start = end - 5;
@@ -479,6 +482,7 @@ export class VideoRTC extends HTMLElement {
                     this.video.playbackRate = gap > 0.1 ? gap : 0.1;
                     // console.debug('VideoRTC.buffered', gap, this.video.playbackRate, this.video.readyState);
                 }
+                } catch (e) { if (e.name !== 'InvalidStateError') throw e; }
             });
 
             const buf = new Uint8Array(2 * 1024 * 1024);
