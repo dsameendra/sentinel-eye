@@ -9,6 +9,9 @@ class CamPlayer extends VideoRTC {
     this.DISCONNECT_TIMEOUT = 1000;
     this.info = { mode: '', error: '' };
     this.onstatechange = () => {};
+    // Tearing a player down empties its <video> src, which fires an 'error' event that the base class logs
+    // and reacts to. Swallow it (capture phase, before the <video>'s own listener) once we are disposing.
+    this.addEventListener('error', (e) => { if (this.disposed) e.stopImmediatePropagation(); }, true);
   }
 
   oninit() {

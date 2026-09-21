@@ -58,7 +58,9 @@ export class Tile {
       this.el.querySelector('[data-a=snap]').addEventListener('click', (e) => { e.stopPropagation(); this.snapshot(); });
       this.el.querySelector('[data-a=focus]').addEventListener('click', (e) => { e.stopPropagation(); opts.onFocus?.(this); });
     }
-    this.cur = this._spawn(this.kind, false);
+    // Always start with the SD stream (it is already flowing, so the picture is instant) and swap to HD when it is ready.
+    this.cur = this._spawn('sub', false);
+    if (opts.kind === 'main') { this.kind = 'sub'; this.setKind('main'); }
     this._paint();
     this.timer = setInterval(() => this._tick(), 500);
   }

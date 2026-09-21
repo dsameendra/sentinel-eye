@@ -81,7 +81,9 @@ async def main():
         if not opened:
             print("   DEBUG logs:", b.logs[-5:])
             print("   DEBUG dom:", await b.js("JSON.stringify({wallKids:document.querySelector('.wall')?.children.length,liveHTML:document.querySelector('#view')?.innerHTML.slice(0,200),focusCount:document.querySelectorAll('.focus').length})"))
-        ok = await b.wait_for("(()=>{const v=document.querySelector('.focus video');return v&&v.readyState>=2&&v.currentTime>0})()", 40)
+        first = await b.wait_for("(()=>{const v=document.querySelector('.focus video');return v&&v.readyState>=2&&v.currentTime>0})()", 10)
+        check("large view shows a picture immediately (SD first)", first)
+        ok = await b.wait_for("(()=>{const v=document.querySelector('.focus video');return v&&v.videoWidth>=1280})()", 40)
         check("large view plays (HD)", ok, await b.js("(()=>{const v=document.querySelector('.focus video');return v?v.videoWidth+'x'+v.videoHeight:'-'})()"))
         t0 = await b.js("document.querySelector('.focus video').currentTime")
         await b.send("Input.dispatchMouseEvent", type="mousePressed", x=700, y=450, button="left", clickCount=1)

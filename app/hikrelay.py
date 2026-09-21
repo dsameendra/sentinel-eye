@@ -140,7 +140,7 @@ class RtspClient:
         except RelayError:
             self.close()
             raise
-        self.sock.settimeout(15)
+        self.sock.settimeout(8)   # silence for 8 s = stalled: exit so go2rtc restarts us before its own 15 s timeout
         return self
 
     def packets(self):
