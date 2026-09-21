@@ -57,6 +57,7 @@ class Channel(BaseModel):
     enabled: bool = True
     sub_fps: Union[float, Literal["auto"]] = "auto"
     main_fps: Union[float, Literal["auto"]] = "auto"
+    aspect: Literal["auto", "16:9", "4:3", "native"] = "auto"   # picture shape; auto = 16:9 when the SD frame is squeezed 2:1
     sub_path: str = ""   # optional RTSP path override (non-Hikvision sources)
     main_path: str = ""
 

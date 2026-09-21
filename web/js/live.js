@@ -102,7 +102,7 @@ export class LiveView {
     this.disposeTiles();
     const layout = LAYOUTS[this.d.layout], slots = layout.cells.length, cams = this.cams();
     const w = this.wall;
-    w.className = 'wall' + (this.edit ? ' editing' : '');
+    w.className = 'wall' + (this.edit ? ' editing' : '') + (this.d.fit === 'cover' ? ' fill' : '');
     w.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
     w.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
     w.style.setProperty('--fit', this.d.fit);
@@ -239,7 +239,6 @@ export class LiveView {
       onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
       onKindFail: (t, k) => toast(`The ${k === 'main' ? 'HD' : 'SD'} stream could not be started.`, 'bad', 6000) });
     tile.el.style.cssText = 'position:absolute;inset:0;border:0;border-radius:0';
-    tile.el.style.setProperty('--fit', 'contain');
     f.querySelector('.stage-host').append(tile.el);
     const hit = document.createElement('div');
     hit.className = 'hitzone';

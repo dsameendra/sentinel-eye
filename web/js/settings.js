@@ -135,6 +135,7 @@ export class SettingsView {
         ${this.adv?.has(c.id) ? `<tr class="adv"><td></td><td colspan="5"><div class="form" style="grid-template-columns:1fr 1fr">
           <div class="field"><label>SD stream path (optional)</label><input type="text" data-b="ch.${c.id}.sub_path" value="${esc(c.sub_path)}" placeholder="/Streaming/Channels/${c.channel}02" spellcheck="false">${this.fieldErr(`ch.${c.id}.sub_path`)}</div>
           <div class="field"><label>HD stream path (optional)</label><input type="text" data-b="ch.${c.id}.main_path" value="${esc(c.main_path)}" placeholder="/Streaming/Channels/${c.channel}01" spellcheck="false">${this.fieldErr(`ch.${c.id}.main_path`)}</div>
+          <div class="field"><label>Picture shape</label><select data-b="ch.${c.id}.aspect">${[['auto', 'Automatic (recommended)'], ['16:9', 'Widescreen 16:9'], ['4:3', 'Standard 4:3'], ['native', 'Exactly as sent']].map(([v, l]) => `<option value="${v}" ${(c.aspect || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><div class="hint">SD streams are often squeezed; “Automatic” restores the real shape so SD and HD match.</div></div>
           <div class="hint" style="grid-column:1/-1">Only needed for non-Hikvision cameras. Leave empty to use the standard Hikvision paths.</div></div></td></tr>` : ''}
         ${t ? `<tr class="adv"><td></td><td colspan="5"><div class="rowtest">${[line('sub', 'SD'), line('main', 'HD')].filter(Boolean).join(' &nbsp;·&nbsp; ')}
           ${t.sub?.fps || t.main?.fps ? `&nbsp; <button class="btn sm" data-usefps="${c.id}">Use measured fps</button>` : ''}</div></td></tr>` : ''}`;
@@ -304,7 +305,7 @@ export class SettingsView {
     let n = channel || 1;
     while (used.has(n)) n++;
     const id = 'c' + Math.random().toString(16).slice(2, 8);
-    this.draft.channels.push({ id, channel: n, name: name || `Camera ${n}`, enabled: true, sub_fps: 'auto', main_fps: 'auto', sub_path: '', main_path: '' });
+    this.draft.channels.push({ id, channel: n, name: name || `Camera ${n}`, enabled: true, sub_fps: 'auto', main_fps: 'auto', aspect: 'auto', sub_path: '', main_path: '' });
     this.draft.display.order.push(id);
     this.render(); this.refresh();
     this.pane.querySelector(`[data-row="${id}"] input[type=text]`)?.focus();

@@ -84,6 +84,22 @@ export class Tile {
     this._paint();
   }
 
+  /** Picture shape for a stream: the channel's setting, or (auto) 16:9 when the frame is a squeezed 2:1 SD frame. */
+  _shape(v) {
+    const a = this.cam.aspect || 'auto';
+    if (a === '16:9') return 16 / 9;
+    if (a === '4:3') return 4 / 3;
+    if (!v.videoWidth) return null;
+    const r = v.videoWidth / v.videoHeight;
+    return a === 'auto' && Math.abs(r - 2) < 0.06 ? 16 / 9 : r;
+  }
+
+  _applyShape(s) {
+    const v = s.player.video;
+    const ar = v && this._shape(v);
+    if (ar && s.ar !== ar) { s.ar = ar; s.player.style.setProperty('--ar', ar.toFixed(4)); }
+  }
+
   _advancing(s, now) {
     const v = s.player.video;
     if (!v) return false;
@@ -114,6 +130,8 @@ export class Tile {
 
   _tick() {
     const now = performance.now();
+    this._applyShape(this.cur);
+    if (this.pend) this._applyShape(this.pend);
     this._checkHevc(this.cur, false);
     this._checkHevc(this.pend, true);
     if (this.pend) {
