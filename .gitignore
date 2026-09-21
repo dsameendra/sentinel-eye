@@ -1,0 +1,8 @@
+.env
+bin/go2rtc
+*.log
+.venv/
+data/
+__pycache__/
+*.pyc
+.DS_Store
