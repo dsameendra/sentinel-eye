@@ -85,6 +85,8 @@ async def main():
         check("large view shows a picture immediately (SD first)", first)
         ok = await b.wait_for("(()=>{const v=document.querySelector('.focus video');return v&&v.videoWidth>=1280})()", 40)
         check("large view plays (HD)", ok, await b.js("(()=>{const v=document.querySelector('.focus video');return v?v.videoWidth+'x'+v.videoHeight:'-'})()"))
+        box = await b.js("(()=>{const v=document.querySelector('.focus video').getBoundingClientRect();return [v.width,v.height]})()")
+        check("large view video is actually visible (big on screen)", box[0] > 600 and box[1] > 300, str(box))
         t0 = await b.js("document.querySelector('.focus video').currentTime")
         await b.send("Input.dispatchMouseEvent", type="mousePressed", x=700, y=450, button="left", clickCount=1)
         await b.send("Input.dispatchMouseEvent", type="mouseReleased", x=700, y=450, button="left", clickCount=1)

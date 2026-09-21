@@ -23,6 +23,8 @@ async def main():
         print("focus video:", await b.js("(()=>{const v=document.querySelector('.focus video');return v?v.videoWidth+'x'+v.videoHeight+' t='+v.currentTime.toFixed(1):'none'})()"))
         await asyncio.sleep(2)
         await b.shot(f"{S}/e2e_focus.png")
+        box = await b.js("(()=>{const v=document.querySelector('.focus video').getBoundingClientRect();return [Math.round(v.width),Math.round(v.height)]})()")
+        print("focus video on screen:", box, "(must be large)"); assert box[0] > 600 and box[1] > 300, "large view video is not visible"
         t0 = await b.js("document.querySelector('.focus video').currentTime")
         # real mouse click in the middle of the picture
         await b.send("Input.dispatchMouseEvent", type="mousePressed", x=720, y=450, button="left", clickCount=1)
