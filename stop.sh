@@ -1,4 +1,4 @@
 #!/bin/zsh
-# Stop go2rtc, the relay and their ffmpeg pushers.
-pkill -f "[b]in/go2rtc"; pkill -f "[a]pp/hikrelay"; pkill -f "[f]fmpeg.*-f rtsp"; pkill -f "[.]/run[.]sh"
+# Stop the server, go2rtc and any relay/ffmpeg it started.
+pkill -f "[u]vicorn --app-dir app"; pkill -f "[b]in/go2rtc"; pkill -f "[a]pp/hikrelay.py"; pkill -f "[f]fmpeg.*-f rtsp"
 exit 0
