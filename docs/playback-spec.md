@@ -342,17 +342,19 @@ to build as written.
 | **M2 multi-camera sync (≤4) + live-view upgrades** | Group player (≤4 panes, session queue, strict-sync, detach), seamless grid↔focus, instant-replay ring, live event badges | The frame each pane paints is compared by its **RTP-derived absolute timestamp** (section 2.4), not the on-screen clock: median cross-pane skew < 1 frame over 30 min, logged continuously — the burned-in clock (1 s resolution) is used only as a periodic spot-check, not the measurement itself; a 5th requested pane queues visibly, never errors; focus↔grid never shows a black frame |
 | **M3 event search** | Unified index, live-forward AI on opted-in channels, region/attribute search, skip-empty, background scan job, `smartSearch` spike | Region search on indexed footage returns in < 1 s; scan job on un-indexed history reports progress and completes; skip-empty behaviour matches the index-vs-log distinction in feature 4 |
 | **M4 clipper + export + accounts** | Multi-cut clipper, all three export options, bookmarks/incidents, user accounts + HTTPS + audit log, live sync | Exported clip is frame-identical to source (decode-compare); verifier catches a 1-bit change; two logged-in browsers see each other's bookmark in < 1 s |
-
-**Status:** M0-M2 complete and verified. **M3 is only partially built** — the alarm/log event search UI
-(camera/kind/date-range filters, deep-links into playback) is done; live-forward AI indexing, region/attribute
-search, skip-empty, the background scan job, and the `smartSearch` spike are not started (resequenced after
-M4 at your request — see the "M4 first, AI-indexing after" decision). **M4 is split into three separately-
-shipped pieces**, not one commit: bookmarks (done), clipper + export options ①② (done, single-range only —
-the multi-cut batch UI and option ③ are not built), and accounts + HTTPS + audit log + live sync (not
-started). `author`/`operator` on bookmarks and exports is currently a placeholder ("Operator") pending real
-sessions.
 | **M5 enhancement L0 + L1** | WebGL live-adjust chain + presets; ffmpeg/OpenCV multi-frame fusion/denoise | Real-time at 1080p on this Mac; L1 measurably improves a test plate crop; originals never modified |
 | **M6 AI depth + L2** | Attribute model, loitering/counter-flow, ML enhancement (super-resolution, low-light, denoise) | Precision/recall reported on a hand-labelled 1-hour sample from your cameras; every L2 output is tagged "ENHANCED" and ships with the untouched original |
+
+**Status:** M0-M2 complete and verified. **M3 is only partially built** — the alarm/log event search UI
+(camera/kind/date-range filters, deep-links into playback, a thumbnail per event) is done; live-forward AI
+indexing, region/attribute search, skip-empty, the background scan job, and the `smartSearch` spike are not
+started (resequenced after M4 at your request — see the "M4 first, AI-indexing after" decision). **M4 is
+split into pieces shipped separately, not one commit:** bookmarks (done); clipper + export options ①②
+(done, single-range only — the multi-cut batch UI and option ③ are not built; exports run at the DVR's 16x
+playback speed, verified frame-identical at that speed); **accounts + HTTPS + audit log + live sync
+declined by you** — this is a local-network, single-operator deployment, so this piece of M4 is not being
+built, by decision, not oversight. `author`/`operator` on bookmarks and exports stays a fixed placeholder
+("Operator") permanently as a result, not pending something still to come.
 
 ---
 
