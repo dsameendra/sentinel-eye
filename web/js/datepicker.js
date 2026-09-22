@@ -48,11 +48,16 @@ export class DateTimePicker {
   }
 
   /** Cheap passive update for high-frequency callers (e.g. once per decoded frame during playback): just
-   * the time fields and the selected-day highlight, never a network refetch or full grid rebuild. */
+   * the time fields and the selected-day highlight, never a network refetch or full grid rebuild — and,
+   * importantly, never changes which month is displayed. It used to jump the calendar back to whatever
+   * month the video happened to be playing at whenever they differed, which made browsing to a different
+   * month to pick a day impossible: the very next decoded frame (milliseconds later, playback hadn't
+   * actually moved) would see the now-different month and snap the view straight back. The displayed month
+   * only ever changes from an explicit user action now (prevmonth/nextmonth, or picking a day/time, which
+   * calls setEpoch directly) — never as a side effect of playback continuing in the background. */
   syncDisplay(epoch) {
     this.epoch = epoch;
     const p = partsFromEpoch(epoch, this.tzOffsetMin);
-    if (p.y !== this.view.y || p.mo !== this.view.mo) { this.setEpoch(epoch, { silent: true }); return; }
     if (this.opts.showTime !== false) {
       const hh = this.host.querySelector('.dtp-hh'), mm = this.host.querySelector('.dtp-mm'), ss = this.host.querySelector('.dtp-ss');
       if (hh && document.activeElement !== hh) hh.value = pad2(p.hh);
@@ -60,7 +65,10 @@ export class DateTimePicker {
       if (ss && document.activeElement !== ss) ss.value = pad2(p.ss);
     }
     this.host.querySelectorAll('.cal-day.sel').forEach((el) => el.classList.remove('sel'));
-    this.host.querySelector(`.cal-day[data-day="${p.da}"]`)?.classList.add('sel');
+    // Only highlight a day if the epoch is actually in the month currently on screen — otherwise (browsing
+    // a different month than where playback is) this would wrongly light up the same day-of-month number
+    // in the wrong month.
+    if (p.y === this.view.y && p.mo === this.view.mo) this.host.querySelector(`.cal-day[data-day="${p.da}"]`)?.classList.add('sel');
   }
 
   setChannel(channel) {
