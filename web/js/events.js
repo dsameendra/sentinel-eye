@@ -10,6 +10,11 @@ import { api } from './api.js';
 
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
 const RESULT_CAP = 500; // no server-side pagination yet — a capped result set with a "narrow your search" hint is the honest MVP
+// Each thumbnail can cost a real DVR playback session (app/thumbnails.py serializes them server-side to at
+// most 1 of the 4 slots, but that still queues behind whatever's already generating) — cap how many this
+// page ever has in flight at once, rather than trusting the browser's own per-origin connection limit
+// (~6), which found out to be nowhere near enough of a bound when scrolling a page of hundreds of cards.
+const THUMB_CONCURRENCY = 2;
 const PRESETS = [
   ['today', 'Today'],
   ['24h', 'Last 24 hours'],
@@ -30,8 +35,10 @@ export class EventsView {
     this.customTo = Date.now() / 1000;
     this.results = null; // null = not searched yet
     this.loading = false;
+    this._thumbQueue = [];
+    this._thumbActive = 0;
     this._io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { this._loadThumb(e.target); this._io.unobserve(e.target); }
+      for (const e of entries) if (e.isIntersecting) { this._queueThumb(e.target); this._io.unobserve(e.target); }
     }, { root: null, rootMargin: '200px' });
     this._init();
   }
@@ -131,6 +138,7 @@ export class EventsView {
   renderResults() {
     if (!this.res) return;
     this._io.disconnect();
+    this._thumbQueue = []; // any queued images belonged to the previous result set — the DOM is about to be replaced
     if (this.loading) { this.res.innerHTML = `<div class="center-card"><div class="spin"></div><p>Searching…</p></div>`; return; }
     if (this.results === null) { this.res.innerHTML = ''; return; }
     if (!this.results.length) {
@@ -142,9 +150,12 @@ export class EventsView {
       const start = new Date(ev.start_utc), end = new Date(ev.end_utc);
       const durSec = Math.max(0, (end - start) / 1000);
       const dur = durSec < 1 ? '' : durSec < 60 ? `${Math.round(durSec)}s` : `${Math.round(durSec / 60)}m`;
-      const dateStr = start.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' });
-      // DVR-local wall clock: shift by the offset, then read UTC fields (avoids re-deriving parts by hand here)
+      // DVR-local wall clock: shift by the offset, then read UTC fields (avoids re-deriving parts by hand
+      // here) — date AND time must both come from this shifted value, or an event between local midnight
+      // and the UTC offset (e.g. 00:00-05:30 at UTC+5:30) shows the wrong day (caught by review, not by
+      // testing: every screenshot taken so far happened to be mid-afternoon local, where they agree).
       const localStart = new Date(start.getTime() + this.tzOffsetMin * 60000);
+      const dateStr = localStart.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' });
       const timeStr = `${String(localStart.getUTCHours()).padStart(2, '0')}:${String(localStart.getUTCMinutes()).padStart(2, '0')}:${String(localStart.getUTCSeconds()).padStart(2, '0')}`;
       let attrs = null;
       if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
@@ -172,11 +183,21 @@ export class EventsView {
     });
   }
 
-  _loadThumb(imgEl) {
-    const id = imgEl.dataset.evId;
-    imgEl.addEventListener('load', () => imgEl.closest('.ev-thumb')?.classList.add('loaded'));
-    imgEl.addEventListener('error', () => imgEl.closest('.ev-thumb')?.classList.add('failed'));
-    imgEl.src = `/api/timeline/events/${id}/thumbnail`;
+  _queueThumb(imgEl) {
+    this._thumbQueue.push(imgEl);
+    this._pumpThumbs();
+  }
+
+  _pumpThumbs() {
+    while (this._thumbActive < THUMB_CONCURRENCY && this._thumbQueue.length) {
+      const imgEl = this._thumbQueue.shift();
+      if (!imgEl.isConnected) continue; // the results list was re-rendered before this one's turn came up
+      this._thumbActive++;
+      const done = () => { this._thumbActive--; this._pumpThumbs(); };
+      imgEl.addEventListener('load', () => { imgEl.closest('.ev-thumb')?.classList.add('loaded'); done(); });
+      imgEl.addEventListener('error', () => { imgEl.closest('.ev-thumb')?.classList.add('failed'); done(); });
+      imgEl.src = `/api/timeline/events/${imgEl.dataset.evId}/thumbnail`;
+    }
   }
 
   async deleteBookmark(id) {
