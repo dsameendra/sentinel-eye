@@ -18,6 +18,10 @@ const ctx = {
   settings: () => state.settings,
   applyTheme,
   go: (h) => { location.hash = h; },
+  // For a view syncing its OWN url as its state changes (e.g. playback keeping the current position in the
+  // hash) rather than navigating: replaces instead of pushing, so it doesn't fill browser history with
+  // entries that all render the same view and make Back a no-op several times in a row.
+  replace: (h) => { state.hash = h; history.replaceState(null, '', h); },
   saveDisplay: (d) => api.saveDisplay(d),
   async saveAll(draft) {
     const saved = await api.saveSettings(draft);

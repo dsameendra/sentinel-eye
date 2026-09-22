@@ -160,8 +160,10 @@ export class PlaybackView {
     this.timeline?.setChannel(this.primary.channel);
     if (primaryChanged) this._loadCalendarMonth();
     // Keep the current position in the URL (not just the camera) so a deep link from search survives a
-    // refresh, and the browser's back button returns here rather than to "now" on the same camera.
-    this.ctx.go(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
+    // refresh. This is the view syncing its own address as state changes, not a navigation, so replace
+    // rather than push — otherwise every camera toggle fills history with entries that all render this
+    // same view, and Back becomes a several-times-in-a-row no-op.
+    this.ctx.replace(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
     // (re)connect only the panes that don't already have a live session at the current position
     const iso = new Date(this.currentEpoch * 1000).toISOString();
     for (const pane of this.panes) {
