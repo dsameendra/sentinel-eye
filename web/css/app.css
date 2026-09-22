@@ -255,7 +255,18 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 
 /* ---------- playback ---------- */
 .pb { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.pb-body { flex: 1; min-height: 0; display: flex; }
+.pb-body { position: relative; flex: 1; min-height: 0; display: flex; }
+/* Fullscreen: give the video the whole screen — the camera list and date/time panels become auto-hiding
+   overlays instead of permanent flex columns, shown only while the pointer is near their edge (or over the
+   panel itself once open). Windowed mode is untouched; this is all scoped under .pb:fullscreen. */
+.pb:fullscreen .pb-side { position: absolute; top: 0; bottom: 0; z-index: 25; width: 260px; background: rgba(8, 11, 16, .97); backdrop-filter: blur(8px); box-shadow: 0 0 28px rgba(0, 0, 0, .55); transition: transform .22s ease; overflow-y: auto; }
+.pb:fullscreen .pb-side-left { left: 0; transform: translateX(-100%); }
+.pb:fullscreen .pb-side-right { right: 0; transform: translateX(100%); }
+.pb:fullscreen .pb-side.show { transform: translateX(0); }
+.pb-edge { display: none; }
+.pb:fullscreen .pb-edge { display: block; position: absolute; top: 0; bottom: 0; width: 28px; z-index: 24; }
+.pb:fullscreen .pb-edge-left { left: 0; }
+.pb:fullscreen .pb-edge-right { right: 0; }
 .pb-side { flex: none; width: 232px; display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; background: var(--panel); overflow-y: auto; }
 .pb-side-left { border-right: 1px solid var(--line); }
 .pb-side-right { border-left: 1px solid var(--line); }

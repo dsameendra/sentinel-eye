@@ -104,6 +104,8 @@ export class PlaybackView {
           <div class="pb-cal"></div>
           <p class="hint">Pick a day, then a time — it jumps straight there.</p>
         </aside>
+        <div class="pb-edge pb-edge-left" aria-hidden="true"></div>
+        <div class="pb-edge pb-edge-right" aria-hidden="true"></div>
       </div>
       <div class="pb-timeline"></div>
     </div>`;
@@ -155,6 +157,7 @@ export class PlaybackView {
     this._renderCamList();
     this._setSelection([first.id]); // sets this.playing before controls are bound, so the very first auto-hide countdown is correct
     this._bindAutoHideControls();
+    this._bindFullscreenSidePanels();
     this._pollPool();
   }
 
@@ -188,6 +191,29 @@ export class PlaybackView {
     const el = this.root.querySelector('.pb');
     if (document.fullscreenElement) document.exitFullscreen();
     else el?.requestFullscreen?.().catch(() => toast('Full screen is not available here.', 'bad'));
+  }
+
+  // ---------------------------------------------------------------- fullscreen side panels (hover to show)
+  // Only relevant in fullscreen (the CSS keeps .pb-edge invisible/non-interactive otherwise, so these
+  // listeners are harmless no-ops in windowed mode). A small hide delay lets the pointer travel from the
+  // thin edge strip into the panel itself without it closing in between.
+  _bindFullscreenSidePanels() {
+    const left = this.root.querySelector('.pb-side-left'), right = this.root.querySelector('.pb-side-right');
+    const edgeLeft = this.root.querySelector('.pb-edge-left'), edgeRight = this.root.querySelector('.pb-edge-right');
+    const wire = (edge, panel) => {
+      let hideTimer;
+      const show = () => { clearTimeout(hideTimer); panel.classList.add('show'); };
+      const scheduleHide = () => { clearTimeout(hideTimer); hideTimer = setTimeout(() => panel.classList.remove('show'), 250); };
+      edge.addEventListener('mouseenter', show);
+      panel.addEventListener('mouseenter', show);
+      edge.addEventListener('mouseleave', scheduleHide);
+      panel.addEventListener('mouseleave', scheduleHide);
+    };
+    wire(edgeLeft, left);
+    wire(edgeRight, right);
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement) { left.classList.remove('show'); right.classList.remove('show'); }
+    });
   }
 
   // ---------------------------------------------------------------- camera panel (multi-select, max 4)
