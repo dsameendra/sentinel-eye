@@ -10,11 +10,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+import coverage
+import db
 import hikrelay
 import settings as cfg
+import timebase
 from go2rtc import API_PORT, Go2rtc, desired_streams
+from playback_service import PlaybackService
 
-state = {"settings": cfg.load(), "go2rtc": None}
+state = {"settings": cfg.load(), "go2rtc": None, "playback": None}
 
 
 def current() -> cfg.Settings:
@@ -26,8 +30,12 @@ async def lifespan(app):
     g = Go2rtc(current)
     state["go2rtc"] = g
     await run_in_threadpool(g.start)
+    p = PlaybackService(current)
+    state["playback"] = p
+    await run_in_threadpool(p.start)
     yield
     g.stop()
+    p.stop()
 
 
 app = FastAPI(title="Sentinel Eye", lifespan=lifespan)
@@ -109,7 +117,46 @@ async def discover(req: TestRequest):
 async def status():
     g = state["go2rtc"]
     streams = await run_in_threadpool(g.status)
-    return {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams}
+    p = state["playback"]
+    return {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams,
+            "playback": {**p.status, "alertstream_connected": p.subscriber.connected if p.subscriber else False,
+                         "last_live_event_utc": p.subscriber.last_event_utc if p.subscriber else None}}
+
+
+# ------------------------------------------------------------------ playback (timeline: coverage + events)
+
+@app.get("/api/timeline/coverage")
+async def timeline_coverage(channel: int, from_day: str, to_day: str):
+    """Cached per-day recorded spans for a channel, DVR-local YYYY-MM-DD range."""
+    import datetime
+    try:
+        d0, d1 = datetime.date.fromisoformat(from_day), datetime.date.fromisoformat(to_day)
+    except ValueError:
+        raise HTTPException(422, "from_day/to_day must be YYYY-MM-DD")
+    return await run_in_threadpool(coverage.cached_range, channel, d0, d1)
+
+
+@app.get("/api/timeline/events")
+async def timeline_events(channel: int | None = None, start_utc: str = "", end_utc: str = "", kind: str = "",
+                           limit: int = 2000):
+    q = "SELECT * FROM events WHERE start_utc <= ? AND end_utc >= ?"
+    params = [end_utc or "9999", start_utc or "0000"]
+    if channel is not None:
+        q += " AND channel=?"
+        params.append(channel)
+    if kind:
+        q += " AND kind=?"
+        params.append(kind)
+    q += " ORDER BY start_utc LIMIT ?"
+    params.append(limit)
+    rows = await run_in_threadpool(db.query, q, tuple(params))
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/timeline/calibration")
+async def timeline_calibration():
+    rows = await run_in_threadpool(db.query, "SELECT * FROM calibration")
+    return {r["channel"]: dict(r) for r in rows}
 
 
 # ------------------------------------------------------------------ WebSocket proxy to go2rtc

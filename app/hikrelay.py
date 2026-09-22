@@ -92,7 +92,10 @@ class RtspClient:
         self._send("DESCRIBE", self.url, "Accept: application/sdp\r\n")
         return self._resp()
 
-    def open(self):
+    def open(self, play_range="npt=0.000-", scale=None, idle_timeout=8):
+        """Connect, DESCRIBE, SETUP and PLAY. `play_range` is `npt=0.000-` for live, or
+        `clock=<start>-[<end>]` (Hikvision playback, UTC compact form `YYYYMMDDTHHMMSSZ`) for a recording.
+        `scale` sends an RTSP `Scale:` header (DVR playback speed; ignored/irrelevant for live)."""
         try:
             self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         except OSError as e:
@@ -130,18 +133,32 @@ class RtspClient:
             if not head.startswith("RTSP/1.0 200"):
                 raise RelayError("SETUP failed: " + head.split("\r\n")[0])
             self.session = re.search(r"Session:\s*([^;\r\n]+)", head).group(1)
-            self._send("PLAY", self.url, "Range: npt=0.000-\r\n")
-            head, _ = self._resp()
-            if not head.startswith("RTSP/1.0 200"):
-                raise RelayError("PLAY failed: " + head.split("\r\n")[0])
+            status = self.play(play_range, scale)
+            if not status.startswith("RTSP/1.0 200"):
+                if "453" in status:
+                    raise RelayError("The recorder has no free playback session (its own limit — try again shortly)")
+                raise RelayError("PLAY failed: " + status)
         except (ConnectionError, OSError) as e:
             self.close()
             raise RelayError(f"Connection problem: {e}")
         except RelayError:
             self.close()
             raise
-        self.sock.settimeout(8)   # silence for 8 s = stalled: exit so go2rtc restarts us before its own 15 s timeout
+        self.sock.settimeout(idle_timeout)
         return self
+
+    def play(self, range_="npt=0.000-", scale=None):
+        """(Re)issue PLAY on an already-set-up session — used to seek within a playback session.
+        Returns the RTSP status line."""
+        extra = f"Range: {range_}\r\n" + (f"Scale: {scale}\r\n" if scale else "")
+        self._send("PLAY", self.url, extra)
+        head, _ = self._resp()
+        return head.split("\r\n")[0]
+
+    def pause(self):
+        self._send("PAUSE", self.url)
+        head, _ = self._resp()
+        return head.split("\r\n")[0]
 
     def packets(self):
         """Yield interleaved RTP packets on channel 0 (video)."""
