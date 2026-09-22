@@ -161,15 +161,20 @@ export class PlaybackView {
   // ---------------------------------------------------------------- overlay controls: show on activity, hide while playing and idle
   _bindAutoHideControls() {
     this.controlsEl = this.root.querySelector('.pb-controls');
+    // A popover (e.g. the enhance menu) is anchored to a button inside these controls but, since
+    // openPopover() renders it to <body>, moving the mouse onto it fires no mousemove on the stage — so a
+    // hide timer armed just *before* the menu opened would otherwise fire out from under it. The armed
+    // callback re-checks at fire time and reschedules rather than trusting the check made when it was
+    // scheduled, which is the only way this holds regardless of when the popover opens relative to it.
+    const busy = () => !!document.body._openPopover || !!document.getElementById('modal-root')?.firstChild;
+    const maybeHide = () => {
+      if (!this.playing || busy()) { this._hideTimer = setTimeout(maybeHide, 600); return; }
+      this.controlsEl.classList.remove('show');
+    };
     const show = () => {
       this.controlsEl.classList.add('show');
       clearTimeout(this._hideTimer);
-      // Never auto-hide while paused (mid-review, actively stepping) or while a popover/dialog spawned
-      // from these controls is open — only hide during ordinary playback, and only after the pointer's
-      // been away for a bit.
-      if (this.playing && !document.body._openPopover && !document.getElementById('modal-root')?.firstChild) {
-        this._hideTimer = setTimeout(() => this.controlsEl.classList.remove('show'), 2600);
-      }
+      if (this.playing) this._hideTimer = setTimeout(maybeHide, 2600); // paused: stays up, checked continuously if it ever does fire
     };
     this._showControls = show;
     this.stage.addEventListener('mousemove', show);

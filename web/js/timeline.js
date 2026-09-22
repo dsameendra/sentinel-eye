@@ -88,6 +88,10 @@ export class Timeline {
       return this.center + (clientX - r.left - c.clientWidth / 2) / this.pxPerSec;
     };
     c.addEventListener('pointerdown', (e) => {
+      // setPointerCapture means pointerleave won't fire again once a drag starts — if the tooltip was
+      // showing at the moment of press, it would otherwise stay pinned over the timeline for the whole
+      // drag (and after, if the pointer leaves the canvas without another move inside it first).
+      this._hideTip();
       if (this.selectMode) {
         drag = { startTime: timeAt(e.clientX) };
         this.selection = [drag.startTime, drag.startTime];
@@ -130,6 +134,7 @@ export class Timeline {
         this.opts.onSeek?.(new Date(t * 1000).toISOString());
       }
       drag = null;
+      this._hideTip(); // pointerleave doesn't fire during a captured drag — release must clear it explicitly
     });
     c.addEventListener('pointerleave', () => { this.cursorTime = null; this.draw(); this._hideTip(); });
     c.addEventListener('gesturestart', (e) => { e.preventDefault(); this._gbase = this.pxPerSec; });
