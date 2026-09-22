@@ -115,6 +115,11 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .editing .tile-actions { display: none; }
 .editing .grip { display: inline-flex; }
 .grip { display: none; align-items: center; justify-content: center; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; gap: 4px; }
+.ev-badges { position: absolute; left: 8px; top: 34px; z-index: 5; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; pointer-events: none; }
+.ev-badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: #fff; background: rgba(15, 20, 28, .82); backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(0, 0, 0, .4); }
+.ev-badge.motion { background: var(--accent); color: var(--accent-ink); }
+.ev-badge.tamper, .ev-badge.videoloss { background: #dc2626; }
+.ev-badge.line { background: #d97706; }
 
 /* focus view */
 .focus { position: absolute; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; }

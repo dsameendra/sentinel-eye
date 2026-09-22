@@ -24,6 +24,7 @@ export const streamName = (cam, kind, display) =>
 
 const UPGRADE_TIMEOUT = 30000;   // main streams can take a few seconds (keyframe interval ~5 s)
 const STALL_RECONNECT = 12000;
+const BADGE_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss' };
 
 export class Tile {
   /**
@@ -231,6 +232,15 @@ export class Tile {
     const s = this.stats;
     if (!s.w) return '';
     return [`${s.w}×${s.h}`, s.fps ? `${Math.round(s.fps)} fps` : '', s.mode].filter(Boolean).join(' · ');
+  }
+
+  /** Show/update the live-event badges (from a poll of recent DVR alarm events) for this tile.
+   * @param kinds Set of event kinds currently active/recent for this camera's channel, or falsy for none. */
+  setBadges(kinds) {
+    const el = this.el.querySelector('.ev-badges');
+    if (!el) return;
+    if (!kinds || !kinds.size) { if (el.childElementCount) el.innerHTML = ''; return; }
+    el.innerHTML = [...kinds].map((k) => `<span class="ev-badge ${k}">${BADGE_LABEL[k] || k}</span>`).join('');
   }
 
   snapshot() {

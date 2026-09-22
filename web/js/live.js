@@ -25,6 +25,8 @@ export class LiveView {
     document.addEventListener('click', this.onDoc);
     this.rotTimer = setInterval(() => this.rotate(), 1000);
     this.rotSince = Date.now();
+    this.evTimer = setInterval(() => this.pollEvents(), 4000);
+    this.pollEvents();
     this.build();
   }
 
@@ -326,6 +328,25 @@ export class LiveView {
     if (!silent && !fromGrid) this.renderWall();   // the borrowed-tile case needs no rebuild — everything else kept running
   }
 
+  // ---------------------------------------------------------------- live event badges
+  // Polls the same unified event index the timeline/playback UI reads (fed live by the DVR's
+  // alertStream subscriber — see app/events.py AlertStreamSubscriber) for anything active or that
+  // just ended, and paints small badges onto each grid tile for its channel.
+  async pollEvents() {
+    try {
+      const since = new Date(Date.now() - 20000).toISOString();
+      const r = await fetch(`/api/timeline/events?start_utc=${encodeURIComponent(since)}&limit=200`);
+      if (!r.ok) return;
+      const rows = await r.json();
+      const byChannel = new Map();
+      for (const row of rows) {
+        if (!byChannel.has(row.channel)) byChannel.set(row.channel, new Set());
+        byChannel.get(row.channel).add(row.kind);
+      }
+      for (const t of this.tiles) t.setBadges(byChannel.get(t.cam.channel));
+    } catch { /* transient network hiccup — next poll retries */ }
+  }
+
   // ---------------------------------------------------------------- instant replay
   // A dedicated small overlay that opens a real playback session (WCPlayer over /api/playback/ws)
   // starting ~10s in the past and playing forward at 1x, rather than a client-side ring buffer — this
@@ -404,6 +425,7 @@ export class LiveView {
     document.removeEventListener('fullscreenchange', this.onFs);
     document.removeEventListener('click', this.onDoc);
     clearInterval(this.rotTimer);
+    clearInterval(this.evTimer);
     if (document.fullscreenElement) document.exitFullscreen?.();
     this.root.innerHTML = '';
   }
