@@ -435,6 +435,14 @@ export class PlaybackView {
   // ---------------------------------------------------------------- per-pane state -> shared UI
   _onFrame(pane, absTime) {
     pane.veil.hidden = true;
+    // Keep the pane's --ar in sync with the decoded frame's real shape (tile.js does the same for live
+    // view) — without this the canvas sizing CSS falls back to a fixed 16:9 guess, which is wrong for any
+    // camera whose stream isn't 16:9 and produces the same "too much black" effect this was meant to fix.
+    const { width: w, height: h } = pane.canvas;
+    if (w && h) {
+      const ar = w / h;
+      if (pane.ar !== ar) { pane.ar = ar; pane.el.style.setProperty('--ar', ar.toFixed(4)); }
+    }
     if (pane === this.panes[0]) {
       this.currentEpoch = absTime;
       this._renderTime();
