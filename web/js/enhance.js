@@ -102,6 +102,11 @@ export class Enhancer {
     const aPos = gl.getAttribLocation(prog, 'aPos');
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    // WebGL's texture-coordinate origin is bottom-left; uploading a <video>/<canvas> (row 0 = top, DOM
+    // convention) without this flips the picture vertically once sampled — the reported "upside down"
+    // bug, reproduced and fixed here rather than papered over by flipping the vertex UVs (this is the
+    // standard, correct fix and keeps the shader itself working in normal texture-space).
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     this.tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
