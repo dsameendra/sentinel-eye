@@ -121,16 +121,27 @@ class PlaybackReader:
     def _play_loop(self):
         start_dt = datetime.datetime.fromisoformat(self._seek_to or self.start_utc)
         self._seek_to = None
-        # an open-ended Range (no end time) is silently ignored by this DVR and just serves live video —
-        # verified directly; a generous fixed window keeps the session valid for a full day without reseeking
-        end_dt = start_dt + datetime.timedelta(hours=24)
-        rng = f"clock={hik_time(start_dt, self.tz)}-{hik_time(end_dt, self.tz)}"
-        self.client = h.RtspClient(self.conn["host"], self.conn["port"], self.conn["user"], self.conn["pw"], self.path)
-        self.client.open(play_range=rng, scale=self.speed, idle_timeout=15)
+        # The DVR refuses PLAY for a time too close to "now" (still-open recording segment) — with 400 Bad
+        # Request and no other signal. How close is inconsistent (not a fixed margin we can just default
+        # past), so back off and retry rather than guess: verified this recovers cleanly.
+        for attempt in range(6):
+            end_dt = start_dt + datetime.timedelta(hours=24)
+            rng = f"clock={hik_time(start_dt, self.tz)}-{hik_time(end_dt, self.tz)}"
+            self.client = h.RtspClient(self.conn["host"], self.conn["port"], self.conn["user"], self.conn["pw"], self.path)
+            try:
+                self.client.open(play_range=rng, scale=self.speed, idle_timeout=15)
+                break
+            except h.RelayError as e:
+                too_close = "400" in str(e) or "453" in str(e)
+                if not too_close or attempt == 5:
+                    raise
+                self.client.close()
+                start_dt -= datetime.timedelta(seconds=20)
         aes = h.make_aes(self.conn["key"]) if self.conn["encrypted"] else None
         dp = h.Depacketizer(self.client.codec, aes)
         gate = h.StartGate(self.client.codec, self.client.sdp)
         near_utc = start_dt.timestamp()
+        au_buf = bytearray()
         for p in self.client.packets():
             if self._stop.is_set():
                 return
@@ -140,25 +151,41 @@ class PlaybackReader:
                 speed = self._new_speed or self.speed
                 self._seek_to, self._new_speed = None, None
                 self.speed = speed
-                seek_end = seek_dt + datetime.timedelta(hours=24)
-                status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
+                for attempt in range(6):
+                    seek_end = seek_dt + datetime.timedelta(hours=24)
+                    status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
+                    if status.startswith("RTSP/1.0 200") or ("400" not in status and "453" not in status) or attempt == 5:
+                        break
+                    seek_dt -= datetime.timedelta(seconds=20)
                 if not status.startswith("RTSP/1.0 200"):
                     self.q.put(("error", f"Seek/speed change failed: {status}"))
                     return
                 near_utc = seek_dt.timestamp()
                 dp = h.Depacketizer(self.client.codec, aes)
                 gate = h.StartGate(self.client.codec, self.client.sdp)
+                au_buf = bytearray()
                 self._flush_queue()
                 continue
             for ts, nal in dp.feed(p):
                 for n in gate.feed(nal):
+                    # WebCodecs decodes one access unit (picture) per chunk, not one raw NAL per chunk: a
+                    # leading VPS/SPS/PPS sent as its own "delta" chunk breaks it ("a key frame is required
+                    # after configure()") because that first chunk isn't type 'key'. Buffer non-picture NALs
+                    # and emit them together with the slice NAL that follows, as this DVR sends one slice
+                    # NAL per picture (verified on its captures — no multi-slice pictures seen).
+                    t = (n[0] >> 1 & 0x3F) if self.client.codec == "hevc" else (n[0] & 0x1F)
+                    is_vcl = t <= 31 if self.client.codec == "hevc" else 1 <= t <= 5
+                    au_buf += h.START + n
+                    if not is_vcl:
+                        continue
+                    is_key = (16 <= t <= 23) if self.client.codec == "hevc" else t == 5
                     abs_t = _abs_time(self.a_const, ts, near_utc)
                     near_utc = abs_t
-                    is_key = (n[0] >> 1 & 0x3F) in range(16, 24) if self.client.codec == "hevc" else (n[0] & 0x1F) == 5
                     try:
-                        self.q.put((abs_t, is_key, n), timeout=2)
+                        self.q.put((abs_t, is_key, bytes(au_buf)), timeout=2)
                     except queue.Full:
                         pass  # slow consumer: drop rather than stall the DVR session
+                    au_buf = bytearray()
 
     def _flush_queue(self):
         try:
