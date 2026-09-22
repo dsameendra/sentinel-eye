@@ -1,5 +1,11 @@
 // Multi-scale timeline: coverage + event lanes, wheel/pinch zoom anchored at the cursor, drag to pan,
 // click to seek. Renders to a <canvas>; data (coverage spans, events) is fetched per visible day and cached.
+//
+// Events are shown for every camera currently passed in (setChannels), one lane per camera, not just the
+// first one picked — Playback used to bind the timeline to a single "primary" channel, so with more than
+// one camera selected you'd only ever see one of them's events and had to deselect the others to check.
+// Coverage (the recorded-footage bar) stays tied to the primary (first) channel only: it drives seeking
+// and jump-to-date, which only make sense against one camera's actual recording at a time.
 import { esc } from './ui.js';
 
 const MIN_PX_PER_SEC = 1440 / (24 * 3600);   // whole day fits ~1440px
@@ -10,28 +16,49 @@ const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion
 const dayStr = (d) => d.toISOString().slice(0, 10);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
+const LANE_H = 14, LANE_GAP = 3;   // per-camera event lane height/gap — matches the original single-lane size exactly when there's only one camera, so the common case looks unchanged
+const CAM_COLORS = ['#60a5fa', '#f472b6', '#34d399', '#fb923c'];   // per-camera lane accent (left edge + label), up to MAX_PANES=4
+
 export class Timeline {
-  /** @param el host element @param opts {channel (DVR channel number), onSeek(isoTime), tz} */
+  /** @param el host element @param opts {channels: [{channel, name}] (primary first — drives coverage/seek), onSeek(isoTime), tz} */
   constructor(el, opts) {
     this.el = el;
     this.opts = opts;
-    this.el.innerHTML = '<canvas></canvas><div class="tl-tip" hidden></div>';
+    this.opts.channels = this.opts.channels || (opts.channel != null ? [{ channel: opts.channel, name: '' }] : []);
+    this.el.innerHTML = '<canvas></canvas><div class="tl-tip" hidden></div><button class="tl-jumpph" type="button" hidden></button>';
     this.canvas = el.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.tip = el.querySelector('.tl-tip');
+    this.jumpBtn = el.querySelector('.tl-jumpph');
+    // Jump-to-playhead: shown only when the playhead (where playback actually is) has scrolled out of the
+    // timeline's current view — e.g. after zooming/panning the timeline to look at something else, or
+    // after playback has been running long enough to walk off the visible window. Points the way back.
+    this.jumpBtn.addEventListener('click', () => { if (this.playhead != null) this.goTo(this.playhead); });
     this.hovered = null;
     this.center = Date.now() / 1000;   // epoch seconds at the horizontal center
     this.pxPerSec = 1440 / (24 * 3600);
     this.cursorTime = null;
-    this.coverage = new Map();   // day -> spans
-    this.events = [];
+    this.coverage = new Map();   // day -> spans (primary channel only)
+    this.events = [];            // events for every channel in opts.channels, each row carries its own .channel
     this._loadedRange = null;
     this.selectMode = false;   // when true, drag draws a range instead of panning (spec 10: select-to-export)
     this.selection = null;     // [startEpoch, endEpoch] while dragging or just after
     this.ro = new ResizeObserver(() => this.draw());
     this.ro.observe(el);
     this._bind();
+    this._sizeForLanes();
     this.reload();
+  }
+
+  /** Index of a channel's lane (0 = primary/top), or -1 if it's not currently shown. */
+  _laneIndex(channel) { return this.opts.channels.findIndex((c) => c.channel === channel); }
+
+  /** Grows the timeline's height to fit one lane per camera (shrinks back to the CSS default for 0-1
+   * cameras, so the single-camera case — by far the common one — renders pixel-identical to before). */
+  _sizeForLanes() {
+    const n = Math.max(1, this.opts.channels.length);
+    const needed = 28 + n * LANE_H + (n - 1) * LANE_GAP + 24;
+    this.el.style.height = n > 1 ? `${Math.max(90, needed)}px` : '';
   }
 
   /** Turns select-to-export drag mode on/off. While on, dragging the timeline draws a range instead of
@@ -45,24 +72,35 @@ export class Timeline {
 
   // ---------------------------------------------------------------- data
   async reload() {
+    const chans = this.opts.channels;
+    if (!chans.length) { this.coverage = new Map(); this.events = []; this.draw(); return; }
     const halfSpan = (this.canvas.clientWidth || 800) / this.pxPerSec / 2;
     const from = new Date((this.center - halfSpan - 86400) * 1000);
     const to = new Date((this.center + halfSpan + 86400) * 1000);
-    const key = `${dayStr(from)}:${dayStr(to)}`;
+    const key = `${chans.map((c) => c.channel).join(',')}@${dayStr(from)}:${dayStr(to)}`;
     if (this._loadedRange === key) { this.draw(); return; }
     this._loadedRange = key;
+    const evParams = chans.map((c) => `channel=${c.channel}`).join('&');
     const [cov, evs] = await Promise.all([
-      fetch(`/api/timeline/coverage?channel=${this.opts.channel}&from_day=${dayStr(from)}&to_day=${dayStr(to)}`).then((r) => r.json()),
-      fetch(`/api/timeline/events?channel=${this.opts.channel}&start_utc=${from.toISOString()}&end_utc=${to.toISOString()}&limit=3000`).then((r) => r.json()),
+      fetch(`/api/timeline/coverage?channel=${chans[0].channel}&from_day=${dayStr(from)}&to_day=${dayStr(to)}`).then((r) => r.json()),
+      fetch(`/api/timeline/events?${evParams}&start_utc=${from.toISOString()}&end_utc=${to.toISOString()}&limit=3000`).then((r) => r.json()),
     ]);
+    // A slower request that started before a since-superseded setChannels() call could still resolve after
+    // it — apply the result only if it's still what's currently wanted, or a quick primary swap could
+    // flash the old camera's events back in after the new ones already loaded.
+    if (this._loadedRange !== key) return;
     this.coverage = new Map(Object.entries(cov));
     this.events = evs;
     this.draw();
   }
 
-  setChannel(channel) {
-    this.opts.channel = channel;
+  /** @param channels [{channel, name}], primary (drives coverage/seek) first. Cameras keep the same lane
+   * whenever possible isn't attempted — lane order always mirrors the passed-in order (Playback's pane
+   * order), so a lane can move if the pane order changes, which matches what's on screen above it. */
+  setChannels(channels) {
+    this.opts.channels = channels;
     this._loadedRange = null;
+    this._sizeForLanes();
     this.reload();
   }
 
@@ -179,9 +217,11 @@ export class Timeline {
     const accent = style.getPropertyValue('--accent').trim() || '#34d399';
 
     const t0 = this.center - w / 2 / this.pxPerSec;
-    const covY = 6, covH = 16, evY = 28, evH = 14, gridY = h - 20;
+    const chans = this.opts.channels;
+    const covY = 6, covH = 16, evY = 28, gridY = h - 20;
+    const laneY = (i) => evY + i * (LANE_H + LANE_GAP);
 
-    // coverage lane
+    // coverage lane (primary channel only — it's what seeking/jump-to-date act on)
     for (const [day, spans] of this.coverage) {
       for (const [s, e] of spans) {
         const x1 = (new Date(s).getTime() / 1000 - t0) * this.pxPerSec;
@@ -191,20 +231,32 @@ export class Timeline {
         ctx.fillRect(x1, covY, Math.max(1, x2 - x1), covH);
       }
     }
-    // events lane
+    // event lanes — one per selected camera (chans[0] on top), each its own row so events from several
+    // cameras never overlap or hide each other the way a single shared lane would.
+    for (let i = 0; i < chans.length; i++) {
+      if (chans.length > 1) {
+        // small fixed colour key at the left edge of the lane, ties this row to a camera regardless of
+        // scroll position; hovering an event also names its camera in the tooltip.
+        ctx.fillStyle = CAM_COLORS[i % CAM_COLORS.length];
+        ctx.fillRect(2, laneY(i) + (LANE_H - 6) / 2, 6, 6);
+      }
+    }
     for (const ev of this.events) {
+      const i = this._laneIndex(ev.channel);
+      if (i < 0) continue;   // event for a camera no longer in the selected set (e.g. a slow request that resolved after a deselect)
+      const y = laneY(i);
       const x1 = (new Date(ev.start_utc).getTime() / 1000 - t0) * this.pxPerSec;
       const x2 = (new Date(ev.end_utc).getTime() / 1000 - t0) * this.pxPerSec;
       if (x2 < -2 || x1 > w + 2) continue;
       if (ev.kind === 'bookmark') {
         // a small flag above the lane rather than a bar — bookmarks are an instant, not a span
         ctx.fillStyle = KIND_COLOR.bookmark;
-        ctx.beginPath(); ctx.moveTo(x1, evY - 12); ctx.lineTo(x1 + 9, evY - 8); ctx.lineTo(x1, evY - 4); ctx.closePath(); ctx.fill();
-        ctx.fillRect(x1 - 1, evY - 12, 2, evH + 12);
+        ctx.beginPath(); ctx.moveTo(x1, y - 12); ctx.lineTo(x1 + 9, y - 8); ctx.lineTo(x1, y - 4); ctx.closePath(); ctx.fill();
+        ctx.fillRect(x1 - 1, y - 12, 2, LANE_H + 12);
         continue;
       }
       ctx.fillStyle = KIND_COLOR[ev.kind] || '#60a5fa';
-      ctx.fillRect(x1, evY, Math.max(2, x2 - x1), evH);
+      ctx.fillRect(x1, y, Math.max(2, x2 - x1), LANE_H);
     }
     // time grid + labels
     const spanSec = w / this.pxPerSec;
@@ -240,7 +292,19 @@ export class Timeline {
         ctx.fillStyle = accent;
         ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x, 8); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = accent; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        this.jumpBtn.hidden = true;
+      } else {
+        // Off-screen either side — point back to it rather than leaving the user to guess which way to
+        // pan/zoom out. before/after also covers the "not loaded yet" state (playhead null) via the hidden
+        // default above, so this only ever shows when we actually know where it went.
+        this.jumpBtn.hidden = false;
+        this.jumpBtn.classList.toggle('left', x < 0);
+        this.jumpBtn.classList.toggle('right', x >= 0);
+        this.jumpBtn.textContent = x < 0 ? '‹ Playhead' : 'Playhead ›';
+        this.jumpBtn.title = 'Jump the timeline back to the playhead';
       }
+    } else {
+      this.jumpBtn.hidden = true;
     }
   }
 
@@ -252,11 +316,15 @@ export class Timeline {
   _hitTest(clientX, clientY) {
     const r = this.canvas.getBoundingClientRect();
     const x = clientX - r.left, y = clientY - r.top;
-    const evY = 28, evH = 14;
-    if (y < evY - 14 || y > evY + evH + 3) return null; // outside the events lane (generous for the bookmark flag above it)
+    const evY = 28;
+    const nLanes = Math.max(1, this.opts.channels.length);
+    const lanesBottom = evY + nLanes * LANE_H + (nLanes - 1) * LANE_GAP;
+    if (y < evY - 14 || y > lanesBottom + 3) return null; // above all lanes (generous for the bookmark flag) or below the last one
+    const laneAtY = Math.max(0, Math.min(nLanes - 1, Math.floor((y - evY) / (LANE_H + LANE_GAP))));
     const t0 = this.center - r.width / 2 / this.pxPerSec;
     for (let i = this.events.length - 1; i >= 0; i--) {
       const ev = this.events[i];
+      if (this._laneIndex(ev.channel) !== laneAtY) continue;
       const x1 = (new Date(ev.start_utc).getTime() / 1000 - t0) * this.pxPerSec;
       const x2 = (new Date(ev.end_utc).getTime() / 1000 - t0) * this.pxPerSec;
       const isBookmark = ev.kind === 'bookmark';
@@ -273,7 +341,9 @@ export class Timeline {
     if (ev) {
       const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
       const when = durSec < 1 ? fmt(ev.start_utc) : `${fmt(ev.start_utc)} → ${fmt(ev.end_utc)}`;
-      this.tip.innerHTML = `<b>${esc(KIND_LABEL[ev.kind] || ev.kind)}</b><span>${esc(when)}</span>`;
+      const cam = this.opts.channels.length > 1 ? this.opts.channels.find((c) => c.channel === ev.channel)?.name : null;
+      const title = cam ? `${KIND_LABEL[ev.kind] || ev.kind} · ${cam}` : (KIND_LABEL[ev.kind] || ev.kind);
+      this.tip.innerHTML = `<b>${esc(title)}</b><span>${esc(when)}</span>`;
       this.canvas.style.cursor = 'pointer';
     } else {
       // No event under the pointer — still show what time this point on the timeline is, so hovering

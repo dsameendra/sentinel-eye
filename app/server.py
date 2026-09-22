@@ -5,7 +5,7 @@ from typing import Literal
 from urllib.parse import quote, urlparse
 
 import websockets
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -142,13 +142,16 @@ async def timeline_coverage(channel: int, from_day: str, to_day: str):
 
 
 @app.get("/api/timeline/events")
-async def timeline_events(channel: int | None = None, start_utc: str = "", end_utc: str = "", kind: str = "",
-                           limit: int = 2000):
+async def timeline_events(channel: list[int] | None = Query(None), start_utc: str = "", end_utc: str = "",
+                           kind: str = "", limit: int = 2000):
+    """`channel` may repeat (?channel=1&channel=3) to fetch several cameras' events in one call — the
+    Playback timeline uses this so all selected cameras' events can be shown together, not just the first
+    one picked. `limit` still applies to the combined result, same as the single-channel case."""
     q = "SELECT * FROM events WHERE start_utc <= ? AND end_utc >= ?"
     params = [end_utc or "9999", start_utc or "0000"]
-    if channel is not None:
-        q += " AND channel=?"
-        params.append(channel)
+    if channel:
+        q += f" AND channel IN ({','.join('?' * len(channel))})"
+        params.extend(channel)
     if kind:
         q += " AND kind=?"
         params.append(kind)

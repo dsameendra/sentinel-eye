@@ -126,7 +126,7 @@ export class PlaybackView {
     }
 
     this.timeline = new Timeline(this.root.querySelector('.pb-timeline'), {
-      channel: first.channel, tz: 'Asia/Kolkata',
+      channels: [{ channel: first.channel, name: first.name || `Camera ${first.channel}` }], tz: 'Asia/Kolkata',
       onSeek: (iso) => this.seekTo(new Date(iso).getTime() / 1000),
       onRangeSelect: (a, b) => { this._setSelectRangeMode(false); this.openExportDialog([a, b]); },
     });
@@ -253,7 +253,8 @@ export class PlaybackView {
     this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
     this._layoutPanes();
     this._renderCamList();
-    this.timeline?.setChannel(this.primary.channel);
+    // Every selected camera's events, not just the primary's — the timeline gives each one its own lane.
+    this.timeline?.setChannels(this.panes.map((p) => ({ channel: p.cam.channel, name: p.cam.name || `Camera ${p.cam.channel}` })));
     if (primaryChanged) this.datePicker?.setChannel(this.primary.channel);
     // Keep the current position in the URL (not just the camera) so a deep link from search survives a
     // refresh. This is the view syncing its own address as state changes, not a navigation, so replace
