@@ -18,6 +18,7 @@ class PlaybackService:
         self.subscriber = None
         self.status = {"calibration": {}, "backfill": {"running": False}, "coverage": {"running": False}}
         self._threads = []
+        self.tz = None
 
     def _api(self):
         c = self.get_settings().connection
@@ -29,8 +30,8 @@ class PlaybackService:
     def start(self):
         db.init()
         api = self._api()
-        tz = self._tz()
-        self.subscriber = events.AlertStreamSubscriber(api, tz)
+        self.tz = self._tz()
+        self.subscriber = events.AlertStreamSubscriber(api, self.tz)
         self.subscriber.start()
         self._spawn(self._calibrate_all)
         self._spawn(self._backfill_loop)

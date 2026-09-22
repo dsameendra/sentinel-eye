@@ -32,6 +32,14 @@ def stream_path(channel, kind, override=""):
     return override or f"/Streaming/Channels/{channel}{'01' if kind == 'main' else '02'}"
 
 
+def playback_path(channel, override=""):
+    """DVR recordings live on a completely different endpoint from live view (`tracks`, not `Channels`):
+    a `Range: clock=...` PLAY against `/Streaming/Channels/...` is silently ignored and just serves live
+    video (verified directly — no error, no warning, just the wrong stream). Sub-streams aren't recorded
+    (docs/playback-spec.md 2.1), so this is always the main track."""
+    return override or f"/Streaming/tracks/{channel}01"
+
+
 def load_settings(path):
     with open(path) as f:
         return json.load(f)
@@ -75,6 +83,23 @@ class RtspClient:
         self.buf += d
 
     def _resp(self):
+        """Read one RTSP text response. Mid-session (e.g. reissuing PLAY to seek), interleaved RTP frames
+        for the still-flowing old range can arrive ahead of the reply on the same socket — those are
+        binary ($-prefixed) and must be skipped, or they get misread as response text (a real bug this
+        once produced: garbage binary decoded as a header, no error until a caller checked the status
+        line)."""
+        while True:
+            while not self.buf:
+                self._recv()
+            if self.buf[0] == 0x24:  # '$': an interleaved RTP frame, not our response — skip it
+                while len(self.buf) < 4:
+                    self._recv()
+                ln = struct.unpack(">H", self.buf[2:4])[0]
+                while len(self.buf) < 4 + ln:
+                    self._recv()
+                self.buf = self.buf[4 + ln:]
+                continue
+            break
         while b"\r\n\r\n" not in self.buf:
             self._recv()
         head, self.buf = self.buf.split(b"\r\n\r\n", 1)

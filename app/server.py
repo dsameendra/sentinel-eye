@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 import coverage
 import db
 import hikrelay
+import playback_session as psess
 import settings as cfg
 import timebase
 from go2rtc import API_PORT, Go2rtc, desired_streams
@@ -157,6 +158,91 @@ async def timeline_events(channel: int | None = None, start_utc: str = "", end_u
 async def timeline_calibration():
     rows = await run_in_threadpool(db.query, "SELECT * FROM calibration")
     return {r["channel"]: dict(r) for r in rows}
+
+
+@app.get("/api/playback/pool")
+async def playback_pool():
+    """How many of the DVR's 4 playback sessions are in use right now (section 7.3)."""
+    return {"busy": psess.pool.busy, "limit": psess.pool.limit}
+
+
+# ------------------------------------------------------------------ DVR playback (WebCodecs feed)
+#
+# Binary frame format sent to the browser (one per NAL access unit):
+#   byte 0      : 1 = keyframe, 0 = delta
+#   bytes 1-8   : absolute UTC time, float64 big-endian, seconds
+#   bytes 9+    : Annex-B NAL bytes (start code included), fed straight into WebCodecs VideoDecoder
+# Control messages from the browser are JSON text: {"type":"seek","t":"<iso>"} or {"type":"speed","scale":"2"}.
+
+@app.websocket("/api/playback/ws")
+async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1"):
+    origin = ws.headers.get("origin")
+    if origin and urlparse(origin).netloc != ws.headers.get("host"):
+        await ws.close(code=1008)
+        return
+    s = current()
+    ch = next((c for c in s.channels if c.id == channel and c.enabled), None)
+    if ch is None:
+        await ws.close(code=4404)
+        return
+    a_const = psess.calibration_for(ch.channel)
+    tz = state["playback"].tz
+    if a_const is None or tz is None:
+        await ws.close(code=4409)  # not calibrated yet — client should retry shortly
+        return
+    conn = hikrelay.conn_of({"connection": s.connection.model_dump()})
+    path = hikrelay.playback_path(ch.channel, ch.main_path)
+    await ws.accept()
+    reader = psess.PlaybackReader(conn, ch.channel, path, a_const, start, tz, speed)
+    reader.start()
+    try:
+        async def from_client():
+            while True:
+                m = await ws.receive()
+                if m["type"] == "websocket.disconnect":
+                    reader.stop()
+                    return
+                if m.get("text"):
+                    try:
+                        import json
+                        msg = json.loads(m["text"])
+                    except ValueError:
+                        continue
+                    if msg.get("type") == "seek":
+                        reader.seek(msg["t"], msg.get("scale"))
+                    elif msg.get("type") == "speed":
+                        reader.set_speed(msg["scale"])
+
+        async def to_client():
+            import struct
+            if reader.waiting_for_slot:
+                await ws.send_json({"type": "queued", "busy": psess.pool.busy, "limit": psess.pool.limit})
+            first = True
+            while True:
+                item = await run_in_threadpool(reader.q.get)
+                if item is None:
+                    return
+                if item[0] == "error":
+                    await ws.send_json({"type": "error", "message": item[1]})
+                    return
+                if first:
+                    await ws.send_json({"type": "playing"})
+                    first = False
+                abs_t, is_key, nal = item
+                header = bytes([1 if is_key else 0]) + struct.pack(">d", abs_t)
+                await ws.send_bytes(header + nal)
+
+        recv_task = asyncio.create_task(from_client())
+        send_task = asyncio.create_task(to_client())
+        await asyncio.wait([recv_task, send_task], return_when=asyncio.FIRST_COMPLETED)
+        recv_task.cancel()
+        send_task.cancel()
+    finally:
+        reader.stop()
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 # ------------------------------------------------------------------ WebSocket proxy to go2rtc
