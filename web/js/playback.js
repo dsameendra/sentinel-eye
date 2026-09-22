@@ -211,9 +211,13 @@ export class PlaybackView {
     };
     wire(edgeLeft, left);
     wire(edgeRight, right);
-    document.addEventListener('fullscreenchange', () => {
+    // Kept on `this` and removed in destroy() — a document-level listener added fresh on every build()
+    // and never cleaned up would accumulate one per navigation into Playback, each still holding a
+    // reference to that build's (by-then-destroyed) panel elements.
+    this._onFsChange = () => {
       if (!document.fullscreenElement) { left.classList.remove('show'); right.classList.remove('show'); }
-    });
+    };
+    document.addEventListener('fullscreenchange', this._onFsChange);
   }
 
   // ---------------------------------------------------------------- camera panel (multi-select, max 4)
@@ -618,6 +622,7 @@ export class PlaybackView {
 
   destroy() {
     document.removeEventListener('keydown', this.onKey);
+    if (this._onFsChange) document.removeEventListener('fullscreenchange', this._onFsChange);
     clearInterval(this._poolTimer);
     clearTimeout(this._hideTimer);
     this._teardownPanes();

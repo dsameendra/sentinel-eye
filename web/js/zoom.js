@@ -95,7 +95,13 @@ export class ZoomPan {
     this.s = ns;
     this.x = qx - ns * ux;
     this.y = qy - ns * uy;
-    if (ns <= 1.001) { this.s = 1; this.x = 0; this.y = 0; }
+    if (ns <= 1.001) this.s = 1;
+    // Used to also force x/y to 0 here whenever returning to scale 1 — correct for "contain" fit (nothing
+    // to pan there anyway) but wrong for "fill" fit, where the picture is deliberately larger than its box
+    // even at scale 1 (that's what makes it fill/crop) and a pan position is genuinely meaningful. Let
+    // clampAll() below decide: it already computes a zero range for contain-at-1x (so x/y end up 0 there
+    // regardless), and for fill-at-1x it clamps to whatever the real crop range actually is instead of
+    // discarding the pan and snapping back to center.
     this.clampAll();
     this.apply();
   }
@@ -104,7 +110,11 @@ export class ZoomPan {
   zoomBy(factor, animate = true) { this.zoomAt(factor, undefined, undefined, animate); }
 
   panBy(dx, dy) {
-    if (!this.zoomed) return;
+    // No "only if zoomed" guard: used to be correct when the picture could only ever exceed its box while
+    // zoomed in, but "fill" fit (Settings > Display > Picture & behaviour) means the picture is deliberately
+    // larger than its box at scale 1 too. clampAll() below is what actually decides whether there's
+    // anywhere to pan — for "contain" fit at scale 1 it computes a zero range and this is a no-op either
+    // way, so removing the guard doesn't change that case.
     this.x += dx; this.y += dy;
     this.clampAll();
     this.apply();
