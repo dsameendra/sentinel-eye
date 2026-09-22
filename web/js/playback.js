@@ -1,5 +1,6 @@
-// Playback view: single-camera DVR review. Left panel = camera list, center = video + transport,
-// right panel = calendar/time jump, bottom = timeline (coverage + events). docs/playback-spec.md section 7.
+// Playback view: DVR review, 1-4 cameras at once (the DVR's hard playback-session limit — spec 2.2/7.2).
+// Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
+// right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
 import { Timeline } from './timeline.js';
 import { esc, icon, toast } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
@@ -8,6 +9,7 @@ const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
 const pad2 = (n) => String(n).padStart(2, '0');
 
 // DVR-local date math via a raw UTC-offset (the DVR gives us an offset, not an IANA zone).
@@ -27,7 +29,8 @@ export class PlaybackView {
     this.speed = '1';
     this.tzOffsetMin = 330; // Asia/Kolkata default until /api/timeline/tz answers
     this.calView = null;
-    this.coverageDays = new Map(); // 'YYYY-MM-DD' -> bool (has any recording)
+    this.coverageDays = new Map(); // 'YYYY-MM-DD' -> bool (has any recording), for the primary camera
+    this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.onKey = (e) => this._key(e);
     document.addEventListener('keydown', this.onKey);
     this._init(channelId);
@@ -42,6 +45,7 @@ export class PlaybackView {
   }
 
   cams() { return this.ctx.settings().channels.filter((c) => c.enabled); }
+  get primary() { return this.panes[0]?.cam; }
 
   build(channelId) {
     const cams = this.cams();
@@ -50,7 +54,7 @@ export class PlaybackView {
         <a class="btn primary" href="#/settings/channels">Open settings</a></div></div>`;
       return;
     }
-    this.cam = cams.find((c) => c.id === channelId) || cams[0];
+    const first = cams.find((c) => c.id === channelId) || cams[0];
     const parts = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
     this.calView = { y: parts.y, mo: parts.mo };
 
@@ -59,16 +63,16 @@ export class PlaybackView {
         <aside class="pb-side pb-side-left">
           <h3>Cameras</h3>
           <div class="cam-list"></div>
+          <p class="hint">Pick up to ${MAX_PANES} — the recorder can only play that many at once.</p>
         </aside>
         <div class="pb-center">
           <div class="pb-topline">
             <span class="pill pb-status"><span class="dot wait"></span><span class="txt">connecting…</span></span>
             <span class="pb-time"></span>
             <span class="spacer"></span>
-            <span class="pill pb-source" title="Where the video is coming from">DVR playback session</span>
+            <span class="pill pb-pool" title="The recorder's shared playback-session budget"></span>
           </div>
-          <div class="pb-stage"><canvas class="pb-canvas"></canvas>
-            <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div></div>
+          <div class="pb-stage"></div>
           <div class="pb-transport">
             <button class="btn icon" data-a="back30" title="Back 30 s (Shift+3)">30<span class="u">s</span></button>
             <button class="btn icon" data-a="back10" title="Back 10 s (Shift+2)">10<span class="u">s</span></button>
@@ -97,29 +101,22 @@ export class PlaybackView {
       <div class="pb-timeline"></div>
     </div>`;
 
-    this._renderCamList();
     const speedSel = this.root.querySelector('.pb-speed');
     speedSel.innerHTML = SPEEDS.map((s) => `<option value="${s}" ${s === '1' ? 'selected' : ''}>${s.startsWith('0.') ? '1/' + Math.round(1 / parseFloat(s)) : s}×</option>`).join('');
     speedSel.addEventListener('change', () => this.setSpeed(speedSel.value));
 
-    this.canvas = this.root.querySelector('.pb-canvas');
-    this.veil = this.root.querySelector('.pb-veil');
     this.statusEl = this.root.querySelector('.pb-status');
     this.timeEl = this.root.querySelector('.pb-time');
+    this.poolEl = this.root.querySelector('.pb-pool');
+    this.stage = this.root.querySelector('.pb-stage');
 
-    this.player = new WCPlayer(this.canvas, {
-      onFrame: (t) => this._onFrame(t),
-      onState: (s) => this._onState(s),
-      onError: (m) => { toast(m, 'bad', 6000); this._onState('error', m); },
-      onQueued: (info) => this._onState('queued', `Recorder busy: ${info.busy}/${info.limit} playback sessions in use`),
-    });
-    if (!this.player.supported) {
-      this.veil.innerHTML = `<div class="msg"><b>This browser can't play DVR recordings.</b><br>Chrome, Edge or Safari 16.4+ is needed (WebCodecs).</div>`;
+    if (!('VideoDecoder' in window)) {
+      this.stage.innerHTML = `<div class="pb-veil" style="position:static;height:100%"><div class="msg"><b>This browser can't play DVR recordings.</b><br>Chrome, Edge or Safari 16.4+ is needed (WebCodecs).</div></div>`;
       return;
     }
 
     this.timeline = new Timeline(this.root.querySelector('.pb-timeline'), {
-      channel: this.cam.channel, tz: 'Asia/Kolkata',
+      channel: first.channel, tz: 'Asia/Kolkata',
       onSeek: (iso) => this.seekTo(new Date(iso).getTime() / 1000),
     });
 
@@ -130,33 +127,88 @@ export class PlaybackView {
     for (const s of REWIND_MACROS) this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
 
     this._bindTimeInputs();
-    this._loadCalendarMonth();
-    this._renderTime();
-
-    this.play();
+    this._renderCamList();
+    this._setSelection([first.id]);
+    this._pollPool();
   }
 
-  // ---------------------------------------------------------------- camera panel
+  // ---------------------------------------------------------------- camera panel (multi-select, max 4)
   _renderCamList() {
     const list = this.root.querySelector('.cam-list');
     const cams = this.cams();
-    list.innerHTML = cams.map((c) => `<button class="cam-item" data-id="${c.id}" aria-pressed="${c.id === this.cam.id}">
-        <span class="dot ${c.id === this.cam.id ? 'live' : ''}"></span><span class="name">${esc(c.name || 'Camera ' + c.channel)}</span></button>`).join('');
-    list.querySelectorAll('.cam-item').forEach((b) => b.addEventListener('click', () => this.switchCamera(b.dataset.id)));
+    const selected = new Set(this.panes.map((p) => p.cam.id));
+    list.innerHTML = cams.map((c) => {
+      const on = selected.has(c.id);
+      const disable = !on && selected.size >= MAX_PANES;
+      return `<label class="cam-item ${on ? 'on' : ''}" data-id="${c.id}">
+        <input type="checkbox" ${on ? 'checked' : ''} ${disable ? 'disabled' : ''}>
+        <span class="dot ${on ? 'live' : ''}"></span><span class="name">${esc(c.name || 'Camera ' + c.channel)}</span></label>`;
+    }).join('');
+    list.querySelectorAll('.cam-item input').forEach((cb) => cb.addEventListener('change', () => {
+      const id = cb.closest('.cam-item').dataset.id;
+      let ids = this.panes.map((p) => p.cam.id);
+      if (cb.checked) { if (ids.length < MAX_PANES) ids.push(id); }
+      else { ids = ids.filter((x) => x !== id); if (!ids.length) ids = [id]; } // never end up with zero panes
+      this._setSelection(ids);
+    }));
   }
 
-  switchCamera(id) {
-    const cam = this.cams().find((c) => c.id === id);
-    if (!cam || cam.id === this.cam.id) return;
-    this.cam = cam;
-    this.root.querySelectorAll('.cam-item').forEach((b) => {
-      b.setAttribute('aria-pressed', String(b.dataset.id === id));
-      b.querySelector('.dot').className = `dot ${b.dataset.id === id ? 'live' : ''}`;
+  _setSelection(ids) {
+    // Incremental: only tear down panes for cameras that were actually deselected, only create panes for
+    // ones newly added. A full rebuild here would close and reopen every session on every checkbox click,
+    // starving whichever pane's session request lands last against the DVR's 4-slot limit — reproduced and
+    // confirmed directly (a 4th pane stalled indefinitely while three others kept reconnecting in a loop).
+    const cams = this.cams();
+    const primaryChanged = this.panes[0] && this.panes[0].cam.id !== ids[0];
+    const keep = new Map(this.panes.map((p) => [p.cam.id, p]));
+    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); keep.delete(id); }
+    this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
+    this._layoutPanes();
+    this._renderCamList();
+    this.timeline?.setChannel(this.primary.channel);
+    if (primaryChanged) this._loadCalendarMonth();
+    this.ctx.go(`#/playback/${this.primary.id}`);
+    // (re)connect only the panes that don't already have a live session at the current position
+    const iso = new Date(this.currentEpoch * 1000).toISOString();
+    for (const pane of this.panes) {
+      if (pane.player.ws?.readyState === WebSocket.OPEN || pane.player.ws?.readyState === WebSocket.CONNECTING) continue;
+      this.playing = true;
+      pane.player.connect(pane.cam.id, iso, this.speed);
+    }
+    this._paintPlayIcon();
+  }
+
+  _makePane(cam) {
+    if (!cam) return null;
+    const el = document.createElement('div');
+    el.className = 'pb-pane';
+    el.innerHTML = `<div class="pb-pane-label">${esc(cam.name || 'Camera ' + cam.channel)}</div>
+      <canvas></canvas>
+      <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div>`;
+    const canvas = el.querySelector('canvas');
+    const veil = el.querySelector('.pb-veil');
+    const pane = { cam, el, canvas, veil };
+    pane.player = new WCPlayer(canvas, {
+      onFrame: (t) => this._onFrame(pane, t),
+      onState: (s, m) => this._onPaneState(pane, s, m),
+      onError: (m) => { this._onPaneState(pane, 'error', m); if (pane === this.panes[0]) toast(`${cam.name || 'Camera'}: ${m}`, 'bad', 6000); },
+      onQueued: (info) => this._onPaneState(pane, 'queued', `Recorder busy: ${info.busy}/${info.limit} sessions in use`),
     });
-    this.timeline?.setChannel(cam.channel);
-    this._loadCalendarMonth();
-    this.ctx.go(`#/playback/${cam.id}`);
-    this.seekTo(this.currentEpoch, true);
+    return pane;
+  }
+
+  _teardownPanes() {
+    for (const p of this.panes) p.player.destroy();
+    this.panes = [];
+  }
+
+  _layoutPanes() {
+    this.stage.innerHTML = '';
+    const n = this.panes.length;
+    this.stage.className = 'pb-stage' + (n > 1 ? ' multi' : '');
+    this.stage.style.gridTemplateColumns = n <= 1 ? '1fr' : n === 2 ? 'repeat(2, 1fr)' : n === 3 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)';
+    this.stage.style.gridTemplateRows = n <= 2 ? '1fr' : 'repeat(2, 1fr)';
+    for (const p of this.panes) this.stage.append(p.el);
   }
 
   // ---------------------------------------------------------------- calendar + time panel
@@ -178,7 +230,7 @@ export class PlaybackView {
     const first = new Date(Date.UTC(y, mo, 1));
     const last = new Date(Date.UTC(y, mo + 1, 0));
     try {
-      const cov = await fetch(`/api/timeline/coverage?channel=${this.cam.channel}&from_day=${iso(first)}&to_day=${iso(last)}`).then((r) => r.json());
+      const cov = await fetch(`/api/timeline/coverage?channel=${this.primary.channel}&from_day=${iso(first)}&to_day=${iso(last)}`).then((r) => r.json());
       this.coverageDays = new Map(Object.entries(cov).map(([d, spans]) => [d, spans.length > 0]));
     } catch { this.coverageDays = new Map(); }
     this._renderCalendar();
@@ -224,17 +276,18 @@ export class PlaybackView {
     this._loadCalendarMonth();
   }
 
-  // ---------------------------------------------------------------- playback control
+  // ---------------------------------------------------------------- playback control (applies to every pane)
   play() {
     this.playing = true;
     this._paintPlayIcon();
-    this.player.connect(this.cam.id, new Date(this.currentEpoch * 1000).toISOString(), this.speed);
+    const iso = new Date(this.currentEpoch * 1000).toISOString();
+    for (const p of this.panes) p.player.connect(p.cam.id, iso, this.speed);
   }
 
   pause() {
     this.playing = false;
     this._paintPlayIcon();
-    this.player.disconnectSocket();
+    for (const p of this.panes) p.player.disconnectSocket();
     this._onState('paused');
   }
 
@@ -247,41 +300,54 @@ export class PlaybackView {
     const p = partsFromEpoch(epoch, this.tzOffsetMin);
     if (p.y !== this.calView.y || p.mo !== this.calView.mo) { this.calView = { y: p.y, mo: p.mo }; this._loadCalendarMonth(); }
     else this._renderCalendar();
-    if (this.playing || forceReconnect) {
-      if (this.player.ws?.readyState === WebSocket.OPEN && !forceReconnect) {
-        this.player.seek(new Date(epoch * 1000).toISOString(), this.speed);
-      } else {
-        this.playing = true;
-        this._paintPlayIcon();
-        this.player.connect(this.cam.id, new Date(epoch * 1000).toISOString(), this.speed);
-      }
+    if (!this.playing && !forceReconnect) return;
+    const iso = new Date(epoch * 1000).toISOString();
+    this.playing = true;
+    this._paintPlayIcon();
+    for (const pane of this.panes) {
+      if (pane.player.ws?.readyState === WebSocket.OPEN && !forceReconnect) pane.player.seek(iso, this.speed);
+      else pane.player.connect(pane.cam.id, iso, this.speed);
     }
   }
 
   setSpeed(s) {
     this.speed = s;
-    if (this.playing && this.player.ws?.readyState === WebSocket.OPEN) this.player.setSpeed(s);
+    if (!this.playing) return;
+    for (const p of this.panes) if (p.player.ws?.readyState === WebSocket.OPEN) p.player.setSpeed(s);
   }
 
   async stepFrame(dir) {
     this.pause();
-    this.veil.hidden = false;
-    this.veil.innerHTML = '<div class="spin"></div>';
+    for (const p of this.panes) { p.veil.hidden = false; p.veil.innerHTML = '<div class="spin"></div>'; }
     try {
-      const t = dir > 0 ? await this.player.stepForward(this.currentEpoch, this.cam.id) : await this.player.stepBackward(this.currentEpoch, this.cam.id);
+      const results = await Promise.all(this.panes.map((p) =>
+        (dir > 0 ? p.player.stepForward(this.currentEpoch, p.cam.id) : p.player.stepBackward(this.currentEpoch, p.cam.id))
+          .then((t) => { if (t != null) p.veil.hidden = true; return t; })));
+      const t = results[0];
       if (t != null) { this.currentEpoch = t; this._renderTime(); this.timeline?.setPlayhead(t); }
-      this.veil.hidden = true;
     } catch (e) {
       toast(String(e.message || e), 'bad');
-      this.veil.hidden = true;
+    }
+    for (const p of this.panes) p.veil.hidden = true;
+  }
+
+  // ---------------------------------------------------------------- per-pane state -> shared UI
+  _onFrame(pane, absTime) {
+    pane.veil.hidden = true;
+    if (pane === this.panes[0]) {
+      this.currentEpoch = absTime;
+      this._renderTime();
+      this.timeline?.setPlayhead(absTime);
     }
   }
 
-  _onFrame(absTime) {
-    this.currentEpoch = absTime;
-    this._renderTime();
-    this.timeline?.setPlayhead(absTime);
-    this.veil.hidden = true;
+  _onPaneState(pane, s, msg) {
+    const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['live', 'Playing'],
+      paused: ['off', 'Paused'], error: ['off', msg || 'Error'], idle: ['off', 'Idle'] };
+    const [cls, label] = labels[s] || ['off', s];
+    if (s === 'connecting' || s === 'queued') { pane.veil.hidden = false; pane.veil.innerHTML = `<div class="spin"></div><div class="msg">${esc(label)}</div>`; }
+    if (s === 'error') pane.veil.innerHTML = `<div class="msg"><b>No signal</b><br>${esc(msg || '')}</div>`;
+    if (pane === this.panes[0]) this._onState(s, msg);
   }
 
   _onState(s, msg) {
@@ -292,8 +358,20 @@ export class PlaybackView {
     const [cls, label] = labels[s] || ['off', s];
     dot.className = `dot ${cls}`;
     txt.textContent = label;
-    if (s === 'connecting' || s === 'queued') { this.veil.hidden = false; this.veil.innerHTML = `<div class="spin"></div><div class="msg">${esc(label)}</div>`; }
-    if (s === 'error') { this.veil.hidden = false; this.veil.innerHTML = `<div class="msg"><b>No signal</b><br>${esc(msg || '')}</div>`; this.playing = false; this._paintPlayIcon(); }
+    if (s === 'error') { this.playing = false; this._paintPlayIcon(); }
+  }
+
+  async _pollPool() {
+    if (this._poolTimer) return;
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/playback/pool').then((x) => x.json());
+        this.poolEl.textContent = `${r.busy}/${r.limit} recorder sessions`;
+        this.poolEl.classList.toggle('warn', r.busy >= r.limit);
+      } catch { /* transient */ }
+    };
+    tick();
+    this._poolTimer = setInterval(tick, 4000);
   }
 
   _renderTime() {
@@ -324,7 +402,8 @@ export class PlaybackView {
 
   destroy() {
     document.removeEventListener('keydown', this.onKey);
-    this.player?.destroy();
+    clearInterval(this._poolTimer);
+    this._teardownPanes();
     this.timeline?.destroy();
     this.root.innerHTML = '';
   }

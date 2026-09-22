@@ -58,6 +58,10 @@ async function route() {
     return;
   }
   if (section === 'playback') {
+    // the view updates the URL itself when the camera selection changes (ctx.go below); once we're already
+    // in playback, that's a notification, not a request to rebuild — rebuilding would tear down live panes
+    // mid-switch. A real navigation into playback from elsewhere in the app still builds fresh.
+    if (state.kind === 'playback') return;
     state.view?.destroy();
     state.view = new PlaybackView(host, ctx, arg || null);
     state.kind = 'playback';
