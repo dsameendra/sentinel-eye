@@ -52,14 +52,17 @@ export class Tile {
         <button data-a="zin" title="Zoom in (or scroll / pinch on the picture)" aria-label="Zoom in">${icon('plus')}</button>
         <button class="txt" data-a="quality" title="Switch between SD and HD">HD</button>
         <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
+        <button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>
         <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
-      </div>` : ''}`;
+      </div>
+      <div class="ev-badges"></div>` : ''}`;
     this.stage = this.el.querySelector('.stage');
     this.veil = this.el.querySelector('.veil');
     if (opts.chrome) {
       this.el.querySelector('.hit').addEventListener('click', () => opts.onFocus?.(this));
       this.el.querySelector('[data-a=quality]').addEventListener('click', (e) => { e.stopPropagation(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
       this.el.querySelector('[data-a=snap]').addEventListener('click', (e) => { e.stopPropagation(); this.snapshot(); });
+      this.el.querySelector('[data-a=replay]').addEventListener('click', (e) => { e.stopPropagation(); opts.onReplay?.(this); });
       this.el.querySelector('[data-a=focus]').addEventListener('click', (e) => { e.stopPropagation(); opts.onFocus?.(this); });
       this.enableZoom(this.el.querySelector('.hit'), { dbl: false });   // a click opens the large view, so no double-click zoom here
       this.el.querySelector('[data-a=zin]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1.6); });
@@ -73,10 +76,15 @@ export class Tile {
     this.timer = setInterval(() => this._tick(), 500);
   }
 
-  /** Attach zoom/pan gestures to `hit` (a transparent element over the picture). */
+  /** Attach zoom/pan gestures to `hit` (a transparent element over the picture). Re-callable: a tile
+   * that's handed between the grid and the large view gets a new hit target each time (a different
+   * double-click policy too), so any previous controller is torn down first rather than leaked. */
   enableZoom(hit, { dbl = true } = {}) {
+    const prevState = this.zoom ? { s: this.zoom.s, x: this.zoom.x, y: this.zoom.y } : null;
+    this.zoom?.destroy();
     this.zoom = new ZoomPan(this.stage, hit, { dbl, onChange: (st) => { this._paintZoom(); this.opts.onZoom?.(this.cam.id, st); } });
     if (this.opts.zoomInit) this.zoom.setState(this.opts.zoomInit);
+    else if (prevState && prevState.s > 1.001) this.zoom.setState(prevState);   // carry zoom across grid<->focus
   }
 
   _paintZoom() {

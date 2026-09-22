@@ -2,6 +2,7 @@
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
 import { esc, icon, toast } from './ui.js';
+import { WCPlayer } from './wcplayer.js';
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -120,6 +121,7 @@ export class LiveView {
           onUpdate: () => this.countLive(),
           onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
           onKindFail: (tile, kind) => toast(`${cam.name || 'Camera'}: the ${kind === 'main' ? 'HD' : 'SD'} stream could not be started. Keeping the current stream.`, 'bad', 6000),
+          onReplay: () => this.openReplay(cam),
         });
         t.cellIndex = i;
         this.tiles.push(t);
@@ -222,10 +224,24 @@ export class LiveView {
   openFocus(cam) {
     this.closeFocus(true);
     this.toggleEdit(false);
-    this.disposeTiles();   // free the grid streams while looking at one camera
     const cams = this.cams();
     const idx = cams.findIndex((c) => c.id === cam.id);
     const kind = this.d.quality === 'sub' ? 'sub' : 'main';
+
+    // Seamless upgrade: reuse the tile already running in the grid (same player, same connection) instead
+    // of disposing it and opening a fresh one — no reconnect, no black frame, and the grid's other tiles
+    // (and this one, once we hand it back) keep playing behind the overlay. If the camera isn't on the
+    // current page (e.g. a direct link), there's no running tile to reuse — fall back to a fresh one.
+    const fromGrid = this.tiles.find((t) => t.cam.id === cam.id) || null;
+    const tile = fromGrid || new Tile(cam, { kind, display: this.d, chrome: false,
+      onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
+      onKindFail: (t, k) => toast(`The ${k === 'main' ? 'HD' : 'SD'} stream could not be started.`, 'bad', 6000) });
+    tile.opts.onUpdate = (t) => this.paintFocus(t);
+    if (fromGrid) {
+      tile.el.remove();               // detach from the wall; the tile/player object itself stays alive
+      tile.el.classList.add('in-focus');
+    }
+
     const f = document.createElement('div');
     f.className = 'focus';
     f.innerHTML = `<div class="focus-bar">
@@ -235,14 +251,11 @@ export class LiveView {
         <div class="zoomctl" role="group" aria-label="Zoom"><button class="btn icon" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
           <button class="btn pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
         <button class="btn icon" data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
+        <button class="btn icon" data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>
         <button class="btn icon" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
       </div><div class="stage-host" style="position:relative;flex:1;min-height:0"></div>
       ${cams.length > 1 ? `<button class="nav-arrow prev" aria-label="Previous camera">${icon('left')}</button><button class="nav-arrow next" aria-label="Next camera">${icon('right')}</button>` : ''}`;
-    const tile = new Tile(cam, { kind, display: this.d, chrome: false,
-      onUpdate: (t) => this.paintFocus(t),
-      onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
-      onKindFail: (t, k) => toast(`The ${k === 'main' ? 'HD' : 'SD'} stream could not be started.`, 'bad', 6000) });
     tile.el.style.cssText = 'position:absolute;inset:0;border:0;border-radius:0';
     f.querySelector('.stage-host').append(tile.el);
     const hit = document.createElement('div');
@@ -250,10 +263,11 @@ export class LiveView {
     f.querySelector('.stage-host').append(hit);
     tile.enableZoom(hit, { dbl: true });   // single click does nothing (never pauses); double click/tap toggles zoom
     this.live.append(f);
-    this.focus = { tile, id: cam.id, el: f, idx };
+    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid };
     f.querySelector('[data-a=close]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=x]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
+    f.querySelector('[data-a=replay]').addEventListener('click', () => this.openReplay(cam));
     f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
     f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
     f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
@@ -261,6 +275,7 @@ export class LiveView {
     f.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => tile.setKind(b.dataset.k)));
     f.querySelector('.prev')?.addEventListener('click', () => this.stepFocus(-1));
     f.querySelector('.next')?.addEventListener('click', () => this.stepFocus(1));
+    if (tile.kind !== kind) tile.setKind(kind);   // upgrade in place (gapless swap already built into Tile)
     this.paintFocus(tile);
   }
 
@@ -290,13 +305,62 @@ export class LiveView {
   closeFocus(silent) {
     if (!this.focus) return;
     if (document.fullscreenElement === this.focus.el) document.exitFullscreen?.();
-    this.focus.tile.dispose();
+    const { tile, fromGrid } = this.focus;
+    if (fromGrid && this.tiles.includes(tile)) {
+      // hand the still-running tile back to its grid cell — no reconnect, no black frame
+      tile.zoom?.reset(false);
+      tile.el.classList.remove('in-focus');
+      tile.el.style.cssText = '';
+      tile.opts.onUpdate = () => this.countLive();
+      tile.enableZoom(tile.el.querySelector('.hit'), { dbl: false });   // back to grid rules: click opens focus, no dbl-click zoom
+      const cell = LAYOUTS[this.d.layout].cells[tile.cellIndex];
+      if (cell) { tile.el.style.gridColumn = `${cell.c} / span ${cell.w}`; tile.el.style.gridRow = `${cell.r} / span ${cell.h}`; }
+      const wantKind = this.qualityFor(cell || {});
+      if (tile.kind !== wantKind) tile.setKind(wantKind);
+      this.wall.append(tile.el);
+    } else {
+      tile.dispose();
+    }
     this.focus.el.remove();
     this.focus = null;
-    if (!silent) {
-      // return to the page that contains the camera we were just looking at
-      this.renderWall();
-    }
+    if (!silent && !fromGrid) this.renderWall();   // the borrowed-tile case needs no rebuild — everything else kept running
+  }
+
+  // ---------------------------------------------------------------- instant replay
+  // A dedicated small overlay that opens a real playback session (WCPlayer over /api/playback/ws)
+  // starting ~10s in the past and playing forward at 1x, rather than a client-side ring buffer — this
+  // reuses the already-verified DVR playback path instead of new plumbing. Counts against the DVR's
+  // 4-session playback cap like any other playback stream; released the moment it's closed.
+  openReplay(cam, seconds = 10) {
+    this.closeReplay();
+    const r = document.createElement('div');
+    r.className = 'replay-overlay';
+    r.innerHTML = `<div class="replay-bar">
+        ${icon('rewind')} <span>Instant replay · ${esc(cam.name || 'Camera ' + cam.channel)}</span>
+        <span class="pill stat">starting…</span><span class="spacer"></span>
+        <button class="btn primary" data-a="live">${icon('play')} Back to live</button>
+        <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
+      </div><div class="replay-stage"><canvas></canvas></div>`;
+    this.live.append(r);
+    const canvas = r.querySelector('canvas');
+    const pill = r.querySelector('.stat');
+    const player = new WCPlayer(canvas, {
+      onState: (s) => { pill.textContent = s === 'playing' ? 'replaying' : s === 'queued' ? 'waiting for a recorder session…' : s; },
+      onError: (msg) => { pill.textContent = 'error'; toast(`Instant replay: ${msg}`, 'bad', 6000); },
+    });
+    if (!player.supported) { toast('This browser does not support instant replay (WebCodecs unavailable).', 'bad'); r.remove(); return; }
+    const startIso = new Date(Date.now() - seconds * 1000).toISOString();
+    player.connect(cam.id, startIso, '1');
+    this.replay = { el: r, player, cam };
+    r.querySelector('[data-a=live]').addEventListener('click', () => this.closeReplay());
+    r.querySelector('[data-a=x]').addEventListener('click', () => this.closeReplay());
+  }
+
+  closeReplay() {
+    if (!this.replay) return;
+    this.replay.player.destroy();
+    this.replay.el.remove();
+    this.replay = null;
   }
 
   // ---------------------------------------------------------------- fullscreen & keys
@@ -310,6 +374,7 @@ export class LiveView {
     if (!this.wall || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.getElementById('modal-root').firstChild) return;
     const k = e.key;
+    if (this.replay) { if (k === 'Escape') this.closeReplay(); return; }
     if (this.focus) {
       if (k === 'Escape' && !document.fullscreenElement) { if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }
       else if (k === '+' || k === '=') this.focus.tile.zoom?.zoomBy(1.6);
@@ -334,6 +399,7 @@ export class LiveView {
     this.disposeTiles();
     this.focus?.tile.dispose();
     this.focus = null;
+    this.closeReplay();
     document.removeEventListener('keydown', this.onKey);
     document.removeEventListener('fullscreenchange', this.onFs);
     document.removeEventListener('click', this.onDoc);

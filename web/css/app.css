@@ -78,6 +78,10 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .wall { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; }
 .tile { position: relative; min-width: 0; min-height: 0; background: var(--tile); border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 .tile.empty { display: grid; place-items: center; color: var(--faint); border-style: dashed; background: transparent; }
+/* a grid tile on loan to the large view: its own chrome (click-to-focus hitzone, name bar, buttons) is
+   replaced by the focus view's — the tile itself (and its live connection) keeps running underneath */
+.tile.in-focus { border: 0; border-radius: 0; }
+.tile.in-focus .hit, .tile.in-focus .ov, .tile.in-focus .tile-actions, .tile.in-focus > .zoomtag { display: none; }
 .stage { position: absolute; inset: 0; container-type: size; overflow: hidden; display: grid; place-items: center; }
 .stage > * { grid-area: 1 / 1; }
 /* The player is a box with the picture's real shape (--ar), sized to fit (or fill) the tile. The video is stretched
@@ -124,6 +128,13 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .focus:fullscreen .focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; background: linear-gradient(#000c, transparent); border: 0; opacity: 0; transition: opacity .2s; }
 .focus:fullscreen:hover .focus-bar { opacity: 1; }
 .focus:fullscreen { background: #000; }
+
+/* instant replay overlay */
+.replay-overlay { position: absolute; inset: 0; z-index: 25; background: #000; display: flex; flex-direction: column; }
+.replay-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.replay-bar span { font-weight: 600; }
+.replay-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
+.replay-stage canvas { max-width: 100%; max-height: 100%; }
 
 /* ---------- empty / onboarding ---------- */
 .center-card { margin: auto; max-width: 440px; text-align: center; padding: 34px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
