@@ -17,6 +17,7 @@ import export as exportmod
 import hikrelay
 import playback_session as psess
 import settings as cfg
+import thumbnails
 import timebase
 from go2rtc import API_PORT, Go2rtc, desired_streams
 from playback_service import PlaybackService
@@ -155,6 +156,27 @@ async def timeline_events(channel: int | None = None, start_utc: str = "", end_u
     params.append(limit)
     rows = await run_in_threadpool(db.query, q, tuple(params))
     return [dict(r) for r in rows]
+
+
+@app.get("/api/timeline/events/{event_id}/thumbnail")
+async def event_thumbnail(event_id: int):
+    """One JPEG frame near the event's midpoint (spec: represent a multi-second event by its middle, not its
+    first instant), generated on demand and cached — see app/thumbnails.py. Uses a real DVR playback session
+    like any other, so it's bounded by the same 4-session pool."""
+    row = await run_in_threadpool(db.one, "SELECT * FROM events WHERE id=?", (event_id,))
+    if row is None:
+        raise HTTPException(404, "Unknown event")
+    event = dict(row)
+    s = current()
+    ch = next((c for c in s.channels if c.channel == event["channel"]), None)
+    tz = state["playback"].tz
+    tz_offset = int(tz.utcoffset(None).total_seconds() // 60) if tz else 330
+    try:
+        path = await run_in_threadpool(thumbnails.get_or_generate, event, s.connection.model_dump(),
+                                        ch.main_path if ch else "", tz_offset)
+    except Exception as e:
+        raise HTTPException(503, f"Couldn't generate a thumbnail: {e}")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
 
 
 @app.get("/api/timeline/calibration")

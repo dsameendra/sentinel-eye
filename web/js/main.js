@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
-import { SearchView } from './search.js';
+import { EventsView } from './events.js';
 import { SettingsView } from './settings.js';
 import { esc, icon, toast } from './ui.js';
 
@@ -34,7 +34,7 @@ const ctx = {
 function shell() {
   app.innerHTML = `<header class="topbar">
       <div class="brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>
-      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a><a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/search" data-n="search">${icon('search')}<span>Search</span></a><a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
+      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a><a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/events" data-n="events">${icon('search')}<span>Events</span></a><a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
       <div class="spacer"></div>
       <div class="tools"><span class="clock" id="clock"></span></div></header>
     <div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>`;
@@ -52,7 +52,8 @@ async function route() {
   }
   state.hash = hash;
   const host = document.getElementById('view');
-  document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.n === section));
+  const navSection = section === 'search' ? 'events' : section;
+  document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.n === navSection));
   document.querySelectorAll('.nav a[aria-current]').forEach((a) => a.setAttribute('aria-current', 'page'));
 
   if (section === 'settings') {
@@ -72,8 +73,8 @@ async function route() {
     state.kind = 'playback';
     return;
   }
-  if (section === 'search') {
-    if (state.kind !== 'search') { state.view?.destroy(); state.view = new SearchView(host, ctx); state.kind = 'search'; }
+  if (section === 'events' || section === 'search') {   // 'search' kept as an alias for old links/bookmarks
+    if (state.kind !== 'events') { state.view?.destroy(); state.view = new EventsView(host, ctx); state.kind = 'events'; }
     return;
   }
   if (state.kind !== 'live') {

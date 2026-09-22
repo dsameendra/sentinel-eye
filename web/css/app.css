@@ -316,19 +316,35 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .cam-list { flex-direction: row; flex-wrap: wrap; }
 }
 
-/* event search */
-.search-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.search-bar { flex: none; display: flex; align-items: flex-end; gap: 18px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-.search-bar .field { min-width: 0; }
-.search-bar select { height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 8px; }
-.search-results { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 40px; }
-.search-list { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
-.search-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
-.search-row .ev-badge { position: static; }
-.sr-cam { font-weight: 600; min-width: 130px; }
-.sr-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
-.sr-time { color: var(--muted); font-variant-numeric: tabular-nums; }
-@media (max-width: 700px) {
-  .search-row { flex-wrap: wrap; }
-  .sr-time { order: 3; width: 100%; }
+/* events (search) — column layout: filters panel on the left, result cards on the right */
+.events-view { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.events-side { width: 260px; flex: none; padding: 16px 14px; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+.events-side h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.events-side select { height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 8px; width: 100%; }
+.events-presets { display: flex; flex-direction: column; gap: 4px; }
+.events-presets button { text-align: left; height: 32px; padding: 0 10px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+.events-presets button:hover { background: var(--panel-2); }
+.events-presets button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.events-custom { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
+.events-main { flex: 1; min-width: 0; overflow: auto; padding: 18px 22px 40px; }
+.events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; max-width: 1400px; margin: 0 auto; }
+.ev-card { display: flex; flex-direction: column; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+.ev-thumb { position: relative; aspect-ratio: 16/9; background: var(--tile); overflow: hidden; }
+.ev-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .15s; }
+.ev-thumb.loaded img { opacity: 1; }
+.ev-thumb-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); }
+.ev-thumb.loaded .ev-thumb-fallback { display: none; }
+.ev-thumb-fallback .i { width: 28px; height: 28px; }
+.ev-card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.ev-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ev-card-top .ev-badge { position: static; }
+.ev-card-date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ev-card-cam { font-weight: 600; }
+.ev-card-title { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+@media (max-width: 820px) {
+  .events-view { flex-direction: column; }
+  .events-side { width: auto; border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
+  .events-side h3 { display: none; }
+  .events-custom { flex-direction: row; border-top: 0; }
 }
