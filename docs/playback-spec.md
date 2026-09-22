@@ -311,10 +311,12 @@ decrypted the same way live/playback video already is. You get to pick the conta
 Default going forward: **① for anything that might matter later, ② for a quick look**. Batches (the multi-cut
 clipper) can mix — each range in a batch can carry its own choice, or you set one for the whole batch.
 
-**Status (M4):** ① and ② are built and verified — single-range only (the multi-cut batch UI is not built
-yet); ③ is not built (needs the ISAPI native-download endpoint, not yet reverse-engineered); the optional
-`player.html` is not built. `manifest.json` does not yet carry "any enhancement applied" (nothing upstream
-produces enhanced footage yet — that's M5/M6).
+**Status (M4):** ① and ② are built and verified, now including the multi-cut batch UI — a non-destructive
+clip list, built from repeated range picks, exported as one batch (each clip still its own single-range
+job, run in order through the existing 4-session queue, never in parallel); ③ is not built (needs the ISAPI
+native-download endpoint, not yet reverse-engineered); the optional `player.html` is not built.
+`manifest.json` does not yet carry "any enhancement applied" (nothing upstream produces enhanced footage
+yet — that's M5/M6).
 
 ---
 
@@ -369,7 +371,7 @@ per-channel CPU budget decisions, section 12.1, before code); the background sca
 be recovered by black-box probing, so region/motion search over pre-AI-index history will go through the
 background scan job (the fallback the spec always named), not a DVR-side smart query. **M4 is
 split into pieces shipped separately, not one commit:** bookmarks (done); clipper + export options ①②
-(done, single-range only — the multi-cut batch UI and option ③ are not built; exports run at the DVR's 16x
+(done, including the multi-cut batch UI — option ③ is not built; exports run at the DVR's 16x
 playback speed, verified frame-identical at that speed); **accounts + HTTPS + audit log + live sync
 declined by you** — this is a local-network, single-operator deployment, so this piece of M4 is not being
 built, by decision, not oversight. `author`/`operator` on bookmarks and exports stays a fixed placeholder
