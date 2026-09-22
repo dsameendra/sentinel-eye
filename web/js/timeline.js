@@ -43,6 +43,7 @@ export class Timeline {
     this._loadedRange = null;
     this.selectMode = false;   // when true, drag draws a range instead of panning (spec 10: select-to-export)
     this.selection = null;     // [startEpoch, endEpoch] while dragging or just after
+    this.clips = [];           // [[startEpoch, endEpoch], …] — the multi-cut clipper's pending clip list (spec 10/15)
     this.ro = new ResizeObserver(() => this.draw());
     this.ro.observe(el);
     this._bind();
@@ -67,6 +68,20 @@ export class Timeline {
     this.selectMode = on;
     this.selection = null;
     this.canvas.style.cursor = on ? 'crosshair' : '';
+    this.draw();
+  }
+
+  /** The multi-cut clipper's pending ranges (spec 10/15), drawn as cyan brackets so they stay visible —
+   * and distinguishable from the ephemeral in-progress `selection` — while more clips are picked. */
+  setClips(clips) {
+    this.clips = clips || [];
+    this.draw();
+  }
+
+  /** Clears the just-finished drag highlight once its range has been handed to onRangeSelect — otherwise
+   * it lingers on screen looking like an active selection when nothing is actually pending anymore. */
+  clearSelection() {
+    this.selection = null;
     this.draw();
   }
 
@@ -275,6 +290,23 @@ export class Timeline {
     if (this.cursorTime != null) {
       const x = (this.cursorTime - t0) * this.pxPerSec;
       ctx.strokeStyle = text; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    // multi-cut clipper: pending clips as cyan brackets (spec 7.1's palette, distinct from the accent-
+    // coloured in-progress selection below so a clip you've already committed to the list doesn't look
+    // like an active drag)
+    const CLIP_COLOR = '#22d3ee';
+    for (const [a, b] of this.clips) {
+      const x1 = (a - t0) * this.pxPerSec, x2 = (b - t0) * this.pxPerSec;
+      if (x2 < -2 || x1 > w + 2) continue;
+      ctx.strokeStyle = CLIP_COLOR; ctx.lineWidth = 2;
+      const bw = 5;
+      ctx.beginPath();
+      ctx.moveTo(x1 + bw, 1); ctx.lineTo(x1, 1); ctx.lineTo(x1, h - 1); ctx.lineTo(x1 + bw, h - 1);
+      ctx.moveTo(x2 - bw, 1); ctx.lineTo(x2, 1); ctx.lineTo(x2, h - 1); ctx.lineTo(x2 - bw, h - 1);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.fillStyle = CLIP_COLOR + '22';
+      ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
     }
     // in-progress or just-finished range selection
     if (this.selection) {

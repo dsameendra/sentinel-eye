@@ -28,6 +28,7 @@ export class PlaybackView {
     this.tzOffsetMin = 330; // Asia/Kolkata default until /api/timeline/tz answers
     this.datePicker = null;        // DateTimePicker bound to the primary camera's coverage
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
+    this.clips = [];               // [[startEpoch, endEpoch], …] — multi-cut clipper's pending list (spec 10/15)
     this.onKey = (e) => this._key(e);
     document.addEventListener('keydown', this.onKey);
     this._init(channelId);
@@ -92,6 +93,7 @@ export class PlaybackView {
                 </div>
                 <div class="pb-ctrl-right">
                   <button class="btn sm" data-a="selectrange" title="Drag on the timeline to pick a range, then export it">${icon('layout')} Select range</button>
+                  <button class="btn sm" data-a="clips" title="Multi-cut clipper: review, add to, or export the pending clip list" hidden>${icon('list')} Clips <span class="clip-count">0</span></button>
                   <button class="btn sm primary" data-a="export">${icon('download')} Export clip</button>
                 </div>
               </div>
@@ -128,9 +130,10 @@ export class PlaybackView {
     this.timeline = new Timeline(this.root.querySelector('.pb-timeline'), {
       channels: [{ channel: first.channel, name: first.name || `Camera ${first.channel}` }], tz: 'Asia/Kolkata',
       onSeek: (iso) => this.seekTo(new Date(iso).getTime() / 1000),
-      onRangeSelect: (a, b) => { this._setSelectRangeMode(false); this.openExportDialog([a, b]); },
+      onRangeSelect: (a, b) => { this._setSelectRangeMode(false); this.timeline?.clearSelection(); this.openExportDialog([a, b]); },
     });
     this.root.querySelector('[data-a=selectrange]').addEventListener('click', () => this._setSelectRangeMode(!this.timeline.selectMode));
+    this.root.querySelector('[data-a=clips]').addEventListener('click', () => this.openClipListDialog());
 
     this.datePicker = new DateTimePicker(this.root.querySelector('.pb-cal'), {
       epoch: this.currentEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: first.channel,
@@ -256,6 +259,11 @@ export class PlaybackView {
     // Every selected camera's events, not just the primary's — the timeline gives each one its own lane.
     this.timeline?.setChannels(this.panes.map((p) => ({ channel: p.cam.channel, name: p.cam.name || `Camera ${p.cam.channel}` })));
     if (primaryChanged) this.datePicker?.setChannel(this.primary.channel);
+    // A pending clip list applies to whichever cameras are selected at export time (_runExportOne reads
+    // this.panes fresh), so a clip added against one camera set would silently switch to a different one
+    // if the selection changed underneath it — clear the list instead of ever exporting a range against
+    // cameras the operator didn't mean it for.
+    if (this.clips.length) { this.clips = []; this._syncClipUi(); toast('Camera selection changed — pending clip list cleared.', 'bad'); }
     // Keep the current position in the URL (not just the camera) so a deep link from search survives a
     // refresh. This is the view syncing its own address as state changes, not a navigation, so replace
     // rather than push — otherwise every camera toggle fills history with entries that all render this
@@ -556,7 +564,7 @@ export class PlaybackView {
       </div>
       <p class="hint" id="exp-eta"></p>
       <p class="hint" id="exp-status"></p>
-      <div class="row"><button class="btn" data-x="cancel">Cancel</button><button class="btn primary" data-x="go">${icon('download')} Export</button></div>
+      <div class="row"><button class="btn" data-x="cancel">Cancel</button><button class="btn" data-x="addclip">${icon('list')} Add to clip list</button><button class="btn primary" data-x="go">${icon('download')} Export</button></div>
     </div></div>`;
 
     const etaEl = root.querySelector('#exp-eta');
@@ -582,21 +590,19 @@ export class PlaybackView {
     const close = () => { root.innerHTML = ''; };
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
     root.querySelector('[data-x=cancel]').addEventListener('click', close);
+    root.querySelector('[data-x=addclip]').addEventListener('click', () => {
+      if (endEpoch <= startEpoch) { root.querySelector('#exp-status').textContent = 'End must be after start.'; return; }
+      this._addClip(startEpoch, endEpoch);
+      close();
+    });
     goBtn.addEventListener('click', async () => {
       const statusEl = root.querySelector('#exp-status');
       if (endEpoch <= startEpoch) { statusEl.textContent = 'End must be after start.'; return; }
       const pkg = root.querySelector('input[name=exp-pkg]:checked').value;
-      const span = endEpoch - startEpoch;
       goBtn.disabled = true;
       statusEl.textContent = 'Starting export…';
       try {
-        const { job_id } = await api.createExport({
-          channels: this.panes.map((p) => p.cam.id),
-          start_utc: new Date(startEpoch * 1000).toISOString(),
-          end_utc: new Date(endEpoch * 1000).toISOString(),
-          package: pkg,
-        });
-        await this._pollExport(job_id, statusEl, span);
+        const job_id = await this._runExportOne(startEpoch, endEpoch, pkg, (msg) => { statusEl.textContent = msg; });
         const a = document.createElement('a');
         a.href = `/api/export/${job_id}/download`;
         a.click();
@@ -609,7 +615,127 @@ export class PlaybackView {
     });
   }
 
-  _pollExport(jobId, statusEl, spanSec) {
+  // ---------------------------------------------------------------- multi-cut clipper (spec 10/15)
+  // A non-destructive list of pending ranges — built from repeated timeline drag-selects ("Add to clip
+  // list" in the single-export dialog) or typed in directly — exported as one batch. Each clip still goes
+  // through the existing single-range /api/export job one at a time: the DVR's 4-session budget is a hard
+  // ceiling shared with live playback (spec 2.2/7.3), so running them one after another — never in
+  // parallel — is what keeps a big batch from starving whatever else is using the recorder at the time.
+  _addClip(startEpoch, endEpoch) {
+    if (endEpoch <= startEpoch) return;
+    this.clips.push([startEpoch, endEpoch]);
+    this._syncClipUi();
+    toast(`Added to clip list (${this.clips.length} pending).`, 'ok');
+  }
+
+  _syncClipUi() {
+    const btn = this.root.querySelector('[data-a=clips]');
+    if (!btn) return;
+    btn.hidden = this.clips.length === 0;
+    btn.querySelector('.clip-count').textContent = String(this.clips.length);
+    this.timeline?.setClips(this.clips);
+  }
+
+  openClipListDialog() {
+    const root = document.getElementById('modal-root');
+    const fmt = (t) => new Date(t * 1000).toLocaleString(undefined, { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const durStr = (a, b) => { const s = Math.round(b - a); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
+    const render = () => `<div class="scrim"><div class="dialog exp-dialog" style="width:min(640px,100%)" role="dialog" aria-modal="true" aria-label="Clip list">
+      <h3>${icon('list')} Clip list — ${this.clips.length} pending</h3>
+      <p>${this.panes.length} camera${this.panes.length > 1 ? 's' : ''}: ${esc(this.panes.map((p) => p.cam.name || 'Camera ' + p.cam.channel).join(', '))}, applied to every clip below.</p>
+      <div class="clip-rows">${this.clips.length ? this.clips.map(([a, b], i) => `
+        <div class="clip-row" data-i="${i}"><span class="clip-idx">${i + 1}</span><span class="clip-range">${esc(fmt(a))} → ${esc(fmt(b))}</span><span class="clip-dur">${durStr(a, b)}</span><span class="clip-status hint"></span><button class="btn icon sm ghost" data-x="rm" title="Remove">${icon('trash')}</button></div>`).join('')
+        : '<p class="hint">No clips yet — drag a range on the timeline (Select range) and choose "Add to clip list", or add one below.</p>'}</div>
+      <div class="exp-range">
+        <div class="dtp-host" id="clip-start-host"></div>
+        <div class="dtp-host" id="clip-end-host"></div>
+      </div>
+      <div class="row"><button class="btn sm" data-x="addrange">${icon('plus')} Add this range</button></div>
+      <div class="form">
+        <div class="field wide"><label>Package for the whole batch</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px"><input type="radio" name="clip-pkg" value="signed" checked> Signed evidence package — clip + manifest + Ed25519 signature + offline verifier (recommended)</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="radio" name="clip-pkg" value="plain"> Plain video only, no signing</label>
+        </div>
+      </div>
+      <p class="hint" id="clip-status"></p>
+      <div class="row"><button class="btn" data-x="close">Close</button><button class="btn" data-x="clear" ${this.clips.length ? '' : 'disabled'}>Clear all</button><button class="btn primary" data-x="exportall" ${this.clips.length ? '' : 'disabled'}>${icon('download')} Export all (${this.clips.length})</button></div>
+    </div></div>`;
+
+    let rangeStart = this.currentEpoch - 15, rangeEnd = this.currentEpoch + 15;
+    const close = () => { root.innerHTML = ''; };
+    const draw = () => {
+      root.innerHTML = render();
+      root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
+      root.querySelector('[data-x=close]').addEventListener('click', close);
+      root.querySelector('[data-x=clear]')?.addEventListener('click', () => { this.clips = []; this._syncClipUi(); draw(); });
+      root.querySelectorAll('[data-x=rm]').forEach((b) => b.addEventListener('click', () => {
+        const i = +b.closest('.clip-row').dataset.i;
+        this.clips.splice(i, 1);
+        this._syncClipUi();
+        draw();
+      }));
+      new DateTimePicker(root.querySelector('#clip-start-host'), {
+        epoch: rangeStart, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'Start',
+        onChange: (e) => { rangeStart = e; },
+      });
+      new DateTimePicker(root.querySelector('#clip-end-host'), {
+        epoch: rangeEnd, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'End',
+        onChange: (e) => { rangeEnd = e; },
+      });
+      root.querySelector('[data-x=addrange]').addEventListener('click', () => {
+        if (rangeEnd <= rangeStart) { root.querySelector('#clip-status').textContent = 'End must be after start.'; return; }
+        this._addClip(rangeStart, rangeEnd);
+        draw();
+      });
+      root.querySelector('[data-x=exportall]')?.addEventListener('click', async () => {
+        const pkg = root.querySelector('input[name=clip-pkg]:checked').value;
+        const exportBtn = root.querySelector('[data-x=exportall]');
+        const clearBtn = root.querySelector('[data-x=clear]');
+        exportBtn.disabled = true; clearBtn.disabled = true;
+        const rows = [...root.querySelectorAll('.clip-row')];
+        const done = [];
+        for (let i = 0; i < this.clips.length; i++) {
+          const [a, b] = this.clips[i];
+          const statusCell = rows[i]?.querySelector('.clip-status');
+          if (statusCell) statusCell.textContent = 'Starting…';
+          try {
+            const job_id = await this._runExportOne(a, b, pkg, (msg) => { if (statusCell) statusCell.textContent = msg; });
+            if (statusCell) statusCell.innerHTML = `<a href="/api/export/${job_id}/download">${esc('Ready — download')}</a>`;
+            done.push(i);
+          } catch (e) {
+            if (statusCell) statusCell.textContent = e.message || 'Failed';
+          }
+        }
+        // Clips that exported cleanly come off the pending list, but this dialog keeps showing their rows
+        // (with a live download link each) rather than redrawing — a full re-render would rebuild the row
+        // list from the now-shorter this.clips and the just-finished download links would vanish before
+        // anyone got to click them. Only the header/count/button labels are patched in place.
+        this.clips = this.clips.filter((_, i) => !done.includes(i));
+        this._syncClipUi();
+        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported.`, done.length === rows.length ? 'ok' : 'bad');
+        root.querySelector('h3').innerHTML = `${icon('list')} Clip list — ${this.clips.length} pending`;
+        exportBtn.innerHTML = `${icon('download')} Export all (${this.clips.length})`;
+        exportBtn.disabled = this.clips.length === 0; clearBtn.disabled = this.clips.length === 0;
+      });
+    };
+    draw();
+  }
+
+  /** Runs one export job to completion (create + poll) and resolves to its job_id. Shared by the single-
+   * clip dialog and the multi-cut clipper's batch export — a batch is just this, called once per clip,
+   * in order (see _addClip's comment on why never in parallel). */
+  async _runExportOne(startEpoch, endEpoch, pkg, onProgress) {
+    const { job_id } = await api.createExport({
+      channels: this.panes.map((p) => p.cam.id),
+      start_utc: new Date(startEpoch * 1000).toISOString(),
+      end_utc: new Date(endEpoch * 1000).toISOString(),
+      package: pkg,
+    });
+    await this._pollExport(job_id, endEpoch - startEpoch, onProgress);
+    return job_id;
+  }
+
+  _pollExport(jobId, spanSec, onProgress) {
     // Must track app/export.py's own per-channel deadline (span/EXPORT_SCALE*3 + 60s, floor 60s), or a
     // genuinely-long export just errors out client-side while it's still running server-side. Camera count
     // adds queueing, not just per-channel time, so scale by pane count too, with real margin on top.
@@ -622,7 +748,7 @@ export class PlaybackView {
         try { job = await api.exportStatus(jobId); } catch (e) { reject(e); return; }
         if (job.state === 'error') { reject(new Error(job.error || 'Export failed')); return; }
         if (job.state === 'done') { resolve(); return; }
-        statusEl.textContent = job.progress || 'Working…';
+        onProgress?.(job.progress || 'Working…');
         setTimeout(tick, 1500);
       };
       tick();
