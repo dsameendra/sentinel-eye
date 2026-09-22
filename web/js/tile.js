@@ -4,6 +4,7 @@
 import { createPlayer } from './player.js';
 import { ZoomPan } from './zoom.js';
 import { esc, icon } from './ui.js';
+import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 
 // H.265 plays natively in Chrome/Edge/Safari. If a browser claims support but fails to decode (or lacks it),
 // we remember that and use the server-converted H.264 stream instead.
@@ -42,7 +43,7 @@ export class Tile {
     this.el = document.createElement('div');
     this.el.className = 'tile';
     this.el.dataset.id = cam.id;
-    this.el.innerHTML = `<div class="stage"></div>
+    this.el.innerHTML = `<div class="stage"><canvas class="enh-canvas" hidden></canvas></div>
       <div class="veil"><div class="spin"></div><div class="msg">Connecting…</div></div>
       ${opts.chrome ? `<div class="hit"></div>
       <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="dot wait"></span><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="grow"></span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span><span class="tag kind">SD</span></div>
@@ -55,17 +56,24 @@ export class Tile {
         <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
         <button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>
         <button data-a="bookmark" title="Bookmark this moment" aria-label="Bookmark this moment">${icon('flag')}</button>
+        <div class="menu-wrap enh-wrap">
+          <button data-a="enhance" title="Live enhancement (brightness/contrast/sharpen)" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button>
+        </div>
         <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
       </div>
       <div class="ev-badges"></div>` : ''}`;
     this.stage = this.el.querySelector('.stage');
     this.veil = this.el.querySelector('.veil');
+    this.enhCanvas = this.el.querySelector('.enh-canvas');
+    this.enhancer = null;
+    this.enhPreset = 'off';
     if (opts.chrome) {
       this.el.querySelector('.hit').addEventListener('click', () => opts.onFocus?.(this));
       this.el.querySelector('[data-a=quality]').addEventListener('click', (e) => { e.stopPropagation(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
       this.el.querySelector('[data-a=snap]').addEventListener('click', (e) => { e.stopPropagation(); this.snapshot(); });
       this.el.querySelector('[data-a=replay]').addEventListener('click', (e) => { e.stopPropagation(); opts.onReplay?.(this); });
       this.el.querySelector('[data-a=bookmark]').addEventListener('click', (e) => { e.stopPropagation(); opts.onBookmark?.(this); });
+      this.el.querySelector('[data-a=enhance]').addEventListener('click', (e) => { e.stopPropagation(); this._toggleEnhanceMenu(); });
       this.el.querySelector('[data-a=focus]').addEventListener('click', (e) => { e.stopPropagation(); opts.onFocus?.(this); });
       this.enableZoom(this.el.querySelector('.hit'), { dbl: false });   // a click opens the large view, so no double-click zoom here
       this.el.querySelector('[data-a=zin]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1.6); });
@@ -227,7 +235,58 @@ export class Tile {
     if (lh) { lh.hidden = !this.pend; if (this.pend) lh.firstChild.textContent = this.pend.kind === 'main' ? 'Loading HD…' : 'Loading SD…'; }
     const st = el.querySelector('.stat');
     if (st) st.textContent = this.summary();
+    this._syncEnhanceSource();
     this.opts.onUpdate?.(this);
+  }
+
+  // ---------------------------------------------------------------- L0 live enhancement (WebGL, client-side)
+  _toggleEnhanceMenu() {
+    const wrap = this.el.querySelector('.enh-wrap');
+    const open = !wrap.querySelector('.menu');
+    this.el.querySelectorAll('.enh-wrap .menu').forEach((m) => m.remove());
+    if (!open) return;
+    const menu = document.createElement('div');
+    menu.className = 'menu enh-menu';
+    menu.innerHTML = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
+      `<button data-preset="${k}" aria-pressed="${this.enhPreset === k}">${esc(p.label)}</button>`).join('');
+    wrap.append(menu);
+    menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.setEnhancePreset(b.dataset.preset);
+      menu.remove();
+    }));
+    const onDoc = (e) => { if (!wrap.contains(e.target)) { menu.remove(); document.removeEventListener('click', onDoc, true); } };
+    setTimeout(() => document.addEventListener('click', onDoc, true), 0);
+  }
+
+  setEnhancePreset(name) {
+    this.enhPreset = name;
+    const btn = this.el.querySelector('[data-a=enhance]');
+    btn?.setAttribute('aria-pressed', String(name !== 'off'));
+    if (name === 'off') {
+      this.enhancer?.stop();
+      this.enhCanvas.hidden = true;
+      return;
+    }
+    if (!this.enhancer) {
+      this.enhancer = new Enhancer(this.cur?.player.video, this.enhCanvas);
+      if (!this.enhancer.supported) { this.enhancer = null; this.enhPreset = 'off'; btn?.setAttribute('aria-pressed', 'false'); return; }
+    }
+    this.enhancer.setPreset(name);
+    this.enhCanvas.hidden = false;
+    this.enhancer.start();
+  }
+
+  /** Keep the enhancer reading from whichever player is actually visible — it changes across an SD<->HD
+   * swap — and keep the enhanced canvas's on-screen shape matching it (--ar is set on the cam-player
+   * element itself, a sibling of the canvas, so it doesn't cascade down and has to be copied across). */
+  _syncEnhanceSource() {
+    if (!this.cur) return;
+    const ar = this.cur.player.style.getPropertyValue('--ar');
+    if (ar) this.enhCanvas.style.setProperty('--ar', ar);
+    if (!this.enhancer) return;
+    const v = this.cur.player.video;
+    if (v && this.enhancer.source !== v) this.enhancer.source = v;
   }
 
   summary() {
@@ -245,14 +304,20 @@ export class Tile {
     el.innerHTML = [...kinds].map((k) => `<span class="ev-badge ${k}">${BADGE_LABEL[k] || k}</span>`).join('');
   }
 
+  /** Captures whichever picture is actually on screen — the L0-enhanced frame if enhancement is on, the
+   * original otherwise. That's "your choice" (spec 11.5): toggle enhancement, then snapshot. */
   snapshot() {
+    const enhanced = this.enhPreset !== 'off' && !this.enhCanvas.hidden;
     const v = this.cur?.player.video;
-    if (!v || !v.videoWidth) return false;
+    if (enhanced) {
+      if (!this.enhCanvas.width) return false;
+    } else if (!v || !v.videoWidth) return false;
     const c = document.createElement('canvas');
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext('2d').drawImage(v, 0, 0);
+    c.width = enhanced ? this.enhCanvas.width : v.videoWidth;
+    c.height = enhanced ? this.enhCanvas.height : v.videoHeight;
+    c.getContext('2d').drawImage(enhanced ? this.enhCanvas : v, 0, 0);
     const d = new Date(), p = (n) => String(n).padStart(2, '0');
-    const name = `${(this.cam.name || 'camera').replace(/[^\w-]+/g, '_')}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.jpg`;
+    const name = `${(this.cam.name || 'camera').replace(/[^\w-]+/g, '_')}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${enhanced ? '_ENHANCED' : ''}.jpg`;
     c.toBlob((b) => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(b); a.download = name; a.click();
@@ -264,6 +329,7 @@ export class Tile {
   dispose() {
     clearInterval(this.timer);
     this.zoom?.destroy();
+    this.enhancer?.destroy();
     this.cur?.player.dispose();
     this.pend?.player.dispose();
     this.cur = this.pend = null;
