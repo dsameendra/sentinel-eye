@@ -132,13 +132,19 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
     tz_offset = ch.get("_tz_offset_min", 330)
     tz = datetime.timezone(datetime.timedelta(minutes=tz_offset))
 
+    start_dt = datetime.datetime.fromisoformat(start_utc)
     end_dt = datetime.datetime.fromisoformat(end_utc)
+    span = (end_dt - start_dt).total_seconds()
     reader = psess.PlaybackReader(conn, ch["channel"], path, a_const, start_utc, tz, "1")
     reader.start()
 
     items = []
     try:
-        deadline = time.time() + 120  # this clip range should arrive well within 2 minutes of real time at 1x
+        # The reader delivers at ~1x (measured, not assumed: a 40s request took ~45s wall time), plus
+        # queueing time behind the DVR's 4-session pool — a flat deadline here silently truncated any
+        # export longer than it (found by an outside review, not by testing: every export tried so far
+        # happened to be under 2 minutes). Scale it to the requested span, generously.
+        deadline = time.time() + span * 1.5 + 120
         while time.time() < deadline:
             item = reader.q.get(timeout=15)
             if item is None:
@@ -154,6 +160,11 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
 
     if not items:
         raise RuntimeError(f"No footage decoded for channel {ch['channel']} in that range")
+    # A truncated capture (deadline hit, DVR disconnect, etc.) must never get signed as if it were
+    # complete — a partial "evidence package" that looks whole is worse than an outright failure.
+    if items[-1][0] < end_dt.timestamp() - 2.0:
+        got_until = datetime.datetime.fromtimestamp(items[-1][0], datetime.timezone.utc).isoformat()
+        raise RuntimeError(f"Export stopped early — only got footage through {got_until}, requested until {end_utc}")
 
     safe_name = "".join(cc if cc.isalnum() or cc in "-_" else "_" for cc in (ch.get("name") or f"ch{ch['channel']}"))
     out_file = job_dir / f"clip_{safe_name}.mp4"

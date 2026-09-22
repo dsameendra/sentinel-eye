@@ -452,9 +452,21 @@ export class PlaybackView {
           <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="radio" name="exp-pkg" value="plain"> Plain video only, no signing</label>
         </div>
       </div>
+      <p class="hint" id="exp-eta"></p>
       <p class="hint" id="exp-status"></p>
       <div class="row"><button class="btn" data-x="cancel">Cancel</button><button class="btn primary" data-x="go">${icon('download')} Export</button></div>
     </div></div>`;
+    const etaEl = root.querySelector('#exp-eta');
+    const updateEta = () => {
+      const s = parse(root.querySelector('#exp-start').value), e = parse(root.querySelector('#exp-end').value);
+      if (s == null || e == null || e <= s) { etaEl.textContent = ''; return; }
+      const span = e - s;
+      const mins = Math.ceil(span / 60);
+      etaEl.textContent = `A ${mins < 1 ? Math.round(span) + 's' : mins + 'min'} clip takes roughly that long to export (the DVR streams it at about real speed) — don't close this while it runs.`;
+    };
+    root.querySelector('#exp-start').addEventListener('input', updateEta);
+    root.querySelector('#exp-end').addEventListener('input', updateEta);
+    updateEta();
     const close = () => { root.innerHTML = ''; };
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
     root.querySelector('[data-x=cancel]').addEventListener('click', close);
@@ -467,6 +479,7 @@ export class PlaybackView {
         return;
       }
       const pkg = root.querySelector('input[name=exp-pkg]:checked').value;
+      const span = endEpoch - startEpoch;
       root.querySelector('[data-x=go]').disabled = true;
       statusEl.textContent = 'Starting export…';
       try {
@@ -476,7 +489,7 @@ export class PlaybackView {
           end_utc: new Date(endEpoch * 1000).toISOString(),
           package: pkg,
         });
-        await this._pollExport(job_id, statusEl);
+        await this._pollExport(job_id, statusEl, span);
         const a = document.createElement('a');
         a.href = `/api/export/${job_id}/download`;
         a.click();
@@ -489,11 +502,15 @@ export class PlaybackView {
     });
   }
 
-  _pollExport(jobId, statusEl) {
-    const deadline = Date.now() + 5 * 60 * 1000; // exports are bounded (<=2h of footage) but shouldn't poll forever if something hangs
+  _pollExport(jobId, statusEl, spanSec) {
+    // The DVR delivers at roughly real-time (1x), plus time queued behind the 4-session pool — this must
+    // track app/export.py's own per-channel deadline (span*1.5 + 120s), or a genuinely-long export just
+    // errors out client-side while it's still running server-side. Camera count adds queueing, not just
+    // per-channel time, so scale by pane count too, with real margin on top.
+    const deadline = Date.now() + (spanSec * 1.5 + 120) * this.panes.length * 1000;
     return new Promise((resolve, reject) => {
       const tick = async () => {
-        if (Date.now() > deadline) { reject(new Error('Export is taking too long — check Settings > Status, or try a shorter range.')); return; }
+        if (Date.now() > deadline) { reject(new Error('Export is taking much longer than expected — check Settings > Status, or try a shorter range.')); return; }
         let job;
         try { job = await api.exportStatus(jobId); } catch (e) { reject(e); return; }
         if (job.state === 'error') { reject(new Error(job.error || 'Export failed')); return; }
