@@ -18,4 +18,6 @@ export const api = {
   test: (connection, channel, kind, path = '') => call('POST', '/api/test', { connection, channel, kind, path }),
   discover: (connection) => call('POST', '/api/discover', { connection }),
   status: () => call('GET', '/api/status'),
+  createBookmark: (b) => call('POST', '/api/bookmarks', b),
+  deleteBookmark: (id) => call('DELETE', `/api/bookmarks/${id}`),
 };

@@ -166,6 +166,42 @@ async def playback_pool():
     return {"busy": psess.pool.busy, "limit": psess.pool.limit}
 
 
+class BookmarkRequest(BaseModel):
+    channels: list[str]  # our channel ids (e.g. "c1"), not DVR channel numbers
+    time_utc: str
+    title: str = ""
+    note: str = ""
+    severity: str = "info"  # info | warning | critical
+
+
+@app.post("/api/bookmarks")
+async def create_bookmark(req: BookmarkRequest):
+    """Bookmark = (time, channels[], title, note, severity, author, created) — spec section 9. No accounts yet
+    (that's the rest of M4), so `author` is a placeholder until real sessions exist. Mirrored into the events
+    table per channel (kind='bookmark') so it shows up on the timeline and in search for free."""
+    s = current()
+    chan_nums = [c.channel for c in s.channels if c.id in req.channels]
+    if not chan_nums:
+        raise HTTPException(422, "No valid channel")
+    author = "Operator"
+    bid = await run_in_threadpool(db.create_bookmark, chan_nums, req.time_utc, req.title, req.note, req.severity, author)
+    for ch in chan_nums:
+        await run_in_threadpool(db.upsert_event, "manual", ch, "bookmark", req.time_utc, req.time_utc,
+                                 None, None, {"title": req.title, "severity": req.severity, "bookmark_id": bid}, None)
+    return {"id": bid, "channels": chan_nums, "author": author}
+
+
+@app.get("/api/bookmarks")
+async def get_bookmarks(channel: int | None = None, start_utc: str = "", end_utc: str = "", limit: int = 500):
+    return await run_in_threadpool(db.list_bookmarks, channel, start_utc or None, end_utc or None, limit)
+
+
+@app.delete("/api/bookmarks/{bookmark_id}")
+async def remove_bookmark(bookmark_id: int):
+    await run_in_threadpool(db.delete_bookmark, bookmark_id)
+    return {"ok": True}
+
+
 @app.get("/api/timeline/tz")
 async def timeline_tz():
     """The DVR's UTC offset, so the calendar/time picker can show and set DVR-local dates correctly."""

@@ -1,8 +1,9 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { esc, icon, toast } from './ui.js';
+import { bookmarkDialog, esc, icon, toast } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
+import { api } from './api.js';
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -124,6 +125,7 @@ export class LiveView {
           onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
           onKindFail: (tile, kind) => toast(`${cam.name || 'Camera'}: the ${kind === 'main' ? 'HD' : 'SD'} stream could not be started. Keeping the current stream.`, 'bad', 6000),
           onReplay: () => this.openReplay(cam),
+          onBookmark: () => this.bookmarkNow(cam),
         });
         t.cellIndex = i;
         this.tiles.push(t);
@@ -254,6 +256,7 @@ export class LiveView {
           <button class="btn pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
         <button class="btn icon" data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
         <button class="btn icon" data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>
+        <button class="btn icon" data-a="bookmark" title="Bookmark this moment" aria-label="Bookmark this moment">${icon('flag')}</button>
         <button class="btn icon" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
       </div><div class="stage-host" style="position:relative;flex:1;min-height:0"></div>
@@ -270,6 +273,7 @@ export class LiveView {
     f.querySelector('[data-a=x]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
     f.querySelector('[data-a=replay]').addEventListener('click', () => this.openReplay(cam));
+    f.querySelector('[data-a=bookmark]').addEventListener('click', () => this.bookmarkNow(cam));
     f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
     f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
     f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
@@ -347,6 +351,18 @@ export class LiveView {
     } catch { /* transient network hiccup — next poll retries */ }
   }
 
+  // ---------------------------------------------------------------- bookmarks (spec section 9/11.6)
+  async bookmarkNow(cam) {
+    const r = await bookmarkDialog({ subtitle: `${cam.name || 'Camera ' + cam.channel} · right now` });
+    if (!r) return;
+    try {
+      await api.createBookmark({ channels: [cam.id], time_utc: new Date().toISOString(), ...r });
+      toast('Bookmark saved.', 'ok');
+    } catch (e) {
+      toast(e.message || 'Could not save the bookmark', 'bad');
+    }
+  }
+
   // ---------------------------------------------------------------- instant replay
   // A dedicated small overlay that opens a real playback session (WCPlayer over /api/playback/ws)
   // starting ~10s in the past and playing forward at 1x, rather than a client-side ring buffer — this
@@ -406,6 +422,7 @@ export class LiveView {
       else if (k === 'f' || k === 'F') this.toggleFullscreen(this.focus.el);
       else if (k === 's' || k === 'S') this.focus.tile.snapshot();
       else if (k === 'h' || k === 'H') this.focus.tile.setKind(this.focus.tile.kind === 'main' ? 'sub' : 'main');
+      else if (k === 'b' || k === 'B') this.bookmarkNow(this.focus.tile.cam);
       return;
     }
     if (k === 'Escape') { if (this.edit) this.toggleEdit(false); }

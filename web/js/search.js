@@ -2,10 +2,11 @@
 // alertStream — see docs/playback-spec.md section 8) by camera, kind and a DVR-local date range, and jumps
 // a result straight into Playback at that instant. Motion/line/tamper spans arrive already stitched into
 // start/end windows by app/events.py, so no further run-collapsing is needed here.
-import { esc, icon, toast } from './ui.js';
+import { esc, icon, toast, confirmDialog } from './ui.js';
 import { partsFromEpoch, epochFromParts, fetchTzOffset } from './dvrtime.js';
+import { api } from './api.js';
 
-const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss' };
+const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
 const RESULT_CAP = 500; // no server-side pagination yet — a capped result set with a "narrow your search" hint is the honest MVP
 const PRESETS = [
   ['today', 'Today'],
@@ -120,11 +121,15 @@ export class SearchView {
       const dateStr = `${start.y}-${p2(start.mo + 1)}-${p2(start.da)}`;
       const timeStr = `${p2(start.hh)}:${p2(start.mi)}:${p2(start.ss)}`;
       const endTimeStr = `${p2(end.hh)}:${p2(end.mi)}:${p2(end.ss)}`;
+      let attrs = null;
+      if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
       return `<div class="search-row" data-id="${ev.id}">
         <span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span>
         <span class="sr-cam">${esc(cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`)}</span>
+        ${attrs?.title ? `<span class="sr-title">${esc(attrs.title)}</span>` : ''}
         <span class="sr-time">${dateStr} · ${timeStr}${dur ? ` – ${endTimeStr} (${dur})` : ''}</span>
         <span class="spacer"></span>
+        ${attrs?.bookmark_id ? `<button class="btn icon ghost" data-a="delbm" data-bmid="${attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : ''}
         <button class="btn" data-a="open" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('video')} Open in playback</button>
       </div>`;
     }).join('');
@@ -133,7 +138,20 @@ export class SearchView {
     this.res.innerHTML = `<div class="search-list">${rows}</div>${capNote}`;
     this.res.querySelectorAll('.search-row').forEach((row, i) => {
       row.querySelector('[data-a=open]')?.addEventListener('click', () => this.openInPlayback(this.results[i]));
+      row.querySelector('[data-a=delbm]')?.addEventListener('click', (e) => this.deleteBookmark(+e.currentTarget.dataset.bmid));
     });
+  }
+
+  async deleteBookmark(id) {
+    const ok = await confirmDialog({ title: 'Delete bookmark?', body: 'This removes the bookmark and its marker from the timeline. This can\'t be undone.', ok: 'Delete', danger: true });
+    if (!ok) return;
+    try {
+      await api.deleteBookmark(id);
+      toast('Bookmark deleted.', 'ok');
+      this.search();
+    } catch (e) {
+      toast(e.message || 'Could not delete the bookmark', 'bad');
+    }
   }
 
   openInPlayback(ev) {

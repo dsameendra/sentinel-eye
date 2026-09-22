@@ -120,6 +120,40 @@ def upsert_event(source, channel, kind, start_utc, end_utc, confidence=None, reg
         )
 
 
+def create_bookmark(channels, time_utc, title, note, severity, author, now=None):
+    """channels: list of DVR channel numbers (ints) this bookmark applies to."""
+    import datetime
+    now = now or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with _lock:
+        cur = _conn().execute(
+            "INSERT INTO bookmarks(channels_json, time_utc, title, note, severity, author, created_utc) VALUES (?,?,?,?,?,?,?)",
+            (json.dumps(channels), time_utc, title, note, severity, author, now))
+        return cur.lastrowid
+
+
+def list_bookmarks(channel=None, start_utc=None, end_utc=None, limit=500):
+    q, params = "SELECT * FROM bookmarks WHERE 1=1", []
+    if start_utc:
+        q += " AND time_utc >= ?"; params.append(start_utc)
+    if end_utc:
+        q += " AND time_utc <= ?"; params.append(end_utc)
+    q += " ORDER BY time_utc DESC LIMIT ?"; params.append(limit)
+    out = []
+    for r in query(q, tuple(params)):
+        d = dict(r)
+        d["channels"] = json.loads(d.pop("channels_json"))
+        if channel is None or channel in d["channels"]:
+            out.append(d)
+    return out
+
+
+def delete_bookmark(bookmark_id):
+    with _lock:
+        c = _conn()
+        c.execute("DELETE FROM bookmarks WHERE id=?", (bookmark_id,))
+        c.execute("DELETE FROM events WHERE kind='bookmark' AND json_extract(attrs_json,'$.bookmark_id')=?", (bookmark_id,))
+
+
 def get_watermark(log_type):
     r = one("SELECT last_completed_day FROM backfill_watermark WHERE log_type=?", (log_type,))
     return r["last_completed_day"] if r else None

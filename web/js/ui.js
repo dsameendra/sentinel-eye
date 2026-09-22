@@ -31,6 +31,7 @@ const P = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   layout: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+  flag: '<path d="M4 22V4a1 1 0 0 1 1-1h13.5a1 1 0 0 1 .8 1.6l-3.6 4.8 3.6 4.8a1 1 0 0 1-.8 1.6H5"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -54,6 +55,35 @@ export function confirmDialog({ title, body, ok = 'Confirm', danger = false }) {
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(false); });
     root.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => done(b.dataset.x === '1')));
     root.querySelector('[data-x="1"]').focus();
+  });
+}
+
+/** Small "bookmark this moment" dialog: title, note, severity. Resolves {title, note, severity} or null on cancel. */
+export function bookmarkDialog({ subtitle = '' } = {}) {
+  return new Promise((resolve) => {
+    const root = document.getElementById('modal-root');
+    root.innerHTML = `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="Add bookmark">
+      <h3>${icon('flag')} Add bookmark</h3>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}
+      <div class="form" style="grid-template-columns:1fr">
+        <div class="field"><label for="bm-title">Title</label><input id="bm-title" type="text" placeholder="What's happening" maxlength="120"></div>
+        <div class="field"><label for="bm-note">Note (optional)</label><textarea id="bm-note" rows="3" maxlength="2000" style="resize:vertical;padding:8px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg);font:inherit;color:inherit"></textarea></div>
+        <div class="field"><label for="bm-sev">Severity</label><select id="bm-sev">
+          <option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option>
+        </select></div>
+      </div>
+      <div class="row"><button class="btn" data-x="0">Cancel</button><button class="btn primary" data-x="1">${icon('flag')} Save bookmark</button></div></div></div>`;
+    const done = (v) => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const submit = () => done({
+      title: root.querySelector('#bm-title').value.trim(),
+      note: root.querySelector('#bm-note').value.trim(),
+      severity: root.querySelector('#bm-sev').value,
+    });
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } else if (e.key === 'Enter' && e.target.id === 'bm-title') submit(); };
+    document.addEventListener('keydown', onKey, true);
+    root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(null); });
+    root.querySelector('[data-x="0"]').addEventListener('click', () => done(null));
+    root.querySelector('[data-x="1"]').addEventListener('click', submit);
+    root.querySelector('#bm-title').focus();
   });
 }
 

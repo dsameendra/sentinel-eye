@@ -320,6 +320,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .search-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
 .search-row .ev-badge { position: static; }
 .sr-cam { font-weight: 600; min-width: 130px; }
+.sr-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .sr-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 @media (max-width: 700px) {
   .search-row { flex-wrap: wrap; }

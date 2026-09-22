@@ -54,6 +54,7 @@ export class Tile {
         <button class="txt" data-a="quality" title="Switch between SD and HD">HD</button>
         <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
         <button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>
+        <button data-a="bookmark" title="Bookmark this moment" aria-label="Bookmark this moment">${icon('flag')}</button>
         <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
       </div>
       <div class="ev-badges"></div>` : ''}`;
@@ -64,6 +65,7 @@ export class Tile {
       this.el.querySelector('[data-a=quality]').addEventListener('click', (e) => { e.stopPropagation(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
       this.el.querySelector('[data-a=snap]').addEventListener('click', (e) => { e.stopPropagation(); this.snapshot(); });
       this.el.querySelector('[data-a=replay]').addEventListener('click', (e) => { e.stopPropagation(); opts.onReplay?.(this); });
+      this.el.querySelector('[data-a=bookmark]').addEventListener('click', (e) => { e.stopPropagation(); opts.onBookmark?.(this); });
       this.el.querySelector('[data-a=focus]').addEventListener('click', (e) => { e.stopPropagation(); opts.onFocus?.(this); });
       this.enableZoom(this.el.querySelector('.hit'), { dbl: false });   // a click opens the large view, so no double-click zoom here
       this.el.querySelector('[data-a=zin]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1.6); });

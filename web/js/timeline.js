@@ -4,7 +4,7 @@ import { api } from './api.js';
 
 const MIN_PX_PER_SEC = 1440 / (24 * 3600);   // whole day fits ~1440px
 const MAX_PX_PER_SEC = 200;                   // ~5ms/px at max zoom (frame-level)
-const KIND_COLOR = { motion: '#eab308', line: '#f87171', intrusion: '#f87171', tamper: '#f87171', videoloss: '#6b7280' };
+const KIND_COLOR = { motion: '#eab308', line: '#f87171', intrusion: '#f87171', tamper: '#f87171', videoloss: '#6b7280', bookmark: '#22d3ee' };
 
 const dayStr = (d) => d.toISOString().slice(0, 10);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -48,6 +48,13 @@ export class Timeline {
 
   setChannel(channel) {
     this.opts.channel = channel;
+    this._loadedRange = null;
+    this.reload();
+  }
+
+  /** Force a refetch of the current range even though it's already cached (e.g. right after adding a
+   * bookmark, so its flag appears without waiting for a pan/zoom to invalidate the cache). */
+  refresh() {
     this._loadedRange = null;
     this.reload();
   }
@@ -144,6 +151,13 @@ export class Timeline {
       const x1 = (new Date(ev.start_utc).getTime() / 1000 - t0) * this.pxPerSec;
       const x2 = (new Date(ev.end_utc).getTime() / 1000 - t0) * this.pxPerSec;
       if (x2 < -2 || x1 > w + 2) continue;
+      if (ev.kind === 'bookmark') {
+        // a small flag above the lane rather than a bar — bookmarks are an instant, not a span
+        ctx.fillStyle = KIND_COLOR.bookmark;
+        ctx.beginPath(); ctx.moveTo(x1, evY - 12); ctx.lineTo(x1 + 9, evY - 8); ctx.lineTo(x1, evY - 4); ctx.closePath(); ctx.fill();
+        ctx.fillRect(x1 - 1, evY - 12, 2, evH + 12);
+        continue;
+      }
       ctx.fillStyle = KIND_COLOR[ev.kind] || '#60a5fa';
       ctx.fillRect(x1, evY, Math.max(2, x2 - x1), evH);
     }

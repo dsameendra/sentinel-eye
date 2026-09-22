@@ -2,9 +2,10 @@
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
 import { Timeline } from './timeline.js';
-import { esc, icon, toast } from './ui.js';
+import { bookmarkDialog, esc, icon, toast } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { partsFromEpoch, epochFromParts, fetchTzOffset } from './dvrtime.js';
+import { api } from './api.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
@@ -73,6 +74,7 @@ export class PlaybackView {
             <button class="btn icon primary" data-a="playpause" title="Play / pause (Space)">${icon('play')}</button>
             <button class="btn icon" data-a="stepfwd" title="Next frame (.)">${icon('right')}</button>
             <select class="pb-speed" aria-label="Speed"></select>
+            <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
             <span class="spacer"></span>
             <button class="btn sm" data-a="now">Jump to now</button>
           </div>
@@ -116,6 +118,7 @@ export class PlaybackView {
     this.root.querySelector('[data-a=stepfwd]').addEventListener('click', () => this.stepFrame(1));
     this.root.querySelector('[data-a=stepback]').addEventListener('click', () => this.stepFrame(-1));
     this.root.querySelector('[data-a=now]').addEventListener('click', () => this.seekTo(Date.now() / 1000 - 5, true));
+    this.root.querySelector('[data-a=bookmark]').addEventListener('click', () => this.bookmarkHere());
     for (const s of REWIND_MACROS) this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
 
     this._bindTimeInputs();
@@ -394,6 +397,28 @@ export class PlaybackView {
     else if (e.shiftKey && e.key === '1') this.seekTo(this.currentEpoch - 5);
     else if (e.shiftKey && e.key === '2') this.seekTo(this.currentEpoch - 10);
     else if (e.shiftKey && e.key === '3') this.seekTo(this.currentEpoch - 30);
+    else if (e.key === 'b' || e.key === 'B') this.bookmarkHere();
+  }
+
+  // ---------------------------------------------------------------- bookmarks (spec section 9)
+  async bookmarkHere() {
+    if (!this.panes.length) return;
+    const subtitle = this.panes.length === 1
+      ? `${esc(this.primary.name || 'Camera ' + this.primary.channel)} · ${this.timeEl.textContent}`
+      : `${this.panes.length} cameras · ${this.timeEl.textContent}`;
+    const r = await bookmarkDialog({ subtitle });
+    if (!r) return;
+    try {
+      await api.createBookmark({
+        channels: this.panes.map((p) => p.cam.id),
+        time_utc: new Date(this.currentEpoch * 1000).toISOString(),
+        ...r,
+      });
+      toast('Bookmark saved.', 'ok');
+      this.timeline?.refresh();
+    } catch (e) {
+      toast(e.message || 'Could not save the bookmark', 'bad');
+    }
   }
 
   destroy() {
