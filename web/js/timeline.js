@@ -269,11 +269,19 @@ export class Timeline {
   _updateTip(e) {
     const ev = this._hitTest(e.clientX, e.clientY);
     this.hovered = ev;
-    if (!ev) { this._hideTip(); return; }
     const fmt = (iso) => new Date(iso).toLocaleString(undefined, { timeZone: this.opts.tz, hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
-    const when = durSec < 1 ? fmt(ev.start_utc) : `${fmt(ev.start_utc)} → ${fmt(ev.end_utc)}`;
-    this.tip.innerHTML = `<b>${esc(KIND_LABEL[ev.kind] || ev.kind)}</b><span>${esc(when)}</span>`;
+    if (ev) {
+      const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
+      const when = durSec < 1 ? fmt(ev.start_utc) : `${fmt(ev.start_utc)} → ${fmt(ev.end_utc)}`;
+      this.tip.innerHTML = `<b>${esc(KIND_LABEL[ev.kind] || ev.kind)}</b><span>${esc(when)}</span>`;
+      this.canvas.style.cursor = 'pointer';
+    } else {
+      // No event under the pointer — still show what time this point on the timeline is, so hovering
+      // anywhere (not just a marker) tells you what clicking there would seek to.
+      if (this.cursorTime == null) { this._hideTip(); return; }
+      this.tip.innerHTML = `<span>${esc(fmt(new Date(this.cursorTime * 1000).toISOString()))}</span>`;
+      this.canvas.style.cursor = 'crosshair';
+    }
     this.tip.hidden = false;
     const hostRect = this.el.getBoundingClientRect();
     let left = e.clientX - hostRect.left + 12;
@@ -281,7 +289,6 @@ export class Timeline {
     if (left + tw > hostRect.width - 8) left = e.clientX - hostRect.left - tw - 12;
     this.tip.style.left = `${Math.max(4, left)}px`;
     this.tip.style.top = `${Math.max(2, 28 - 34)}px`;
-    this.canvas.style.cursor = 'pointer';
   }
 
   _hideTip() {
