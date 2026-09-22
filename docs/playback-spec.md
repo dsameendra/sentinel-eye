@@ -295,6 +295,11 @@ decrypted the same way live/playback video already is. You get to pick the conta
 Default going forward: **① for anything that might matter later, ② for a quick look**. Batches (the multi-cut
 clipper) can mix — each range in a batch can carry its own choice, or you set one for the whole batch.
 
+**Status (M4):** ① and ② are built and verified — single-range only (the multi-cut batch UI is not built
+yet); ③ is not built (needs the ISAPI native-download endpoint, not yet reverse-engineered); the optional
+`player.html` is not built. `manifest.json` does not yet carry "any enhancement applied" (nothing upstream
+produces enhanced footage yet — that's M5/M6).
+
 ---
 
 ## 11. Benefits for the live view (built from the same parts)
@@ -337,6 +342,15 @@ to build as written.
 | **M2 multi-camera sync (≤4) + live-view upgrades** | Group player (≤4 panes, session queue, strict-sync, detach), seamless grid↔focus, instant-replay ring, live event badges | The frame each pane paints is compared by its **RTP-derived absolute timestamp** (section 2.4), not the on-screen clock: median cross-pane skew < 1 frame over 30 min, logged continuously — the burned-in clock (1 s resolution) is used only as a periodic spot-check, not the measurement itself; a 5th requested pane queues visibly, never errors; focus↔grid never shows a black frame |
 | **M3 event search** | Unified index, live-forward AI on opted-in channels, region/attribute search, skip-empty, background scan job, `smartSearch` spike | Region search on indexed footage returns in < 1 s; scan job on un-indexed history reports progress and completes; skip-empty behaviour matches the index-vs-log distinction in feature 4 |
 | **M4 clipper + export + accounts** | Multi-cut clipper, all three export options, bookmarks/incidents, user accounts + HTTPS + audit log, live sync | Exported clip is frame-identical to source (decode-compare); verifier catches a 1-bit change; two logged-in browsers see each other's bookmark in < 1 s |
+
+**Status:** M0-M2 complete and verified. **M3 is only partially built** — the alarm/log event search UI
+(camera/kind/date-range filters, deep-links into playback) is done; live-forward AI indexing, region/attribute
+search, skip-empty, the background scan job, and the `smartSearch` spike are not started (resequenced after
+M4 at your request — see the "M4 first, AI-indexing after" decision). **M4 is split into three separately-
+shipped pieces**, not one commit: bookmarks (done), clipper + export options ①② (done, single-range only —
+the multi-cut batch UI and option ③ are not built), and accounts + HTTPS + audit log + live sync (not
+started). `author`/`operator` on bookmarks and exports is currently a placeholder ("Operator") pending real
+sessions.
 | **M5 enhancement L0 + L1** | WebGL live-adjust chain + presets; ffmpeg/OpenCV multi-frame fusion/denoise | Real-time at 1080p on this Mac; L1 measurably improves a test plate crop; originals never modified |
 | **M6 AI depth + L2** | Attribute model, loitering/counter-flow, ML enhancement (super-resolution, low-light, denoise) | Precision/recall reported on a hand-labelled 1-hour sample from your cameras; every L2 output is tagged "ENHANCED" and ships with the untouched original |
 
