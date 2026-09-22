@@ -75,11 +75,20 @@ export class Enhancer {
   get supported() { return !!this.gl; }
 
   _initGL() {
-    const gl = this.canvas.getContext('webgl', { premultipliedAlpha: false }) || this.canvas.getContext('experimental-webgl');
+    const gl = this.canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true })
+      || this.canvas.getContext('experimental-webgl');
     if (!gl) return; // caller falls back to leaving the plain source visible — never a hard failure
     this.gl = gl;
     const vs = this._shader(gl.VERTEX_SHADER, VERT_SRC);
     const fs = this._shader(gl.FRAGMENT_SHADER, FRAG_SRC);
+    // A shader that fails to compile still lets createProgram/linkProgram run, and LINK_STATUS can pass
+    // with a program that renders nothing — checked directly (not assumed) after finding readPixels come
+    // back zero during verification. Without this check, that failure mode is a canvas that silently
+    // covers the live picture with nothing, not a caught error.
+    if (!vs || !fs || !gl.getShaderParameter(vs, gl.COMPILE_STATUS) || !gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+      this.gl = null;
+      return;
+    }
     const prog = gl.createProgram();
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
