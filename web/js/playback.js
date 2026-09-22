@@ -4,13 +4,12 @@
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, esc, icon, toast } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
-import { partsFromEpoch, epochFromParts, fetchTzOffset } from './dvrtime.js';
+import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
+import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
 const EXPORT_SCALE = 16; // must match app/export.py's EXPORT_SCALE — the DVR delivers full frames this fast during export (measured)
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -25,8 +24,7 @@ export class PlaybackView {
     this.currentEpoch = startEpoch ? +startEpoch : Date.now() / 1000 - 30;
     this.speed = '1';
     this.tzOffsetMin = 330; // Asia/Kolkata default until /api/timeline/tz answers
-    this.calView = null;
-    this.coverageDays = new Map(); // 'YYYY-MM-DD' -> bool (has any recording), for the primary camera
+    this.datePicker = null;        // DateTimePicker bound to the primary camera's coverage
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.onKey = (e) => this._key(e);
     document.addEventListener('keydown', this.onKey);
@@ -49,8 +47,6 @@ export class PlaybackView {
       return;
     }
     const first = cams.find((c) => c.id === channelId) || cams[0];
-    const parts = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
-    this.calView = { y: parts.y, mo: parts.mo };
 
     this.root.innerHTML = `<div class="pb">
       <div class="pb-body">
@@ -84,15 +80,12 @@ export class PlaybackView {
         <aside class="pb-side pb-side-right">
           <h3>Jump to date &amp; time</h3>
           <div class="pb-cal"></div>
-          <div class="time-inputs">
-            <div class="time-field"><input type="number" min="0" max="23" class="t-hh"><label>hh</label></div>
-            <span class="time-sep">:</span>
-            <div class="time-field"><input type="number" min="0" max="59" class="t-mm"><label>mm</label></div>
-            <span class="time-sep">:</span>
-            <div class="time-field"><input type="number" min="0" max="59" class="t-ss"><label>ss</label></div>
-          </div>
           <p class="hint">Pick a day, then a time — it jumps straight there.</p>
         </aside>
+      </div>
+      <div class="pb-timeline-bar">
+        <button class="btn sm" data-a="selectrange" title="Drag on the timeline to pick a range, then export it">${icon('layout')} Select range to export</button>
+        <span class="hint" id="pbtl-hint"></span>
       </div>
       <div class="pb-timeline"></div>
     </div>`;
@@ -114,6 +107,13 @@ export class PlaybackView {
     this.timeline = new Timeline(this.root.querySelector('.pb-timeline'), {
       channel: first.channel, tz: 'Asia/Kolkata',
       onSeek: (iso) => this.seekTo(new Date(iso).getTime() / 1000),
+      onRangeSelect: (a, b) => { this._setSelectRangeMode(false); this.openExportDialog([a, b]); },
+    });
+    this.root.querySelector('[data-a=selectrange]').addEventListener('click', () => this._setSelectRangeMode(!this.timeline.selectMode));
+
+    this.datePicker = new DateTimePicker(this.root.querySelector('.pb-cal'), {
+      epoch: this.currentEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: first.channel,
+      onChange: (epoch) => this.seekTo(epoch),
     });
 
     this.root.querySelector('[data-a=playpause]').addEventListener('click', () => this.togglePlay());
@@ -124,7 +124,6 @@ export class PlaybackView {
     this.root.querySelector('[data-a=export]').addEventListener('click', () => this.openExportDialog());
     for (const s of REWIND_MACROS) this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
 
-    this._bindTimeInputs();
     this._renderCamList();
     this._setSelection([first.id]);
     this._pollPool();
@@ -164,7 +163,7 @@ export class PlaybackView {
     this._layoutPanes();
     this._renderCamList();
     this.timeline?.setChannel(this.primary.channel);
-    if (primaryChanged) this._loadCalendarMonth();
+    if (primaryChanged) this.datePicker?.setChannel(this.primary.channel);
     // Keep the current position in the URL (not just the camera) so a deep link from search survives a
     // refresh. This is the view syncing its own address as state changes, not a navigation, so replace
     // rather than push — otherwise every camera toggle fills history with entries that all render this
@@ -213,69 +212,12 @@ export class PlaybackView {
     for (const p of this.panes) this.stage.append(p.el);
   }
 
-  // ---------------------------------------------------------------- calendar + time panel
-  _bindTimeInputs() {
-    const hh = this.root.querySelector('.t-hh'), mm = this.root.querySelector('.t-mm'), ss = this.root.querySelector('.t-ss');
-    const commit = () => {
-      const p = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
-      const H = clampInt(hh.value, 0, 23, p.hh), M = clampInt(mm.value, 0, 59, p.mi), S = clampInt(ss.value, 0, 59, p.ss);
-      this.seekTo(epochFromParts(p.y, p.mo, p.da, H, M, S, this.tzOffsetMin));
-    };
-    for (const inp of [hh, mm, ss]) {
-      inp.addEventListener('change', commit);
-      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { commit(); inp.blur(); } });
-    }
-  }
-
-  async _loadCalendarMonth() {
-    const { y, mo } = this.calView;
-    const first = new Date(Date.UTC(y, mo, 1));
-    const last = new Date(Date.UTC(y, mo + 1, 0));
-    try {
-      const cov = await fetch(`/api/timeline/coverage?channel=${this.primary.channel}&from_day=${iso(first)}&to_day=${iso(last)}`).then((r) => r.json());
-      this.coverageDays = new Map(Object.entries(cov).map(([d, spans]) => [d, spans.length > 0]));
-    } catch { this.coverageDays = new Map(); }
-    this._renderCalendar();
-  }
-
-  _renderCalendar() {
-    const host = this.root.querySelector('.pb-cal');
-    const { y, mo } = this.calView;
-    const sel = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
-    const today = partsFromEpoch(Date.now() / 1000, this.tzOffsetMin);
-    const firstWeekday = new Date(Date.UTC(y, mo, 1)).getUTCDay();
-    const daysInMonth = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
-    const cells = [];
-    for (let i = 0; i < firstWeekday; i++) cells.push('<span class="cal-day empty"></span>');
-    for (let d = 1; d <= daysInMonth; d++) {
-      const key = `${y}-${pad2(mo + 1)}-${pad2(d)}`;
-      const has = this.coverageDays.get(key);
-      const isSel = sel.y === y && sel.mo === mo && sel.da === d;
-      const isToday = today.y === y && today.mo === mo && today.da === d;
-      cells.push(`<button class="cal-day${has ? ' has' : ''}${isSel ? ' sel' : ''}${isToday ? ' today' : ''}" data-day="${d}" ${has ? '' : 'disabled'} title="${has ? 'Recordings available' : 'No recordings'}">${d}</button>`);
-    }
-    host.innerHTML = `<div class="cal-head">
-        <button class="btn sm icon ghost" data-a="prevmonth" aria-label="Previous month">${icon('left')}</button>
-        <span class="cal-label">${MONTHS[mo]} ${y}</span>
-        <button class="btn sm icon ghost" data-a="nextmonth" aria-label="Next month">${icon('right')}</button>
-      </div>
-      <div class="cal-week">${WEEKDAYS.map((w) => `<span>${w}</span>`).join('')}</div>
-      <div class="cal-grid">${cells.join('')}</div>`;
-    host.querySelector('[data-a=prevmonth]').addEventListener('click', () => { this._shiftMonth(-1); });
-    host.querySelector('[data-a=nextmonth]').addEventListener('click', () => { this._shiftMonth(1); });
-    host.querySelectorAll('.cal-day.has').forEach((b) => b.addEventListener('click', () => {
-      const day = +b.dataset.day;
-      const p = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
-      this.seekTo(epochFromParts(y, mo, day, p.hh, p.mi, p.ss, this.tzOffsetMin));
-    }));
-  }
-
-  _shiftMonth(delta) {
-    let { y, mo } = this.calView;
-    mo += delta;
-    if (mo < 0) { mo = 11; y--; } else if (mo > 11) { mo = 0; y++; }
-    this.calView = { y, mo };
-    this._loadCalendarMonth();
+  _setSelectRangeMode(on) {
+    this.timeline?.setSelectMode(on);
+    const btn = this.root.querySelector('[data-a=selectrange]');
+    const hint = this.root.querySelector('#pbtl-hint');
+    btn?.setAttribute('aria-pressed', String(on));
+    if (hint) hint.textContent = on ? 'Drag across the timeline to pick a range…' : '';
   }
 
   // ---------------------------------------------------------------- playback control (applies to every pane)
@@ -299,9 +241,7 @@ export class PlaybackView {
     this.currentEpoch = epoch;
     this._renderTime();
     this.timeline?.setPlayhead(epoch);
-    const p = partsFromEpoch(epoch, this.tzOffsetMin);
-    if (p.y !== this.calView.y || p.mo !== this.calView.mo) { this.calView = { y: p.y, mo: p.mo }; this._loadCalendarMonth(); }
-    else this._renderCalendar();
+    this.datePicker?.setEpoch(epoch, { silent: true });
     if (!this.playing && !forceReconnect) return;
     const iso = new Date(epoch * 1000).toISOString();
     this.playing = true;
@@ -379,13 +319,7 @@ export class PlaybackView {
   _renderTime() {
     const p = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
     this.timeEl.textContent = `${p.y}-${pad2(p.mo + 1)}-${pad2(p.da)}  ${pad2(p.hh)}:${pad2(p.mi)}:${pad2(p.ss)}`;
-    const hh = this.root.querySelector('.t-hh'), mm = this.root.querySelector('.t-mm'), ss = this.root.querySelector('.t-ss');
-    if (hh && document.activeElement !== hh) hh.value = pad2(p.hh);
-    if (mm && document.activeElement !== mm) mm.value = pad2(p.mi);
-    if (ss && document.activeElement !== ss) ss.value = pad2(p.ss);
-    this.root.querySelectorAll('.cal-day.sel').forEach((el) => el.classList.remove('sel'));
-    const cell = this.root.querySelector(`.cal-day[data-day="${p.da}"]`);
-    if (cell && this.calView.y === p.y && this.calView.mo === p.mo) cell.classList.add('sel');
+    this.datePicker?.syncDisplay(this.currentEpoch);
   }
 
   _paintPlayIcon() {
@@ -429,25 +363,20 @@ export class PlaybackView {
   // deferred rather than built half-way). Reuses a real DVR playback session per channel (the export
   // engine runs through the same 4-session pool as any playback pane), so it can queue behind other
   // playback/export activity exactly like opening a 5th pane would.
-  openExportDialog() {
+  /** @param range optional [startEpoch, endEpoch] — e.g. from a timeline drag-select; defaults to ±15s around now. */
+  openExportDialog(range) {
     if (!this.panes.length) return;
+    let startEpoch = range?.[0] ?? this.currentEpoch - 15;
+    let endEpoch = range?.[1] ?? this.currentEpoch + 15;
     const root = document.getElementById('modal-root');
-    const fmt = (epoch) => {
-      const p = partsFromEpoch(epoch, this.tzOffsetMin), z = (n) => String(n).padStart(2, '0');
-      return `${p.y}-${z(p.mo + 1)}-${z(p.da)}T${z(p.hh)}:${z(p.mi)}:${z(p.ss)}`;
-    };
-    const parse = (v) => {
-      const m = v.match(/^(\d+)-(\d+)-(\d+)T(\d+):(\d+)(?::(\d+))?$/);
-      if (!m) return null;
-      const [, y, mo, da, hh, mi, ss] = m.map(Number);
-      return epochFromParts(y, mo - 1, da, hh, mi, ss || 0, this.tzOffsetMin);
-    };
-    root.innerHTML = `<div class="scrim"><div class="dialog" style="width:min(480px,100%)" role="dialog" aria-modal="true" aria-label="Export clip">
+    root.innerHTML = `<div class="scrim"><div class="dialog exp-dialog" style="width:min(620px,100%)" role="dialog" aria-modal="true" aria-label="Export clip">
       <h3>${icon('download')} Export clip</h3>
       <p>${this.panes.length} camera${this.panes.length > 1 ? 's' : ''}: ${esc(this.panes.map((p) => p.cam.name || 'Camera ' + p.cam.channel).join(', '))}. Up to 2 hours per export.</p>
+      <div class="exp-range">
+        <div class="dtp-host" id="exp-start-host"></div>
+        <div class="dtp-host" id="exp-end-host"></div>
+      </div>
       <div class="form">
-        <div class="field"><label for="exp-start">Start (DVR local time)</label><input id="exp-start" type="datetime-local" step="1" value="${fmt(this.currentEpoch - 15)}"></div>
-        <div class="field"><label for="exp-end">End (DVR local time)</label><input id="exp-end" type="datetime-local" step="1" value="${fmt(this.currentEpoch + 15)}"></div>
         <div class="field wide"><label>Package</label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px"><input type="radio" name="exp-pkg" value="signed" checked> Signed evidence package — clip + manifest + Ed25519 signature + offline verifier (recommended)</label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="radio" name="exp-pkg" value="plain"> Plain video only, no signing</label>
@@ -457,32 +386,36 @@ export class PlaybackView {
       <p class="hint" id="exp-status"></p>
       <div class="row"><button class="btn" data-x="cancel">Cancel</button><button class="btn primary" data-x="go">${icon('download')} Export</button></div>
     </div></div>`;
+
     const etaEl = root.querySelector('#exp-eta');
+    const goBtn = root.querySelector('[data-x=go]');
     const updateEta = () => {
-      const s = parse(root.querySelector('#exp-start').value), e = parse(root.querySelector('#exp-end').value);
-      if (s == null || e == null || e <= s) { etaEl.textContent = ''; return; }
-      const span = e - s;
+      if (endEpoch <= startEpoch) { etaEl.textContent = 'End must be after start.'; goBtn.disabled = true; return; }
+      goBtn.disabled = false;
+      const span = endEpoch - startEpoch;
       const etaSec = Math.max(10, span / EXPORT_SCALE); // the DVR delivers at ~16x during export — see app/export.py
       const etaText = etaSec < 60 ? `${Math.ceil(etaSec)}s` : `${Math.ceil(etaSec / 60)}min`;
       etaEl.textContent = `Exports at ~${EXPORT_SCALE}x — expect roughly ${etaText}. Don't close this while it runs.`;
     };
-    root.querySelector('#exp-start').addEventListener('input', updateEta);
-    root.querySelector('#exp-end').addEventListener('input', updateEta);
+    const startPicker = new DateTimePicker(root.querySelector('#exp-start-host'), {
+      epoch: startEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'Start',
+      onChange: (e) => { startEpoch = e; updateEta(); },
+    });
+    const endPicker = new DateTimePicker(root.querySelector('#exp-end-host'), {
+      epoch: endEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'End',
+      onChange: (e) => { endEpoch = e; updateEta(); },
+    });
     updateEta();
+
     const close = () => { root.innerHTML = ''; };
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
     root.querySelector('[data-x=cancel]').addEventListener('click', close);
-    root.querySelector('[data-x=go]').addEventListener('click', async () => {
-      const startEpoch = parse(root.querySelector('#exp-start').value);
-      const endEpoch = parse(root.querySelector('#exp-end').value);
+    goBtn.addEventListener('click', async () => {
       const statusEl = root.querySelector('#exp-status');
-      if (startEpoch == null || endEpoch == null || endEpoch <= startEpoch) {
-        statusEl.textContent = 'End must be after start.';
-        return;
-      }
+      if (endEpoch <= startEpoch) { statusEl.textContent = 'End must be after start.'; return; }
       const pkg = root.querySelector('input[name=exp-pkg]:checked').value;
       const span = endEpoch - startEpoch;
-      root.querySelector('[data-x=go]').disabled = true;
+      goBtn.disabled = true;
       statusEl.textContent = 'Starting export…';
       try {
         const { job_id } = await api.createExport({
@@ -499,7 +432,7 @@ export class PlaybackView {
         close();
       } catch (e) {
         statusEl.textContent = e.message || 'Export failed.';
-        root.querySelector('[data-x=go]').disabled = false;
+        goBtn.disabled = false;
       }
     });
   }
@@ -532,9 +465,3 @@ export class PlaybackView {
     this.root.innerHTML = '';
   }
 }
-
-function clampInt(v, lo, hi, fallback) {
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
-}
-function iso(d) { return d.toISOString().slice(0, 10); }

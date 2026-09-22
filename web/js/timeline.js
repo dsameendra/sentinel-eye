@@ -23,10 +23,21 @@ export class Timeline {
     this.coverage = new Map();   // day -> spans
     this.events = [];
     this._loadedRange = null;
+    this.selectMode = false;   // when true, drag draws a range instead of panning (spec 10: select-to-export)
+    this.selection = null;     // [startEpoch, endEpoch] while dragging or just after
     this.ro = new ResizeObserver(() => this.draw());
     this.ro.observe(el);
     this._bind();
     this.reload();
+  }
+
+  /** Turns select-to-export drag mode on/off. While on, dragging the timeline draws a range instead of
+   * panning; releasing calls opts.onRangeSelect(startEpoch, endEpoch) once and turns select mode back off. */
+  setSelectMode(on) {
+    this.selectMode = on;
+    this.selection = null;
+    this.canvas.style.cursor = on ? 'crosshair' : '';
+    this.draw();
   }
 
   // ---------------------------------------------------------------- data
@@ -69,14 +80,27 @@ export class Timeline {
     const c = this.canvas;
     c.addEventListener('wheel', (e) => this._wheel(e), { passive: false });
     let drag = null;
+    const timeAt = (clientX) => {
+      const r = c.getBoundingClientRect();
+      return this.center + (clientX - r.left - c.clientWidth / 2) / this.pxPerSec;
+    };
     c.addEventListener('pointerdown', (e) => {
+      if (this.selectMode) {
+        drag = { startTime: timeAt(e.clientX) };
+        this.selection = [drag.startTime, drag.startTime];
+        c.setPointerCapture(e.pointerId);
+        return;
+      }
       drag = { x: e.clientX, center: this.center, moved: 0 };
       c.setPointerCapture(e.pointerId);
     });
     c.addEventListener('pointermove', (e) => {
-      const r = c.getBoundingClientRect();
-      this.cursorTime = this.center + (e.clientX - r.left - c.clientWidth / 2) / this.pxPerSec;
-      if (drag) {
+      this.cursorTime = timeAt(e.clientX);
+      if (drag && this.selectMode) {
+        const t = timeAt(e.clientX);
+        this.selection = [Math.min(drag.startTime, t), Math.max(drag.startTime, t)];
+        this.draw();
+      } else if (drag) {
         const dx = e.clientX - drag.x;
         drag.moved += Math.abs(dx);
         this.center = drag.center - dx / this.pxPerSec;
@@ -84,9 +108,18 @@ export class Timeline {
       } else this.draw();
     });
     c.addEventListener('pointerup', (e) => {
+      if (drag && this.selectMode) {
+        const [a, b] = this.selection || [];
+        this.selectMode = false;
+        c.style.cursor = '';
+        drag = null;
+        if (a != null && b - a > 0.5) this.opts.onRangeSelect?.(a, b);
+        else this.selection = null;
+        this.draw();
+        return;
+      }
       if (drag && drag.moved < 4) {
-        const r = c.getBoundingClientRect();
-        const t = this.center + (e.clientX - r.left - c.clientWidth / 2) / this.pxPerSec;
+        const t = timeAt(e.clientX);
         this.opts.onSeek?.(new Date(t * 1000).toISOString());
       }
       drag = null;
@@ -178,6 +211,15 @@ export class Timeline {
     if (this.cursorTime != null) {
       const x = (this.cursorTime - t0) * this.pxPerSec;
       ctx.strokeStyle = text; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    // in-progress or just-finished range selection
+    if (this.selection) {
+      const [a, b] = this.selection;
+      const x1 = (a - t0) * this.pxPerSec, x2 = (b - t0) * this.pxPerSec;
+      ctx.fillStyle = accent + '33';
+      ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
+      ctx.strokeStyle = accent;
+      ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, h); ctx.moveTo(x2, 0); ctx.lineTo(x2, h); ctx.stroke();
     }
     // playhead
     if (this.playhead != null) {

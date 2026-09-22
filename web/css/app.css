@@ -272,6 +272,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-transport .btn.icon .u { font-size: 9px; margin-left: 1px; opacity: .7; }
 .pb-transport select.pb-speed { height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); }
 .pb-time { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 500; }
+.pb-timeline-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel-2); }
 .pb-timeline { flex: none; height: 90px; border-top: 1px solid var(--line); background: var(--panel); }
 .pb-timeline canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
 .pb-source { display: none; }
@@ -279,6 +280,11 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 
 /* calendar + time jump panel */
 .pb-cal { display: flex; flex-direction: column; gap: 6px; }
+.dtp { display: flex; flex-direction: column; gap: 6px; }
+.dtp-label { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.exp-range { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 4px 0 16px; }
+.exp-range .dtp-host { min-width: 0; }
+@media (max-width: 560px) { .exp-range { grid-template-columns: 1fr; } }
 .cal-head { display: flex; align-items: center; justify-content: space-between; }
 .cal-label { font-weight: 600; font-size: 13px; }
 .cal-week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 11px; padding: 2px 0; }
