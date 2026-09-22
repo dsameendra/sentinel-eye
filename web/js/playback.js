@@ -342,7 +342,8 @@ export class PlaybackView {
   _layoutPanes() {
     this.panesEl.innerHTML = '';
     const n = this.panes.length;
-    this.panesEl.className = 'pb-panes' + (n > 1 ? ' multi' : '');
+    const fill = this.ctx.settings().display.fit === 'cover'; // same setting live view uses (Settings > Display > Picture & behaviour)
+    this.panesEl.className = 'pb-panes' + (n > 1 ? ' multi' : '') + (fill ? ' fill' : '');
     this.panesEl.style.gridTemplateColumns = n <= 1 ? '1fr' : n === 2 ? 'repeat(2, 1fr)' : n === 3 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)';
     this.panesEl.style.gridTemplateRows = n <= 2 ? '1fr' : 'repeat(2, 1fr)';
     for (const p of this.panes) this.panesEl.append(p.el);

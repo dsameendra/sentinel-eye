@@ -289,6 +289,11 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-pic > * { grid-area: 1 / 1; } /* without this, the two canvases (raw + enhanced) aren't guaranteed the same grid cell and can size independently — confirmed as the cause of a real mismatch under zoom */
 .pb-pane.zanim .pb-pic { transition: transform .2s ease; }
 .pb-pane canvas { max-width: 100%; max-height: 100%; display: block; }
+/* Settings > Display > Picture & behaviour "Fill tile" — the same setting live view's .wall.fill already
+   uses, applied here too. min-width/min-height with width/height:auto is the standard replaced-element
+   "cover" technique: the canvas scales up (preserving its own aspect ratio) until BOTH dimensions satisfy
+   their minimum, so it fills the pane edge-to-edge and crops via the pane's own overflow:hidden. */
+.pb-panes.fill .pb-pane canvas { max-width: none; max-height: none; min-width: 100%; min-height: 100%; width: auto; height: auto; }
 .pb-pane .enh-canvas { pointer-events: none; z-index: 1; }
 .pb-pane .hitzone { position: absolute; inset: 0; z-index: 3; }
 /* Top-right rather than bottom-right: the playback transport is a floating overlay at the bottom of the
