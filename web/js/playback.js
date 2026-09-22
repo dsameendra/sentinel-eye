@@ -402,6 +402,9 @@ export class PlaybackView {
     else if (e.shiftKey && e.key === '1') this.seekTo(this.currentEpoch - 5);
     else if (e.shiftKey && e.key === '2') this.seekTo(this.currentEpoch - 10);
     else if (e.shiftKey && e.key === '3') this.seekTo(this.currentEpoch - 30);
+    else if (e.shiftKey && e.key === '4') this.seekTo(this.currentEpoch + 5);
+    else if (e.shiftKey && e.key === '5') this.seekTo(this.currentEpoch + 10);
+    else if (e.shiftKey && e.key === '6') this.seekTo(this.currentEpoch + 30);
     else if (e.key === 'b' || e.key === 'B') this.bookmarkHere();
   }
 
