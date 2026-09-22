@@ -19,15 +19,24 @@ const MODES = [
 export function openEnhancePopup(opts) {
   const root = document.getElementById('modal-root');
   let mode = 'auto';
+  // Off by default (spec: multi-frame fusion helps a static/noisy scene but can soften a moving subject
+  // even with the motion-adaptive weighting — see app/enhance_ai.py's _align_and_fuse. Single-frame is the
+  // safer default; fusion is there to turn on for a specifically noisy, mostly-static frame.
+  let fuse = false;
   let showingSource = false;
   let zoom = null;
   let job = null; // { job_id, resultUrl, sourceUrl, faces_found }
+  const burst = opts.images;                 // the full grabbed burst, oldest -> newest
+  const single = [burst[Math.floor(burst.length / 2)]]; // the exact paused frame — the middle of an odd-length burst
 
   const when = opts.atUtc ? new Date(opts.atUtc).toLocaleString(undefined, { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
   root.innerHTML = `<div class="scrim enh-scrim"><div class="enh-viewer" role="dialog" aria-modal="true" aria-label="Frame enhancer">
     <div class="enh-top">
-      <div class="enh-title">${icon('scan')} Frame Enhancer <span class="hint">${esc(when)}${opts.images.length > 1 ? ` · ${opts.images.length} frames fused` : ''}</span></div>
+      <div class="enh-title">${icon('scan')} Frame Enhancer <span class="hint enh-frametext"></span></div>
+      ${burst.length > 1 ? `<label class="enh-fuse" title="Blend ${burst.length} nearby frames to reduce noise on static content — off by default because it can soften a moving subject even with motion-aware blending.">
+        <input type="checkbox" data-x="fuse"> Combine ${burst.length} frames (denoise)
+      </label>` : ''}
       <div class="seg enh-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${esc(l)}</button>`).join('')}</div>
       <div class="enh-topactions">
         <button class="btn sm" data-x="fullscreen" title="Full screen">${icon('fullscreen')}</button>
@@ -101,6 +110,16 @@ export function openEnhancePopup(opts) {
     run();
   }));
 
+  root.querySelector('[data-x=fuse]')?.addEventListener('change', (e) => {
+    fuse = e.target.checked;
+    run();
+  });
+
+  function updateFrameText() {
+    const el = root.querySelector('.enh-frametext');
+    if (el) el.textContent = when + (fuse ? ` · ${burst.length} frames combined` : ' · single frame');
+  }
+
   toggleBtn.addEventListener('click', () => {
     showingSource = !showingSource;
     applyImage();
@@ -144,6 +163,7 @@ export function openEnhancePopup(opts) {
   });
 
   async function run() {
+    updateFrameText();
     loading.hidden = false;
     loading.querySelector('.msg').textContent = 'Starting…';
     img.hidden = true;
@@ -155,7 +175,7 @@ export function openEnhancePopup(opts) {
     statusEl.textContent = '';
     showingSource = false;
     try {
-      const { job_id } = await api.createEnhance({ channel: opts.channel, at_utc: opts.atUtc || '', mode, images: opts.images });
+      const { job_id } = await api.createEnhance({ channel: opts.channel, at_utc: opts.atUtc || '', mode, images: fuse ? burst : single });
       let j;
       try {
         j = await poll(job_id);
