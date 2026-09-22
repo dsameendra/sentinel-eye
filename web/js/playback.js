@@ -75,6 +75,7 @@ export class PlaybackView {
             <button class="btn icon" data-a="stepfwd" title="Next frame (.)">${icon('right')}</button>
             <select class="pb-speed" aria-label="Speed"></select>
             <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
+            <button class="btn sm" data-a="export">${icon('download')} Export clip</button>
             <span class="spacer"></span>
             <button class="btn sm" data-a="now">Jump to now</button>
           </div>
@@ -119,6 +120,7 @@ export class PlaybackView {
     this.root.querySelector('[data-a=stepback]').addEventListener('click', () => this.stepFrame(-1));
     this.root.querySelector('[data-a=now]').addEventListener('click', () => this.seekTo(Date.now() / 1000 - 5, true));
     this.root.querySelector('[data-a=bookmark]').addEventListener('click', () => this.bookmarkHere());
+    this.root.querySelector('[data-a=export]').addEventListener('click', () => this.openExportDialog());
     for (const s of REWIND_MACROS) this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
 
     this._bindTimeInputs();
@@ -419,6 +421,88 @@ export class PlaybackView {
     } catch (e) {
       toast(e.message || 'Could not save the bookmark', 'bad');
     }
+  }
+
+  // ---------------------------------------------------------------- export (spec section 10)
+  // Single-range clip export for now (the spec's multi-cut batch clipper is a separate, larger UI —
+  // deferred rather than built half-way). Reuses a real DVR playback session per channel (the export
+  // engine runs through the same 4-session pool as any playback pane), so it can queue behind other
+  // playback/export activity exactly like opening a 5th pane would.
+  openExportDialog() {
+    if (!this.panes.length) return;
+    const root = document.getElementById('modal-root');
+    const fmt = (epoch) => {
+      const p = partsFromEpoch(epoch, this.tzOffsetMin), z = (n) => String(n).padStart(2, '0');
+      return `${p.y}-${z(p.mo + 1)}-${z(p.da)}T${z(p.hh)}:${z(p.mi)}:${z(p.ss)}`;
+    };
+    const parse = (v) => {
+      const m = v.match(/^(\d+)-(\d+)-(\d+)T(\d+):(\d+)(?::(\d+))?$/);
+      if (!m) return null;
+      const [, y, mo, da, hh, mi, ss] = m.map(Number);
+      return epochFromParts(y, mo - 1, da, hh, mi, ss || 0, this.tzOffsetMin);
+    };
+    root.innerHTML = `<div class="scrim"><div class="dialog" style="width:min(480px,100%)" role="dialog" aria-modal="true" aria-label="Export clip">
+      <h3>${icon('download')} Export clip</h3>
+      <p>${this.panes.length} camera${this.panes.length > 1 ? 's' : ''}: ${esc(this.panes.map((p) => p.cam.name || 'Camera ' + p.cam.channel).join(', '))}. Up to 2 hours per export.</p>
+      <div class="form">
+        <div class="field"><label for="exp-start">Start (DVR local time)</label><input id="exp-start" type="datetime-local" step="1" value="${fmt(this.currentEpoch - 15)}"></div>
+        <div class="field"><label for="exp-end">End (DVR local time)</label><input id="exp-end" type="datetime-local" step="1" value="${fmt(this.currentEpoch + 15)}"></div>
+        <div class="field wide"><label>Package</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px"><input type="radio" name="exp-pkg" value="signed" checked> Signed evidence package — clip + manifest + Ed25519 signature + offline verifier (recommended)</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="radio" name="exp-pkg" value="plain"> Plain video only, no signing</label>
+        </div>
+      </div>
+      <p class="hint" id="exp-status"></p>
+      <div class="row"><button class="btn" data-x="cancel">Cancel</button><button class="btn primary" data-x="go">${icon('download')} Export</button></div>
+    </div></div>`;
+    const close = () => { root.innerHTML = ''; };
+    root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
+    root.querySelector('[data-x=cancel]').addEventListener('click', close);
+    root.querySelector('[data-x=go]').addEventListener('click', async () => {
+      const startEpoch = parse(root.querySelector('#exp-start').value);
+      const endEpoch = parse(root.querySelector('#exp-end').value);
+      const statusEl = root.querySelector('#exp-status');
+      if (startEpoch == null || endEpoch == null || endEpoch <= startEpoch) {
+        statusEl.textContent = 'End must be after start.';
+        return;
+      }
+      const pkg = root.querySelector('input[name=exp-pkg]:checked').value;
+      root.querySelector('[data-x=go]').disabled = true;
+      statusEl.textContent = 'Starting export…';
+      try {
+        const { job_id } = await api.createExport({
+          channels: this.panes.map((p) => p.cam.id),
+          start_utc: new Date(startEpoch * 1000).toISOString(),
+          end_utc: new Date(endEpoch * 1000).toISOString(),
+          package: pkg,
+        });
+        await this._pollExport(job_id, statusEl);
+        const a = document.createElement('a');
+        a.href = `/api/export/${job_id}/download`;
+        a.click();
+        toast('Export ready — download started.', 'ok');
+        close();
+      } catch (e) {
+        statusEl.textContent = e.message || 'Export failed.';
+        root.querySelector('[data-x=go]').disabled = false;
+      }
+    });
+  }
+
+  _pollExport(jobId, statusEl) {
+    const deadline = Date.now() + 5 * 60 * 1000; // exports are bounded (<=2h of footage) but shouldn't poll forever if something hangs
+    return new Promise((resolve, reject) => {
+      const tick = async () => {
+        if (Date.now() > deadline) { reject(new Error('Export is taking too long — check Settings > Status, or try a shorter range.')); return; }
+        let job;
+        try { job = await api.exportStatus(jobId); } catch (e) { reject(e); return; }
+        if (job.state === 'error') { reject(new Error(job.error || 'Export failed')); return; }
+        if (job.state === 'done') { resolve(); return; }
+        statusEl.textContent = job.progress || 'Working…';
+        setTimeout(tick, 1500);
+      };
+      tick();
+    });
   }
 
   destroy() {

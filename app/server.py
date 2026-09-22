@@ -6,12 +6,14 @@ from urllib.parse import quote, urlparse
 
 import websockets
 from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 import coverage
 import db
+import export as exportmod
 import hikrelay
 import playback_session as psess
 import settings as cfg
@@ -34,6 +36,7 @@ async def lifespan(app):
     p = PlaybackService(current)
     state["playback"] = p
     await run_in_threadpool(p.start)
+    await run_in_threadpool(exportmod._sweep_old_jobs)  # exports are downloads, not an archive — sweep stale ones on boot too
     yield
     g.stop()
     p.stop()
@@ -200,6 +203,60 @@ async def get_bookmarks(channel: int | None = None, start_utc: str = "", end_utc
 async def remove_bookmark(bookmark_id: int):
     await run_in_threadpool(db.delete_bookmark, bookmark_id)
     return {"ok": True}
+
+
+class ExportRequest(BaseModel):
+    channels: list[str]
+    start_utc: str
+    end_utc: str
+    package: Literal["signed", "plain"] = "signed"
+
+
+@app.post("/api/export")
+async def create_export(req: ExportRequest):
+    """Starts a background export job (spec section 10). Each channel is exported through a real
+    PlaybackReader — the DVR's 4-session playback budget applies to exports exactly like a playback pane,
+    and shows up in /api/playback/pool while running."""
+    import datetime as _dt
+    import secrets as _secrets
+    s = current()
+    chans = [c for c in s.channels if c.id in req.channels]
+    if not chans:
+        raise HTTPException(422, "No valid channel")
+    try:
+        start_dt, end_dt = _dt.datetime.fromisoformat(req.start_utc), _dt.datetime.fromisoformat(req.end_utc)
+    except ValueError:
+        raise HTTPException(422, "start_utc/end_utc must be ISO 8601")
+    if end_dt <= start_dt:
+        raise HTTPException(422, "end_utc must be after start_utc")
+    if (end_dt - start_dt) > _dt.timedelta(hours=2):
+        raise HTTPException(422, "Clips are limited to 2 hours per export for now")
+    tz = state["playback"].tz
+    tz_offset = int(tz.utcoffset(None).total_seconds() // 60) if tz else 330
+    channel_dicts = [{**c.model_dump(), "_tz_offset_min": tz_offset} for c in chans]
+    job_id = _secrets.token_hex(8)
+    exportmod.start_export(job_id, channel_dicts, req.start_utc, req.end_utc, req.package,
+                            "Operator", s.connection.model_dump())
+    return {"job_id": job_id}
+
+
+@app.get("/api/export/{job_id}")
+async def export_status(job_id: str):
+    job = await run_in_threadpool(exportmod.get_job, job_id)
+    if job is None:
+        raise HTTPException(404, "Unknown export job")
+    return job
+
+
+@app.get("/api/export/{job_id}/download")
+async def export_download(job_id: str):
+    job = await run_in_threadpool(exportmod.get_job, job_id)
+    if job is None or job.get("state") != "done" or not job.get("download"):
+        raise HTTPException(404, "That export isn't ready")
+    path = exportmod.EXPORT_DIR / job["download"]
+    if not path.exists():
+        raise HTTPException(404, "That export has expired")
+    return FileResponse(path, filename=path.name)
 
 
 @app.get("/api/timeline/tz")

@@ -20,4 +20,6 @@ export const api = {
   status: () => call('GET', '/api/status'),
   createBookmark: (b) => call('POST', '/api/bookmarks', b),
   deleteBookmark: (id) => call('DELETE', `/api/bookmarks/${id}`),
+  createExport: (b) => call('POST', '/api/export', b),
+  exportStatus: (jobId) => call('GET', `/api/export/${jobId}`),
 };

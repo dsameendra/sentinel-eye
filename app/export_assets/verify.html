@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Verify Sentinel Eye export</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0e13; color: #e6e9ee; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  p.lead { color: #97a1af; margin: 0 0 28px; }
+  .drop { border: 2px dashed #2a323e; border-radius: 14px; padding: 40px 20px; text-align: center; color: #97a1af; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop.over { border-color: #34d399; background: #0f1520; }
+  .drop input { display: none; }
+  .drop b { color: #e6e9ee; }
+  .report { margin-top: 28px; display: none; }
+  .report.show { display: block; }
+  .row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #12161d; border: 1px solid #1e242d; margin-bottom: 8px; }
+  .row .ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; margin-top: 1px; }
+  .row.ok .ic { background: #16412d; color: #34d399; }
+  .row.bad .ic { background: #45191c; color: #f87171; }
+  .row.warn .ic { background: #453a19; color: #fbbf24; }
+  .row .body { min-width: 0; }
+  .row .t { font-weight: 600; }
+  .row .d { color: #97a1af; font-size: 13px; word-break: break-all; }
+  .verdict { margin-top: 20px; padding: 16px 18px; border-radius: 12px; font-weight: 700; font-size: 16px; text-align: center; }
+  .verdict.ok { background: #103322; color: #34d399; border: 1px solid #1d5a3b; }
+  .verdict.bad { background: #3a1418; color: #f87171; border: 1px solid #5a1d23; }
+  .meta { margin-top: 24px; font-size: 13px; color: #97a1af; }
+  .meta table { width: 100%; border-collapse: collapse; }
+  .meta td { padding: 4px 0; vertical-align: top; }
+  .meta td:first-child { color: #6b7684; width: 160px; }
+  .caveat { margin-top: 28px; padding: 14px 16px; border-radius: 10px; background: #171310; border: 1px solid #3a2c17; color: #d3a95c; font-size: 13px; }
+  .reset { margin-top: 20px; }
+  button { background: #1a2029; color: #e6e9ee; border: 1px solid #2a323e; border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:hover { background: #232a35; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Verify a Sentinel Eye export</h1>
+  <p class="lead">Runs entirely in this browser tab — nothing is uploaded anywhere. Drop the whole exported folder (or select its files) below: <b>manifest.json</b>, <b>signature.json</b>, and the clip file(s).</p>
+
+  <label class="drop" id="drop">
+    <div><b>Drop files here</b>, or click to choose</div>
+    <div style="margin-top:6px;font-size:13px">manifest.json + signature.json + clip_*.mp4</div>
+    <input type="file" id="picker" multiple>
+  </label>
+
+  <div class="report" id="report"></div>
+  <div class="reset" id="resetWrap" style="display:none"><button id="reset">Verify another export</button></div>
+</div>
+
+<script>
+const dropEl = document.getElementById('drop');
+const pickerEl = document.getElementById('picker');
+const reportEl = document.getElementById('report');
+const resetWrap = document.getElementById('resetWrap');
+
+['dragenter', 'dragover'].forEach((ev) => dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.remove('over'); }));
+dropEl.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
+pickerEl.addEventListener('change', (e) => handleFiles([...e.target.files]));
+document.getElementById('reset').addEventListener('click', () => location.reload());
+
+function hex(buf) { return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
+function fromHex(s) { const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16); return a; }
+function row(cls, ic, title, detail) {
+  return `<div class="row ${cls}"><div class="ic">${ic}</div><div class="body"><div class="t">${title}</div>${detail ? `<div class="d">${detail}</div>` : ''}</div></div>`;
+}
+
+async function handleFiles(files) {
+  if (!files.length) return;
+  reportEl.className = 'report show';
+  reportEl.innerHTML = row('warn', '…', 'Checking…', '');
+  try {
+    const byName = new Map(files.map((f) => [f.name, f]));
+    const manifestFile = byName.get('manifest.json');
+    const sigFile = byName.get('signature.json');
+    if (!manifestFile || !sigFile) {
+      reportEl.innerHTML = row('bad', '!', 'Missing files', `Need manifest.json and signature.json among the dropped files. Got: ${files.map((f) => f.name).join(', ')}`);
+      resetWrap.style.display = 'block';
+      return;
+    }
+    const manifestBuf = await manifestFile.arrayBuffer();
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBuf));
+    const sig = JSON.parse(await sigFile.text());
+
+    const rows = [];
+    let allOk = true;
+
+    // 1. signature over the raw manifest.json bytes
+    try {
+      const pubBytes = fromHex(sig.public_key_hex);
+      const pubKey = await crypto.subtle.importKey('raw', pubBytes, { name: 'Ed25519' }, false, ['verify']);
+      const sigBytes = fromHex(sig.signature_hex);
+      const sigOk = await crypto.subtle.verify('Ed25519', pubKey, sigBytes, manifestBuf);
+      rows.push(row(sigOk ? 'ok' : 'bad', sigOk ? '✓' : '✗', sigOk ? 'Manifest signature valid' : 'Manifest signature INVALID — the manifest has been altered since export, or the key doesn\'t match', `Public key: ${sig.public_key_hex}`));
+      allOk = allOk && sigOk;
+    } catch (e) {
+      rows.push(row('bad', '✗', 'Could not verify signature', e.message + ' — this browser may not support Ed25519 in WebCrypto (needs a recent Chrome/Edge/Firefox/Safari).'));
+      allOk = false;
+    }
+
+    // 2. each clip's hash
+    for (const clip of manifest.clips || []) {
+      const f = byName.get(clip.file);
+      if (!f) {
+        rows.push(row('warn', '?', `${clip.camera_name}: file not provided`, `Expected ${clip.file} — drop it alongside the others to check its hash.`));
+        continue;
+      }
+      const buf = await f.arrayBuffer();
+      const digest = hex(await crypto.subtle.digest('SHA-256', buf));
+      const ok = digest === clip.sha256;
+      rows.push(row(ok ? 'ok' : 'bad', ok ? '✓' : '✗', `${clip.camera_name}: ${ok ? 'file matches the signed manifest' : 'file does NOT match — modified or wrong file'}`,
+        `${clip.file}<br>expected ${clip.sha256}<br>got &nbsp;&nbsp;&nbsp;${digest}`));
+      allOk = allOk && ok;
+    }
+
+    const meta = `<div class="meta"><table>
+      <tr><td>Export ID</td><td>${manifest.export_id || '—'}</td></tr>
+      <tr><td>Created</td><td>${manifest.created_utc || '—'}</td></tr>
+      <tr><td>Operator</td><td>${manifest.operator || '—'}</td></tr>
+      <tr><td>Cameras</td><td>${(manifest.clips || []).map((c) => `${c.camera_name} (${c.dvr_time_range_utc?.start} – ${c.dvr_time_range_utc?.end} UTC)`).join('<br>')}</td></tr>
+    </table></div>`;
+
+    reportEl.innerHTML = rows.join('') +
+      `<div class="verdict ${allOk ? 'ok' : 'bad'}">${allOk ? '✓ This export is intact and unaltered since it was signed.' : '✗ This export FAILED verification — do not treat it as trustworthy.'}</div>` +
+      meta +
+      `<div class="caveat"><b>What this does and doesn't prove:</b> a valid signature means these files are exactly what Sentinel Eye produced at export time and haven't been changed since. It does not, by itself, prove the original DVR footage was authentic — that trust rests on physical access to the recorder and this installation's key, same as any camera system.</div>`;
+    resetWrap.style.display = 'block';
+  } catch (e) {
+    reportEl.innerHTML = row('bad', '!', 'Verification failed to run', e.message);
+    resetWrap.style.display = 'block';
+  }
+}
+</script>
+</body>
+</html>
