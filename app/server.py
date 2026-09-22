@@ -166,6 +166,16 @@ async def playback_pool():
     return {"busy": psess.pool.busy, "limit": psess.pool.limit}
 
 
+@app.get("/api/timeline/tz")
+async def timeline_tz():
+    """The DVR's UTC offset, so the calendar/time picker can show and set DVR-local dates correctly."""
+    tz = state["playback"].tz
+    if tz is None:
+        return {"offset_minutes": 0, "ready": False}
+    offset = tz.utcoffset(None)
+    return {"offset_minutes": int(offset.total_seconds() // 60), "ready": True}
+
+
 # ------------------------------------------------------------------ DVR playback (WebCodecs feed)
 #
 # Binary frame format sent to the browser (one per NAL access unit):
