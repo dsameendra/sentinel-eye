@@ -44,24 +44,36 @@ nothing invented. This is called out explicitly in the UI (section 5), not silen
 
 **Multi-frame input:** when a short burst of consecutive frames is provided (not just one), they're aligned
 (OpenCV ECC, translational — handles the small motion typical over a handful of frames at ~15 fps) and
-fused with a robust temporal mean *before* the AI pipeline runs. This is classical multi-frame denoising,
-not a learned video-super-resolution model (BasicVSR-class models are heavy, slow on CPU/MPS, and the
-marginal quality gain over align-and-fuse-then-single-frame-SR is small for a handful of frames spanning
-well under a second) — but it's a real, well-understood technique: averaging several aligned, independently
-noisy observations of the same static scene reduces sensor/compression noise that a single frame carries,
-so the SR models above start from a cleaner input. It does nothing for a moving subject (alignment can't
-un-blur genuine motion blur across frames) — the UI doesn't oversell this.
+fused *before* the AI pipeline runs, using a **per-pixel motion-adaptive weighted blend against the
+reference (middle) frame**, not a flat median/mean. This replaced an earlier flat-median version after
+directly confirming it had a real negative-impact failure mode, asked about and investigated on request:
+whole-frame alignment corrects for camera/background motion, but does nothing for a subject moving
+independently of the background — a person, a car — and a median or mean at a pixel the subject only
+covers in some of the frames pulls that pixel toward the *other* frames' background value, softening or
+partially erasing exactly the subject a reviewer is usually trying to see. The fix compares every aligned
+frame to the reference pixel-by-pixel: where they closely agree (static, well-aligned background) the other
+frames blend in at close to full weight — genuine sensor/compression noise reduction; where they disagree
+sharply (motion, a moving subject, a misalignment residual) that frame's contribution fades toward zero, so
+the fused pixel falls back to the reference frame alone rather than being averaged with content that
+doesn't belong there. A learned video-super-resolution model (BasicVSR-class) was considered and rejected
+for the same reason as before: heavy, slow on CPU/MPS, and this classical approach — now motion-aware —
+gets most of the achievable benefit for a handful of frames spanning well under a second.
 
 ## 3. Pipeline
 
 ```
 N frames (1–7, from the paused position's decode buffer, already in memory client-side)
-  → [N > 1] align to the middle frame (ECC, translation) + robust mean fuse → 1 frame
+  → [N > 1] align to the middle frame (ECC, translation) + motion-adaptive weighted fuse → 1 frame
   → Real-ESRGAN x4 upscale (background/whole-frame)
   → GFPGAN face detection + restoration, blended back into the upscaled frame (only if ≥1 face found)
   → [mode = "plate" or no faces found and mode = "auto"] CLAHE + unsharp mask, mild
-  → clamp output to a sane max dimension (2048px longest side) — a 4x upscale of a 1080p frame is
-    already past what's useful to look at, and larger just costs time/bandwidth for no benefit
+  → clamp output to a sane max dimension (6000px longest side) — high enough that a 1080p source's full 4x
+    output (4320px) is never touched; only kicks in for a source that was already larger going in.
+    **Previously set to 2048px, which is smaller than a 1080p source's own 4x output — every enhancement
+    was silently downscaled most of the way back to its original size before the operator saw it, which
+    doesn't just discard the added detail, it actively softens/aliases it on the way down. This was the
+    main cause of a directly reported "looks worse than the original" bug**, found and fixed by comparing
+    a same-region crop of the source against the (mis-clamped) result pixel-for-pixel.
   → PNG (lossless — this is the one place in the app a re-encode-with-loss would undermine the point)
 ```
 

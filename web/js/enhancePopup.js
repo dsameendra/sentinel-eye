@@ -65,7 +65,12 @@ export function openEnhancePopup(opts) {
   const zoomtag = root.querySelector('.zoomtag');
   const viewer = root.querySelector('.enh-viewer');
 
-  zoom = new ZoomPan(pic, root.querySelector('.hitzone'), {
+  // `stage` (untransformed) is what ZoomPan measures for its pan-clamp math — the CSS zoom transform lives
+  // on `pic`, a child of it. Passing `pic` itself here was the bug: an element's own transform inflates
+  // what getBoundingClientRect() reports for it, so every clamp computation was using an already-scaled
+  // box instead of a stable one, and panning collapsed to near-zero the moment you zoomed in. The .pb-pane
+  // pattern (stage=.pb-pane, transform on the child .pb-pic) already gets this right — mirrored here.
+  zoom = new ZoomPan(stage, root.querySelector('.hitzone'), {
     dbl: true,
     onChange: (st) => { zoomtag.hidden = st.s <= 1.001; zoomtag.textContent = `${Math.round(st.s * 100)}%`; },
   });

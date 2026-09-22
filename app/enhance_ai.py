@@ -22,7 +22,15 @@ from settings import DATA
 
 ENHANCE_DIR = DATA / "enhance"
 JOB_TTL = 2 * 3600  # same lifetime rationale as export.py: a download, not an archive
-MAX_DIM = 2048       # clamp the AI-upscaled output — a 4x upscale of 1080p is already past useful
+# Clamp the AI-upscaled output so it can't grow unreasonably — but this was originally set to 2048, which
+# for a 1080p source (already the common case, this DVR's main streams — spec 2.1) meant Real-ESRGAN's
+# real 4x output (4320px tall) got immediately downscaled back down to barely more than the *original*
+# height (1152px, ~1.07x) before the operator ever saw it. That downscale doesn't just discard the AI's
+# added detail, it actively softens/aliases it on the way back down — the result looked *worse* than the
+# untouched source at the same displayed size, which is exactly the bug reported. 6000 lets a 1080p source
+# keep its full 4x output (4320 < 6000, no clamp at all) and only kicks in for a source that was already
+# larger going in.
+MAX_DIM = 6000
 
 _jobs = {}
 _jobs_lock = threading.Lock()
@@ -187,15 +195,37 @@ def ocr(job_id, which):
 # ------------------------------------------------------------------ multi-frame align + fuse (classical)
 def _align_and_fuse(frames):
     """Aligns every frame to the middle one (translation only — real motion over a handful of frames at
-    this DVR's ~15fps is small) via OpenCV ECC, then takes a robust (median) pixel-wise average. This
-    reduces sensor/compression noise a single frame carries; it does not sharpen or invent detail — that's
-    the AI pipeline's job, applied once, after this."""
+    this DVR's ~15fps is small) via OpenCV ECC, then does a per-pixel *motion-adaptive* weighted blend —
+    not a flat median/mean — against the reference frame.
+
+    Why not a plain median (the original approach): whole-frame alignment corrects for camera/background
+    motion, but does nothing for a subject that's independently moving — a person walking, a car driving
+    by, exactly the kind of thing a forensic reviewer is usually trying to see clearly. At a pixel the
+    subject only covers in 1-2 of 5 aligned frames, a median or mean pulls that pixel toward the *other*
+    frames' background value — softening, ghosting, or partially erasing the one subject the whole feature
+    exists to clarify. That's a real, confirmed failure mode of temporal fusion applied blindly, not a
+    hypothetical.
+
+    Fix: for each pixel, compare every aligned frame to the reference frame. Where they agree closely
+    (static, well-aligned background), blend in the other frames at close to full weight — genuine
+    sensor/compression noise reduction, the whole point of multi-frame input. Where they disagree sharply
+    (motion, a moving subject, a misalignment residual), fade that frame's contribution toward zero, so the
+    fused pixel falls back to the reference frame's own value instead of being averaged with something
+    that doesn't belong there. The reference frame's own pixels are never down-weighted against themselves,
+    so a single subject-in-motion frame degrades gracefully to "no denoising for that region", never to
+    "moving subject blurred away"."""
     import cv2
     mid = len(frames) // 2
-    ref_gray = cv2.cvtColor(frames[mid], cv2.COLOR_BGR2GRAY)
-    aligned = [frames[mid]]
+    ref = frames[mid]
+    ref_gray = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
     warp_mode = cv2.MOTION_TRANSLATION
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-4)
+    # Below this per-pixel mean-abs-difference (0-255 scale), two frames are considered "the same content,
+    # just noise" and blended at ~full weight; above it, weight fades to 0 over the next MOTION_FALLOFF —
+    # i.e. a hard still frame gets denoised, a frame straddling a moving edge doesn't get blurred into it.
+    MOTION_THRESH, MOTION_FALLOFF = 10.0, 15.0
+    acc = ref.astype(np.float32)
+    wsum = np.ones(ref.shape[:2], dtype=np.float32)
     for i, f in enumerate(frames):
         if i == mid:
             continue
@@ -204,11 +234,13 @@ def _align_and_fuse(frames):
         try:
             _, warp_matrix = cv2.findTransformECC(ref_gray, gray, warp_matrix, warp_mode, criteria)
             warped = cv2.warpAffine(f, warp_matrix, (f.shape[1], f.shape[0]), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-            aligned.append(warped)
         except cv2.error:
-            pass  # alignment failed for this frame (e.g. too little texture) — skip it rather than fuse in a misaligned frame
-    stack = np.stack(aligned, axis=0).astype(np.float32)
-    fused = np.median(stack, axis=0)  # median, not mean: robust to a moving object crossing one frame
+            continue  # alignment failed for this frame (e.g. too little texture) — skip it, don't fuse in a misaligned frame
+        diff = np.abs(warped.astype(np.float32) - ref.astype(np.float32)).mean(axis=2)
+        w = np.clip(1.0 - (diff - MOTION_THRESH) / MOTION_FALLOFF, 0.0, 1.0)
+        acc += warped.astype(np.float32) * w[:, :, None]
+        wsum += w
+    fused = acc / wsum[:, :, None]
     return np.clip(fused, 0, 255).astype(np.uint8)
 
 
