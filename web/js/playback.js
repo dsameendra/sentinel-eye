@@ -9,6 +9,7 @@ import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { ZoomPan } from './zoom.js';
+import { openEnhancePopup } from './enhancePopup.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
@@ -75,6 +76,7 @@ export class PlaybackView {
                   <button class="btn sm" data-a="now">Jump to now</button>
                   <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
                   <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
+                  <button class="btn icon" data-a="aienhance" title="AI frame enhancer — pause first" aria-label="AI frame enhancer">${icon('scan')}</button>
                 </div>
                 <div class="pb-ctrl-center">
                   <div class="pb-macros">
@@ -151,6 +153,7 @@ export class PlaybackView {
     this.root.querySelector('[data-a=bookmark]').addEventListener('click', () => this.bookmarkHere());
     this.root.querySelector('[data-a=export]').addEventListener('click', () => this.openExportDialog());
     this.root.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleEnhanceMenu());
+    this.root.querySelector('[data-a=aienhance]').addEventListener('click', () => this._openFrameEnhancer());
     for (const s of REWIND_MACROS) {
       this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
       this.root.querySelector(`[data-a=fwd${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch + s));
@@ -315,6 +318,15 @@ export class PlaybackView {
   _teardownPanes() {
     for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); p.zoom?.destroy(); }
     this.panes = [];
+  }
+
+  // ---------------------------------------------------------------- AI frame enhancer (docs/enhance-ai-spec.md, M6 L2)
+  _openFrameEnhancer() {
+    if (this.playing || !this.panes.length) return;
+    const primary = this.panes[0];
+    const images = primary.player.grabFrames(5);
+    if (!images.length) { toast('No decoded frame available to enhance yet.', 'bad'); return; }
+    openEnhancePopup({ images, channel: primary.cam.channel, atUtc: new Date(this.currentEpoch * 1000).toISOString() });
   }
 
   // ---------------------------------------------------------------- L0 live enhancement (all panes together)
@@ -500,6 +512,11 @@ export class PlaybackView {
 
   _paintPlayIcon() {
     this.root.querySelector('[data-a=playpause]').innerHTML = icon(this.playing ? 'pause' : 'play');
+    // The AI frame enhancer (docs/enhance-ai-spec.md) operates on the exact frame on screen — while
+    // playing that's a moving target, so it's disabled rather than silently grabbing whatever frame
+    // happens to land at click time.
+    const aiBtn = this.root.querySelector('[data-a=aienhance]');
+    if (aiBtn) { aiBtn.disabled = this.playing; aiBtn.title = this.playing ? 'AI frame enhancer — pause first' : 'AI frame enhancer'; }
   }
 
   _key(e) {

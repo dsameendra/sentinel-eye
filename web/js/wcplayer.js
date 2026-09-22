@@ -18,6 +18,7 @@ const wsUrl = (channel, startIso, speed) => {
 };
 
 const BUFFER_CAP = 450; // ~30s at ~15fps — generous for stepping, bounded so memory doesn't grow unbounded
+const clampInt = (v, a, b) => Math.min(b, Math.max(a, v));
 
 export class WCPlayer {
   /** @param canvas target <canvas> @param opts {onFrame(absTime), onState(state), onError(msg)} */
@@ -111,6 +112,30 @@ export class WCPlayer {
       if (absTime != null) this.opts.onFrame?.(absTime, this.frameCount);
     }
     // else: paused — the frame just sits buffered ahead of bufIndex until a step or resume reaches it
+  }
+
+  /** Up to `n` consecutive frames centred on the current paused position, as PNG data URLs (oldest ->
+   * newest), for the AI frame enhancer (docs/enhance-ai-spec.md) — pulled straight from the decode buffer
+   * already sitting in memory, no new DVR session. Odd counts centre exactly on bufIndex; clamps to
+   * whatever's actually buffered around it rather than erroring near either edge of the window. */
+  grabFrames(n = 5) {
+    if (!this.buffer.length) return [];
+    const half = Math.floor(n / 2);
+    let start = clampInt(this.bufIndex - half, 0, this.buffer.length - 1);
+    let end = clampInt(start + n - 1, 0, this.buffer.length - 1);
+    start = clampInt(end - n + 1, 0, this.buffer.length - 1);
+    const tmp = document.createElement('canvas');
+    const tctx = tmp.getContext('2d');
+    const out = [];
+    for (let i = start; i <= end; i++) {
+      const { frame } = this.buffer[i];
+      if (tmp.width !== frame.displayWidth || tmp.height !== frame.displayHeight) {
+        tmp.width = frame.displayWidth; tmp.height = frame.displayHeight;
+      }
+      tctx.drawImage(frame, 0, 0, tmp.width, tmp.height);
+      out.push(tmp.toDataURL('image/png'));
+    }
+    return out;
   }
 
   _paintIndex(i) {

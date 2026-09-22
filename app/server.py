@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 import coverage
 import db
+import enhance_ai
 import export as exportmod
 import hikrelay
 import playback_session as psess
@@ -38,6 +39,7 @@ async def lifespan(app):
     state["playback"] = p
     await run_in_threadpool(p.start)
     await run_in_threadpool(exportmod._sweep_old_jobs)  # exports are downloads, not an archive — sweep stale ones on boot too
+    await run_in_threadpool(enhance_ai._sweep_old_jobs)  # same reasoning, same TTL pattern, separate job kind
     yield
     g.stop()
     p.stop()
@@ -282,6 +284,66 @@ async def export_download(job_id: str):
     if not path.exists():
         raise HTTPException(404, "That export has expired")
     return FileResponse(path, filename=path.name)
+
+
+class EnhanceRequest(BaseModel):
+    channel: int
+    at_utc: str = ""
+    mode: Literal["auto", "face", "plate", "general"] = "auto"
+    images: list[str]  # base64 PNG, oldest -> newest, 1-7 frames
+
+
+@app.post("/api/enhance")
+async def create_enhance(req: EnhanceRequest):
+    """Starts a background AI frame-enhancement job (docs/enhance-ai-spec.md). Frames come from the
+    client's already-decoded playback buffer — no DVR session, doesn't touch the 4-session budget."""
+    import secrets as _secrets
+    if not req.images or len(req.images) > 7:
+        raise HTTPException(422, "1-7 frames expected")
+    job_id = _secrets.token_hex(8)
+    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc)
+    return {"job_id": job_id}
+
+
+@app.get("/api/enhance/{job_id}")
+async def enhance_status(job_id: str):
+    job = await run_in_threadpool(enhance_ai.get_job, job_id)
+    if job is None:
+        raise HTTPException(404, "Unknown enhance job")
+    return job
+
+
+@app.get("/api/enhance/{job_id}/result")
+async def enhance_result(job_id: str):
+    path = await run_in_threadpool(enhance_ai.result_path, job_id)
+    if not path:
+        raise HTTPException(404, "That enhancement isn't ready")
+    return FileResponse(path, media_type="image/png", filename=f"frame_{job_id}_ENHANCED.png")
+
+
+@app.get("/api/enhance/{job_id}/source")
+async def enhance_source(job_id: str):
+    path = await run_in_threadpool(enhance_ai.source_path, job_id)
+    if not path:
+        raise HTTPException(404, "That enhancement isn't ready")
+    return FileResponse(path, media_type="image/png", filename=f"frame_{job_id}_source.png")
+
+
+class OcrRequest(BaseModel):
+    which: Literal["result", "source"] = "result"
+
+
+@app.post("/api/enhance/{job_id}/ocr")
+async def enhance_ocr(job_id: str, req: OcrRequest):
+    """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job.
+    Synchronous: sub-second for a single image, no job/poll needed."""
+    try:
+        lines = await run_in_threadpool(enhance_ai.ocr, job_id, req.which)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
+    return {"lines": lines}
 
 
 @app.get("/api/timeline/tz")

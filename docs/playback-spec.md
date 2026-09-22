@@ -375,7 +375,14 @@ split into pieces shipped separately, not one commit:** bookmarks (done); clippe
 playback speed, verified frame-identical at that speed); **accounts + HTTPS + audit log + live sync
 declined by you** — this is a local-network, single-operator deployment, so this piece of M4 is not being
 built, by decision, not oversight. `author`/`operator` on bookmarks and exports stays a fixed placeholder
-("Operator") permanently as a result, not pending something still to come.
+("Operator") permanently as a result, not pending something still to come. **M6's ML-enhancement half is
+now also built, out of the original order** (docs/enhance-ai-spec.md — Real-ESRGAN + GFPGAN, optional
+multi-frame align/fuse, optional on-demand OCR, launched from a paused Playback frame): every output is
+watermarked "ENHANCED" both in the UI and on disk and always ships with its unenhanced source frame,
+matching this row's acceptance bar. M6's *other* half (attribute model, loitering/counter-flow) is not
+started — those need the live-forward AI index from M3 as their input, which isn't built. M5's L1
+(ffmpeg/OpenCV multi-frame fusion/denoise, no ML) is also not built; the multi-frame handling that exists
+now is the enhancer's own classical align-and-fuse pre-step, not a general-purpose L1 tier.
 
 ---
 

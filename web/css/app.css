@@ -229,6 +229,37 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 .dialog { width: min(440px, 100%); padding: 20px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
 .dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 16px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* AI frame enhancer (docs/enhance-ai-spec.md) — a large, near-fullscreen viewer, not the small dialog
+   style above: the whole point is close visual inspection of the result. */
+.enh-scrim { padding: 0; background: rgba(0, 0, 0, .78); }
+.enh-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+.enh-viewer.is-fs { background: #000; }
+.enh-top { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.enh-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.enh-title .hint { font-weight: 400; }
+.enh-modes { margin-left: auto; }
+.enh-topactions { display: flex; gap: 6px; }
+.enh-stage { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; container-type: size; display: grid; place-items: center; }
+.enh-pic { display: grid; place-items: center; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transform-origin: center; }
+/* Same technique as .pb-pane canvas (see its comment) and .stage cam-player: an intrinsic box shaped like
+   the real picture, sized to fit in EITHER direction — a plain max-width/max-height (shrink-only) would
+   under-scale a source-resolution "before" frame that's smaller than the viewer, same bug fixed there. */
+.enh-img { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; }
+.enh-stage .hitzone { position: absolute; inset: 0; z-index: 3; touch-action: none; }
+.enh-stage .zoomtag { position: absolute; right: 10px; top: 10px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+.enh-badge { position: absolute; left: 10px; bottom: 10px; z-index: 5; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 20px); padding: 7px 12px; border-radius: 8px; background: rgba(120, 53, 15, .92); color: #fef3c7; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+.enh-badge svg { flex: none; width: 15px; height: 15px; }
+.enh-loading { position: absolute; inset: 0; z-index: 7; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; }
+.enh-ocr-panel { position: absolute; right: 10px; top: 10px; z-index: 6; width: min(320px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+.enh-ocr-head { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+.enh-ocr-head .btn { margin-left: auto; }
+.enh-ocr-body { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.enh-ocr-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; background: var(--panel); font-size: 13px; }
+.enh-ocr-text { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.enh-ocr-conf { flex: none; color: var(--muted); font-size: 11.5px; }
+.enh-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.enh-bottom .spacer { flex: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .chip { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--bg); }
 .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }

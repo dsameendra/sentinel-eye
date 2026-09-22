@@ -22,4 +22,7 @@ export const api = {
   deleteBookmark: (id) => call('DELETE', `/api/bookmarks/${id}`),
   createExport: (b) => call('POST', '/api/export', b),
   exportStatus: (jobId) => call('GET', `/api/export/${jobId}`),
+  createEnhance: (b) => call('POST', '/api/enhance', b),
+  enhanceStatus: (jobId) => call('GET', `/api/enhance/${jobId}`),
+  enhanceOcr: (jobId, which) => call('POST', `/api/enhance/${jobId}/ocr`, { which }),
 };
