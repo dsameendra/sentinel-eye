@@ -143,8 +143,10 @@ export class DateTimePicker {
       if (b.classList.contains('empty')) return;
       b.addEventListener('click', () => {
         const day = +b.dataset.day;
-        const p = partsFromEpoch(this.epoch, this.tzOffsetMin);
-        this.setEpoch(epochFromParts(y, mo, day, p.hh, p.mi, p.ss, this.tzOffsetMin));
+        // A fresh day starts at midnight, not wherever the time fields happened to be left — carrying the
+        // old time forward made "pick a day, then a time" feel like it was jumping to a stale, unrelated
+        // moment on the new day instead of a clean starting point to then set a time from.
+        this.setEpoch(epochFromParts(y, mo, day, 0, 0, 0, this.tzOffsetMin));
       });
     });
   }

@@ -356,19 +356,25 @@ export class PlaybackView {
 
   togglePlay() { this.playing ? this.pause() : this.play(); }
 
-  seekTo(epoch, forceReconnect = false) {
+  /** @param forcePlay start playing even if currently paused (used by "Jump to now") — a plain seekTo()
+   * while paused just updates the position/UI silently, matching the previous behaviour. */
+  seekTo(epoch, forcePlay = false) {
     this.currentEpoch = epoch;
     this._renderTime();
     this.timeline?.setPlayhead(epoch);
     this.datePicker?.setEpoch(epoch, { silent: true });
-    if (!this.playing && !forceReconnect) return;
+    if (!this.playing && !forcePlay) return;
     const iso = new Date(epoch * 1000).toISOString();
     this.playing = true;
     this._paintPlayIcon();
-    for (const pane of this.panes) {
-      if (pane.player.ws?.readyState === WebSocket.OPEN && !forceReconnect) pane.player.seek(iso, this.speed);
-      else pane.player.connect(pane.cam.id, iso, this.speed);
-    }
+    // Always a fresh session, never the in-session "seek" WS message — measured directly (not assumed)
+    // that reissuing PLAY with a new clock= range on an already-open RTSP session can land noticeably off
+    // target (observed: requested exact midnight, landed ~89 minutes later). A fresh connect for the same
+    // request did NOT reproduce that specific failure mode, so this removes one source of imprecision —
+    // but a fresh connect can still land off target for footage several days old, which turned out to be a
+    // separate, deeper issue in the RTP-to-UTC time calibration itself, not this connect-vs-seek choice.
+    // See docs/playback-spec.md's timing notes for that investigation's findings.
+    for (const pane of this.panes) pane.player.connect(pane.cam.id, iso, this.speed);
   }
 
   setSpeed(s) {

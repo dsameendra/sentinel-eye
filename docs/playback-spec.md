@@ -60,6 +60,22 @@ Everything below was measured on your DVR with read-only requests, most of it tw
 * The DVR's `…Z` timestamps are **DVR local time (UTC+5:30, no DST) mislabelled as Z**. We store UTC internally and convert only at the edges (display, DVR requests).
 * Playback carries no RTCP clock, but **RTP timestamps behave as one shared 90 kHz clock across channels and sessions.** Verified at **two moments 13.7 hours apart** (crossing the 32-bit counter's ~13.25 h wrap once), cross-checked against each channel's burned-in clock: offsets matched to within about a frame every time. Not yet proven over days or across a DVR reboot — the calibration is re-checked continuously in M0 and any jump is flagged, never silently absorbed.
 * One calibration constant converts an RTP timestamp to an absolute time, accurate to about one frame (67 ms). That is the basis for frame-locked multi-camera playback.
+* **Update, found during later use, not at M0:** that one-frame accuracy is real for playback *near the time a
+  channel's `a_const` was (re)calibrated* — recalibration runs every 6 hours per channel and is exactly as
+  accurate as originally measured. It is **not** proven, and turned out **not to hold**, for footage recorded
+  many calibration cycles ago. Seeking to exact DVR-local midnight on a day ~10 days back: the DVR served the
+  exact requested content (confirmed against the frame's own burned-in OSD timestamp, which read the requested
+  instant precisely), but this app's own computed absolute time for that same frame was off by roughly 1–2
+  hours — varying in size and direction across different days, ruling out a simple fixed offset or an RTP
+  32-bit-wrap unwrap picking the wrong period (that would show as a near-multiple of the ~13.26h wrap, which
+  this isn't). Coverage and event positions on the timeline are unaffected (they come from the DVR's log/search
+  APIs with a fixed, known UTC offset, not from RTP timestamps at all) — this is specific to the *video
+  player's* displayed/decoded time, and by extension the exact time range claimed in an export's manifest for
+  old footage. Root cause not yet found; likely candidate is that a single `a_const` doesn't stay valid across
+  the channel's own RTP-clock behavior over many calibration cycles (drift, or a discontinuity too small to
+  trip the existing >2s single-step discontinuity check but real once accumulated). Needs its own investigation
+  — a time-varying calibration (store history, use whichever `a_const` was valid when the footage was recorded,
+  not always the latest one) is the likely direction, not confirmed.
 
 ### 2.5 This Mac
 Apple M3 Pro, 18 GB RAM, 190 GB free. Not a constraint for a DVR-playback-only design — no large local archive is being written (section 4). Small amounts of disk (event thumbnails, exported clips you choose to keep) are the only storage this feature adds.
