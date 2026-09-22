@@ -12,6 +12,7 @@ const REWIND_MACROS = [5, 10, 30];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
+const EXPORT_SCALE = 16; // must match app/export.py's EXPORT_SCALE — the DVR delivers full frames this fast during export (measured)
 const pad2 = (n) => String(n).padStart(2, '0');
 
 export class PlaybackView {
@@ -461,8 +462,9 @@ export class PlaybackView {
       const s = parse(root.querySelector('#exp-start').value), e = parse(root.querySelector('#exp-end').value);
       if (s == null || e == null || e <= s) { etaEl.textContent = ''; return; }
       const span = e - s;
-      const mins = Math.ceil(span / 60);
-      etaEl.textContent = `A ${mins < 1 ? Math.round(span) + 's' : mins + 'min'} clip takes roughly that long to export (the DVR streams it at about real speed) — don't close this while it runs.`;
+      const etaSec = Math.max(10, span / EXPORT_SCALE); // the DVR delivers at ~16x during export — see app/export.py
+      const etaText = etaSec < 60 ? `${Math.ceil(etaSec)}s` : `${Math.ceil(etaSec / 60)}min`;
+      etaEl.textContent = `Exports at ~${EXPORT_SCALE}x — expect roughly ${etaText}. Don't close this while it runs.`;
     };
     root.querySelector('#exp-start').addEventListener('input', updateEta);
     root.querySelector('#exp-end').addEventListener('input', updateEta);
@@ -503,11 +505,11 @@ export class PlaybackView {
   }
 
   _pollExport(jobId, statusEl, spanSec) {
-    // The DVR delivers at roughly real-time (1x), plus time queued behind the 4-session pool — this must
-    // track app/export.py's own per-channel deadline (span*1.5 + 120s), or a genuinely-long export just
-    // errors out client-side while it's still running server-side. Camera count adds queueing, not just
-    // per-channel time, so scale by pane count too, with real margin on top.
-    const deadline = Date.now() + (spanSec * 1.5 + 120) * this.panes.length * 1000;
+    // Must track app/export.py's own per-channel deadline (span/EXPORT_SCALE*3 + 60s, floor 60s), or a
+    // genuinely-long export just errors out client-side while it's still running server-side. Camera count
+    // adds queueing, not just per-channel time, so scale by pane count too, with real margin on top.
+    const perChannel = Math.max(60, spanSec / EXPORT_SCALE * 3 + 60);
+    const deadline = Date.now() + perChannel * this.panes.length * 1000;
     return new Promise((resolve, reject) => {
       const tick = async () => {
         if (Date.now() > deadline) { reject(new Error('Export is taking much longer than expected — check Settings > Status, or try a shorter range.')); return; }

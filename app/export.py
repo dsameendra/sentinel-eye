@@ -135,16 +135,22 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
     start_dt = datetime.datetime.fromisoformat(start_utc)
     end_dt = datetime.datetime.fromisoformat(end_utc)
     span = (end_dt - start_dt).total_seconds()
-    reader = psess.PlaybackReader(conn, ch["channel"], path, a_const, start_utc, tz, "1")
+    # Export at the DVR's fast-playback speed rather than 1x — measured directly (not assumed): at
+    # scale=16 the DVR still delivers every frame (fps stayed ~15.0 constant across 1x/4x/8x/16x, not
+    # dropped to keyframes-only the way many DVRs' visual fast-forward does), just compressed into 1/16th
+    # the wall-clock time. This is the same scale value already relied on for playback's fast-scrub speed.
+    EXPORT_SCALE = "16"
+    reader = psess.PlaybackReader(conn, ch["channel"], path, a_const, start_utc, tz, EXPORT_SCALE)
     reader.start()
 
     items = []
     try:
-        # The reader delivers at ~1x (measured, not assumed: a 40s request took ~45s wall time), plus
-        # queueing time behind the DVR's 4-session pool — a flat deadline here silently truncated any
-        # export longer than it (found by an outside review, not by testing: every export tried so far
-        # happened to be under 2 minutes). Scale it to the requested span, generously.
-        deadline = time.time() + span * 1.5 + 120
+        # Deadline generously covers: capture time at EXPORT_SCALE, queueing behind the DVR's 4-session
+        # pool, and the near-live-edge retry backoff — scaled to the requested span, with a floor so short
+        # clips still get real time to connect. A flat deadline here silently truncated any export past it
+        # (found by an outside review, not by testing: every export tried so far was short enough to miss
+        # it) — never let this regress to a constant.
+        deadline = time.time() + max(60.0, span / int(EXPORT_SCALE) * 3 + 60)
         while time.time() < deadline:
             item = reader.q.get(timeout=15)
             if item is None:
