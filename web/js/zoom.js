@@ -50,7 +50,14 @@ export class ZoomPan {
   // ---------------------------------------------------------------- geometry
   metrics() {
     const r = this.stage.getBoundingClientRect();
-    const p = this.stage.querySelector('cam-player, canvas'); // live tiles use <cam-player>, playback panes a <canvas> — either gives the real letterboxed content box
+    // Live tiles use <cam-player>, playback panes a <canvas> — either gives the real letterboxed content
+    // box. Excludes .enh-canvas explicitly: it sits in the same stage (for the live-enhancement overlay)
+    // but is hidden (0x0) unless a preset is active, and querySelector with a comma list matches whichever
+    // candidate comes first in DOM order, not by preference — it was winning over <cam-player> just by
+    // being earlier in the markup, collapsing bw/bh to 0 and silently clamping all panning to zero
+    // (confirmed directly: zoom still worked since it doesn't depend on this, but every pan attempt landed
+    // back at x=0,y=0 no matter how far the pointer moved).
+    const p = this.stage.querySelector('cam-player, canvas:not(.enh-canvas)');
     return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height, bw: p ? p.offsetWidth : r.width, bh: p ? p.offsetHeight : r.height };
   }
 
