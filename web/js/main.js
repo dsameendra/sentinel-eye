@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
+import { SearchView } from './search.js';
 import { SettingsView } from './settings.js';
 import { esc, icon, toast } from './ui.js';
 
@@ -29,7 +30,7 @@ const ctx = {
 function shell() {
   app.innerHTML = `<header class="topbar">
       <div class="brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>
-      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a><a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
+      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a><a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/search" data-n="search">${icon('search')}<span>Search</span></a><a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
       <div class="spacer"></div>
       <div class="tools"><span class="clock" id="clock"></span></div></header>
     <div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>`;
@@ -39,7 +40,7 @@ function shell() {
 
 async function route() {
   const hash = location.hash || '#/live';
-  const [, section = 'live', arg] = hash.split('/');
+  const [, section = 'live', arg, arg2] = hash.split('/');
   // leaving settings with unsaved edits?
   if (state.kind === 'settings' && section !== 'settings' && state.view?.beforeLeave && !(await state.view.beforeLeave())) {
     history.replaceState(null, '', state.hash);
@@ -63,8 +64,12 @@ async function route() {
     // mid-switch. A real navigation into playback from elsewhere in the app still builds fresh.
     if (state.kind === 'playback') return;
     state.view?.destroy();
-    state.view = new PlaybackView(host, ctx, arg || null);
+    state.view = new PlaybackView(host, ctx, arg || null, arg2 || null);
     state.kind = 'playback';
+    return;
+  }
+  if (section === 'search') {
+    if (state.kind !== 'search') { state.view?.destroy(); state.view = new SearchView(host, ctx); state.kind = 'search'; }
     return;
   }
   if (state.kind !== 'live') {

@@ -4,6 +4,7 @@
 import { Timeline } from './timeline.js';
 import { esc, icon, toast } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
+import { partsFromEpoch, epochFromParts, fetchTzOffset } from './dvrtime.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
@@ -12,20 +13,14 @@ const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
 const pad2 = (n) => String(n).padStart(2, '0');
 
-// DVR-local date math via a raw UTC-offset (the DVR gives us an offset, not an IANA zone).
-const partsFromEpoch = (epochSec, offMin) => {
-  const d = new Date((epochSec + offMin * 60) * 1000);
-  return { y: d.getUTCFullYear(), mo: d.getUTCMonth(), da: d.getUTCDate(), hh: d.getUTCHours(), mi: d.getUTCMinutes(), ss: d.getUTCSeconds() };
-};
-const epochFromParts = (y, mo, da, hh, mi, ss, offMin) => Date.UTC(y, mo, da, hh, mi, ss) / 1000 - offMin * 60;
-
 export class PlaybackView {
-  /** @param ctx { settings(), go(hash) } */
-  constructor(root, ctx, channelId) {
+  /** @param ctx { settings(), go(hash) }
+   *  @param startEpoch optional deep-link target time (unix seconds), e.g. from a search result */
+  constructor(root, ctx, channelId, startEpoch) {
     this.root = root;
     this.ctx = ctx;
     this.playing = false;
-    this.currentEpoch = Date.now() / 1000 - 30;
+    this.currentEpoch = startEpoch ? +startEpoch : Date.now() / 1000 - 30;
     this.speed = '1';
     this.tzOffsetMin = 330; // Asia/Kolkata default until /api/timeline/tz answers
     this.calView = null;
@@ -37,10 +32,7 @@ export class PlaybackView {
   }
 
   async _init(channelId) {
-    try {
-      const r = await fetch('/api/timeline/tz').then((x) => x.json());
-      if (r.ready) this.tzOffsetMin = r.offset_minutes;
-    } catch { /* keep the default */ }
+    this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
     this.build(channelId);
   }
 
@@ -167,7 +159,9 @@ export class PlaybackView {
     this._renderCamList();
     this.timeline?.setChannel(this.primary.channel);
     if (primaryChanged) this._loadCalendarMonth();
-    this.ctx.go(`#/playback/${this.primary.id}`);
+    // Keep the current position in the URL (not just the camera) so a deep link from search survives a
+    // refresh, and the browser's back button returns here rather than to "now" on the same camera.
+    this.ctx.go(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
     // (re)connect only the panes that don't already have a live session at the current position
     const iso = new Date(this.currentEpoch * 1000).toISOString();
     for (const pane of this.panes) {
