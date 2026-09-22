@@ -1,7 +1,7 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { bookmarkDialog, esc, icon, toast } from './ui.js';
+import { bookmarkDialog, esc, icon, toast, openPopover, closePopover } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { api } from './api.js';
 import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
@@ -373,23 +373,17 @@ export class LiveView {
   // keeps the grid's own per-tile hover controls; opening a tile in focus — including fullscreen focus —
   // used to have no enhancement control at all, found by checking, not assumed working from the grid case.
   _toggleFocusEnhanceMenu(tile) {
-    const wrap = this.focus?.el.querySelector('.enh-wrap');
-    if (!wrap) return;
-    const open = !wrap.querySelector('.menu');
-    wrap.querySelectorAll('.menu').forEach((m) => m.remove());
-    if (!open) return;
-    const menu = document.createElement('div');
-    menu.className = 'menu enh-menu';
-    menu.innerHTML = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
+    const btn = this.focus?.el.querySelector('[data-a=enhance]');
+    if (!btn) return;
+    const html = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
       `<button data-preset="${k}" aria-pressed="${tile.enhPreset === k}">${esc(p.label)}</button>`).join('');
-    wrap.append(menu);
+    const menu = openPopover(btn, html, { className: 'enh-menu' });
+    if (!menu) return;
     menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
       tile.setEnhancePreset(b.dataset.preset);
-      menu.remove();
+      closePopover();
     }));
-    const onDoc = (e) => { if (!wrap.contains(e.target)) { menu.remove(); document.removeEventListener('click', onDoc, true); } };
-    setTimeout(() => document.addEventListener('click', onDoc, true), 0);
   }
 
   // ---------------------------------------------------------------- instant replay

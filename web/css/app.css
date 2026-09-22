@@ -63,6 +63,9 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 @keyframes pulse { 50% { opacity: .35; } }
 .menu-wrap { position: relative; }
 .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 220px; padding: 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+/* openPopover() in ui.js: appended straight to <body> so an ancestor's overflow:hidden (grid tiles, video
+   panes) can never clip it — position is set inline (viewport coordinates), not by this top/right pair. */
+.popover-portal { position: fixed; top: auto; right: auto; z-index: 200; }
 .enh-menu { min-width: 150px; display: flex; flex-direction: column; gap: 2px; }
 .enh-menu button { text-align: left; height: 30px; padding: 0 9px; border-radius: 7px; color: var(--text); font-size: 12.5px; }
 .enh-menu button:hover { background: var(--panel-2); }

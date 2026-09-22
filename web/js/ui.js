@@ -88,5 +88,45 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
   });
 }
 
+/** Opens a small popover menu anchored to `anchorEl`, appended to <body> so it's never clipped by an
+ * ancestor's `overflow: hidden` (grid tiles, panes, etc. all clip — a menu positioned relative to an
+ * element inside one gets cut off or renders garbled, which is what the live tile's enhance dropdown did
+ * before this). Positioned in the viewport (not the DOM), clamped so it never runs off-screen, and closes
+ * itself on an outside click or Escape. Returns the menu element in case the caller wants it (e.g. to
+ * close it early on selection). At most one popover from this helper is open at a time. */
+export function openPopover(anchorEl, innerHTML, { className = '', align = 'right' } = {}) {
+  const already = document.body._openPopover;
+  closePopover();
+  if (already?._anchor === anchorEl) return null; // second click on the same button: treat as toggle-close
+  const menu = document.createElement('div');
+  menu.className = `menu popover-portal ${className}`;
+  menu.innerHTML = innerHTML;
+  document.body.appendChild(menu);
+  const r = anchorEl.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = align === 'left' ? r.left : r.right - mw;
+  left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
+  let top = r.bottom + 6;
+  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6); // no room below — open above instead
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== anchorEl) closePopover(); };
+  const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
+  setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
+  menu._cleanup = () => { document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
+  menu._anchor = anchorEl;
+  document.body._openPopover = menu;
+  return menu;
+}
+
+/** Closes the popover opened by openPopover, if any. */
+export function closePopover() {
+  const menu = document.body._openPopover;
+  if (!menu) return;
+  menu._cleanup?.();
+  menu.remove();
+  document.body._openPopover = null;
+}
+
 /** Debounce helper. */
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };

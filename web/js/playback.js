@@ -2,7 +2,7 @@
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
 import { Timeline } from './timeline.js';
-import { bookmarkDialog, esc, icon, toast } from './ui.js';
+import { bookmarkDialog, esc, icon, toast, openPopover, closePopover } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
@@ -223,22 +223,16 @@ export class PlaybackView {
 
   // ---------------------------------------------------------------- L0 live enhancement (all panes together)
   _toggleEnhanceMenu() {
-    const wrap = this.root.querySelector('.enh-wrap');
-    const open = !wrap.querySelector('.menu');
-    wrap.querySelectorAll('.menu').forEach((m) => m.remove());
-    if (!open) return;
-    const menu = document.createElement('div');
-    menu.className = 'menu enh-menu';
-    menu.innerHTML = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
+    const btn = this.root.querySelector('[data-a=enhance]');
+    const html = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
       `<button data-preset="${k}" aria-pressed="${(this.enhPreset || 'off') === k}">${esc(p.label)}</button>`).join('');
-    wrap.append(menu);
+    const menu = openPopover(btn, html, { className: 'enh-menu' });
+    if (!menu) return;
     menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
       this.setEnhancePreset(b.dataset.preset);
-      menu.remove();
+      closePopover();
     }));
-    const onDoc = (e) => { if (!wrap.contains(e.target)) { menu.remove(); document.removeEventListener('click', onDoc, true); } };
-    setTimeout(() => document.addEventListener('click', onDoc, true), 0);
   }
 
   setEnhancePreset(name) {

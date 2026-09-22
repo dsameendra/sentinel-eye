@@ -3,7 +3,7 @@
 // watches for stalls and reconnects, and reports stats.
 import { createPlayer } from './player.js';
 import { ZoomPan } from './zoom.js';
-import { esc, icon } from './ui.js';
+import { esc, icon, openPopover, closePopover } from './ui.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 
 // H.265 plays natively in Chrome/Edge/Safari. If a browser claims support but fails to decode (or lacks it),
@@ -240,23 +240,20 @@ export class Tile {
   }
 
   // ---------------------------------------------------------------- L0 live enhancement (WebGL, client-side)
+  // Popover is appended to <body> (openPopover) rather than nested under the tile — a grid tile clips its
+  // own overflow (needed for the video picture), which was cutting the dropdown off/garbling it when it
+  // was positioned relative to a button inside the tile.
   _toggleEnhanceMenu() {
-    const wrap = this.el.querySelector('.enh-wrap');
-    const open = !wrap.querySelector('.menu');
-    this.el.querySelectorAll('.enh-wrap .menu').forEach((m) => m.remove());
-    if (!open) return;
-    const menu = document.createElement('div');
-    menu.className = 'menu enh-menu';
-    menu.innerHTML = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
+    const btn = this.el.querySelector('[data-a=enhance]');
+    const html = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
       `<button data-preset="${k}" aria-pressed="${this.enhPreset === k}">${esc(p.label)}</button>`).join('');
-    wrap.append(menu);
+    const menu = openPopover(btn, html, { className: 'enh-menu' });
+    if (!menu) return;
     menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
       this.setEnhancePreset(b.dataset.preset);
-      menu.remove();
+      closePopover();
     }));
-    const onDoc = (e) => { if (!wrap.contains(e.target)) { menu.remove(); document.removeEventListener('click', onDoc, true); } };
-    setTimeout(() => document.addEventListener('click', onDoc, true), 0);
   }
 
   setEnhancePreset(name) {
