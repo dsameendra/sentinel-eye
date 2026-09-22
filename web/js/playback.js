@@ -7,6 +7,7 @@ import { WCPlayer } from './wcplayer.js';
 import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
+import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
@@ -63,18 +64,32 @@ export class PlaybackView {
             <span class="pill pb-pool" title="The recorder's shared playback-session budget"></span>
           </div>
           <div class="pb-stage"></div>
-          <div class="pb-transport">
-            <button class="btn icon" data-a="back30" title="Back 30 s (Shift+3)">30<span class="u">s</span></button>
-            <button class="btn icon" data-a="back10" title="Back 10 s (Shift+2)">10<span class="u">s</span></button>
-            <button class="btn icon" data-a="back5" title="Back 5 s (Shift+1)">5<span class="u">s</span></button>
-            <button class="btn icon" data-a="stepback" title="Previous frame (,)">${icon('left')}</button>
-            <button class="btn icon primary" data-a="playpause" title="Play / pause (Space)">${icon('play')}</button>
-            <button class="btn icon" data-a="stepfwd" title="Next frame (.)">${icon('right')}</button>
-            <select class="pb-speed" aria-label="Speed"></select>
-            <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
-            <button class="btn sm" data-a="export">${icon('download')} Export clip</button>
-            <span class="spacer"></span>
-            <button class="btn sm" data-a="now">Jump to now</button>
+          <div class="pb-controls">
+            <div class="pb-transport">
+              <div class="pb-macros">
+                <button class="btn icon" data-a="back30" title="Back 30 s (Shift+3)">30<span class="u">s</span></button>
+                <button class="btn icon" data-a="back10" title="Back 10 s (Shift+2)">10<span class="u">s</span></button>
+                <button class="btn icon" data-a="back5" title="Back 5 s (Shift+1)">5<span class="u">s</span></button>
+              </div>
+              <button class="btn icon" data-a="stepback" title="Previous frame (,)">${icon('left')}</button>
+              <button class="btn icon primary" data-a="playpause" title="Play / pause (Space)">${icon('play')}</button>
+              <button class="btn icon" data-a="stepfwd" title="Next frame (.)">${icon('right')}</button>
+              <div class="pb-macros">
+                <button class="btn icon" data-a="fwd5" title="Forward 5 s (Shift+4)">5<span class="u">s</span></button>
+                <button class="btn icon" data-a="fwd10" title="Forward 10 s (Shift+5)">10<span class="u">s</span></button>
+                <button class="btn icon" data-a="fwd30" title="Forward 30 s (Shift+6)">30<span class="u">s</span></button>
+              </div>
+              <select class="pb-speed" aria-label="Speed"></select>
+              <span class="spacer"></span>
+              <button class="btn sm" data-a="now">Jump to now</button>
+            </div>
+            <div class="pb-actions">
+              <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
+              <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
+              <button class="btn sm" data-a="selectrange" title="Drag on the timeline to pick a range, then export it">${icon('layout')} Select range</button>
+              <button class="btn sm primary" data-a="export">${icon('download')} Export clip</button>
+              <span class="hint" id="pbtl-hint"></span>
+            </div>
           </div>
         </div>
         <aside class="pb-side pb-side-right">
@@ -82,10 +97,6 @@ export class PlaybackView {
           <div class="pb-cal"></div>
           <p class="hint">Pick a day, then a time — it jumps straight there.</p>
         </aside>
-      </div>
-      <div class="pb-timeline-bar">
-        <button class="btn sm" data-a="selectrange" title="Drag on the timeline to pick a range, then export it">${icon('layout')} Select range to export</button>
-        <span class="hint" id="pbtl-hint"></span>
       </div>
       <div class="pb-timeline"></div>
     </div>`;
@@ -122,7 +133,11 @@ export class PlaybackView {
     this.root.querySelector('[data-a=now]').addEventListener('click', () => this.seekTo(Date.now() / 1000 - 5, true));
     this.root.querySelector('[data-a=bookmark]').addEventListener('click', () => this.bookmarkHere());
     this.root.querySelector('[data-a=export]').addEventListener('click', () => this.openExportDialog());
-    for (const s of REWIND_MACROS) this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
+    this.root.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleEnhanceMenu());
+    for (const s of REWIND_MACROS) {
+      this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
+      this.root.querySelector(`[data-a=fwd${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch + s));
+    }
 
     this._renderCamList();
     this._setSelection([first.id]);
@@ -158,7 +173,7 @@ export class PlaybackView {
     const cams = this.cams();
     const primaryChanged = this.panes[0] && this.panes[0].cam.id !== ids[0];
     const keep = new Map(this.panes.map((p) => [p.cam.id, p]));
-    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); keep.delete(id); }
+    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); keep.delete(id); }
     this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
     this._layoutPanes();
     this._renderCamList();
@@ -185,22 +200,66 @@ export class PlaybackView {
     el.className = 'pb-pane';
     el.innerHTML = `<div class="pb-pane-label">${esc(cam.name || 'Camera ' + cam.channel)}</div>
       <canvas></canvas>
+      <canvas class="enh-canvas" hidden></canvas>
       <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div>`;
     const canvas = el.querySelector('canvas');
+    const enhCanvas = el.querySelector('.enh-canvas');
     const veil = el.querySelector('.pb-veil');
-    const pane = { cam, el, canvas, veil };
+    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null };
     pane.player = new WCPlayer(canvas, {
       onFrame: (t) => this._onFrame(pane, t),
       onState: (s, m) => this._onPaneState(pane, s, m),
       onError: (m) => { this._onPaneState(pane, 'error', m); if (pane === this.panes[0]) toast(`${cam.name || 'Camera'}: ${m}`, 'bad', 6000); },
       onQueued: (info) => this._onPaneState(pane, 'queued', `Recorder busy: ${info.busy}/${info.limit} sessions in use`),
     });
+    if (this.enhPreset && this.enhPreset !== 'off') this._applyEnhance(pane, this.enhPreset);
     return pane;
   }
 
   _teardownPanes() {
-    for (const p of this.panes) p.player.destroy();
+    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); }
     this.panes = [];
+  }
+
+  // ---------------------------------------------------------------- L0 live enhancement (all panes together)
+  _toggleEnhanceMenu() {
+    const wrap = this.root.querySelector('.enh-wrap');
+    const open = !wrap.querySelector('.menu');
+    wrap.querySelectorAll('.menu').forEach((m) => m.remove());
+    if (!open) return;
+    const menu = document.createElement('div');
+    menu.className = 'menu enh-menu';
+    menu.innerHTML = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
+      `<button data-preset="${k}" aria-pressed="${(this.enhPreset || 'off') === k}">${esc(p.label)}</button>`).join('');
+    wrap.append(menu);
+    menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.setEnhancePreset(b.dataset.preset);
+      menu.remove();
+    }));
+    const onDoc = (e) => { if (!wrap.contains(e.target)) { menu.remove(); document.removeEventListener('click', onDoc, true); } };
+    setTimeout(() => document.addEventListener('click', onDoc, true), 0);
+  }
+
+  setEnhancePreset(name) {
+    this.enhPreset = name;
+    this.root.querySelector('[data-a=enhance]')?.setAttribute('aria-pressed', String(name !== 'off'));
+    for (const pane of this.panes) this._applyEnhance(pane, name);
+  }
+
+  _applyEnhance(pane, name) {
+    if (name === 'off') {
+      pane.enhancer?.stop();
+      pane.enhCanvas.hidden = true;
+      return;
+    }
+    if (!pane.enhancer) {
+      pane.enhancer = new Enhancer(pane.canvas, pane.enhCanvas);
+      if (!pane.enhancer.supported) { pane.enhancer = null; return; }
+    }
+    pane.enhancer.setPreset(name);
+    pane.enhCanvas.hidden = false;
+    pane.enhancer.start();
   }
 
   _layoutPanes() {
@@ -221,17 +280,24 @@ export class PlaybackView {
   }
 
   // ---------------------------------------------------------------- playback control (applies to every pane)
+  // Pausing no longer disconnects (that's what made frame-stepping slow — every step had to open a brand
+  // new DVR session from scratch, real RTSP setup latency each time). It now just stops auto-advancing the
+  // displayed frame while the session keeps decoding into WCPlayer's own ring buffer in the background —
+  // see wcplayer.js. Resuming jumps to the newest buffered frame instead of reconnecting.
   play() {
     this.playing = true;
     this._paintPlayIcon();
     const iso = new Date(this.currentEpoch * 1000).toISOString();
-    for (const p of this.panes) p.player.connect(p.cam.id, iso, this.speed);
+    for (const p of this.panes) {
+      if (p.player.ws?.readyState === WebSocket.OPEN) p.player.resumeFollow();
+      else p.player.connect(p.cam.id, iso, this.speed);
+    }
   }
 
   pause() {
     this.playing = false;
     this._paintPlayIcon();
-    for (const p of this.panes) p.player.disconnectSocket();
+    for (const p of this.panes) p.player.pauseHere();
     this._onState('paused');
   }
 
@@ -259,18 +325,20 @@ export class PlaybackView {
   }
 
   async stepFrame(dir) {
-    this.pause();
-    for (const p of this.panes) { p.veil.hidden = false; p.veil.innerHTML = '<div class="spin"></div>'; }
+    this.playing = false;
+    this._paintPlayIcon();
+    this._onState('paused');
+    // no spinner-first here: stepping is normally instant now (buffered), and flashing a veil on every
+    // click would make the common case feel slower than it is — only the rare backward-past-buffer fetch
+    // takes real time, and that pane's own veil (wired in _makePane) covers it if it does.
     try {
       const results = await Promise.all(this.panes.map((p) =>
-        (dir > 0 ? p.player.stepForward(this.currentEpoch, p.cam.id) : p.player.stepBackward(this.currentEpoch, p.cam.id))
-          .then((t) => { if (t != null) p.veil.hidden = true; return t; })));
+        (dir > 0 ? p.player.stepForward() : p.player.stepBackward(this.currentEpoch, p.cam.id))));
       const t = results[0];
       if (t != null) { this.currentEpoch = t; this._renderTime(); this.timeline?.setPlayhead(t); }
     } catch (e) {
       toast(String(e.message || e), 'bad');
     }
-    for (const p of this.panes) p.veil.hidden = true;
   }
 
   // ---------------------------------------------------------------- per-pane state -> shared UI
