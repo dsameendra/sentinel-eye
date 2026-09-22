@@ -4,6 +4,7 @@ import { Tile } from './tile.js';
 import { bookmarkDialog, esc, icon, toast } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { api } from './api.js';
+import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -257,6 +258,7 @@ export class LiveView {
         <button class="btn icon" data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
         <button class="btn icon" data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>
         <button class="btn icon" data-a="bookmark" title="Bookmark this moment" aria-label="Bookmark this moment">${icon('flag')}</button>
+        <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
         <button class="btn icon" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
       </div><div class="stage-host" style="position:relative;flex:1;min-height:0"></div>
@@ -275,6 +277,7 @@ export class LiveView {
     f.querySelector('[data-a=replay]').addEventListener('click', () => this.openReplay(cam));
     f.querySelector('[data-a=bookmark]').addEventListener('click', () => this.bookmarkNow(cam));
     f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
+    f.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleFocusEnhanceMenu(tile));
     f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
     f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
     f.querySelector('[data-a=zreset]').addEventListener('click', () => tile.zoom.reset());
@@ -361,6 +364,32 @@ export class LiveView {
     } catch (e) {
       toast(e.message || 'Could not save the bookmark', 'bad');
     }
+  }
+
+  // ---------------------------------------------------------------- L0 live enhancement (focus bar)
+  // The focus view's control bar lives outside the Tile's own element (unlike the grid tile's built-in
+  // popover), so it gets its own small menu here rather than reusing Tile._toggleEnhanceMenu — both just
+  // end up calling the same tile.setEnhancePreset(). This is also what fullscreen shows (wall fullscreen
+  // keeps the grid's own per-tile hover controls; opening a tile in focus — including fullscreen focus —
+  // used to have no enhancement control at all, found by checking, not assumed working from the grid case.
+  _toggleFocusEnhanceMenu(tile) {
+    const wrap = this.focus?.el.querySelector('.enh-wrap');
+    if (!wrap) return;
+    const open = !wrap.querySelector('.menu');
+    wrap.querySelectorAll('.menu').forEach((m) => m.remove());
+    if (!open) return;
+    const menu = document.createElement('div');
+    menu.className = 'menu enh-menu';
+    menu.innerHTML = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
+      `<button data-preset="${k}" aria-pressed="${tile.enhPreset === k}">${esc(p.label)}</button>`).join('');
+    wrap.append(menu);
+    menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tile.setEnhancePreset(b.dataset.preset);
+      menu.remove();
+    }));
+    const onDoc = (e) => { if (!wrap.contains(e.target)) { menu.remove(); document.removeEventListener('click', onDoc, true); } };
+    setTimeout(() => document.addEventListener('click', onDoc, true), 0);
   }
 
   // ---------------------------------------------------------------- instant replay
