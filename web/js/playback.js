@@ -8,6 +8,7 @@ import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
+import { ZoomPan } from './zoom.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 const REWIND_MACROS = [5, 10, 30];
@@ -62,33 +63,39 @@ export class PlaybackView {
             <span class="pb-time"></span>
             <span class="spacer"></span>
             <span class="pill pb-pool" title="The recorder's shared playback-session budget"></span>
+            <button class="btn icon" data-a="pbfs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
           </div>
-          <div class="pb-stage"></div>
-          <div class="pb-controls">
-            <div class="pb-transport">
-              <div class="pb-macros">
-                <button class="btn icon" data-a="back30" title="Back 30 s (Shift+3)">30<span class="u">s</span></button>
-                <button class="btn icon" data-a="back10" title="Back 10 s (Shift+2)">10<span class="u">s</span></button>
-                <button class="btn icon" data-a="back5" title="Back 5 s (Shift+1)">5<span class="u">s</span></button>
+          <div class="pb-stage">
+            <div class="pb-panes"></div>
+            <div class="pb-controls">
+              <div class="pb-ctrlrow">
+                <div class="pb-ctrl-left">
+                  <select class="pb-speed" aria-label="Speed"></select>
+                  <button class="btn sm" data-a="now">Jump to now</button>
+                  <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
+                  <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
+                </div>
+                <div class="pb-ctrl-center">
+                  <div class="pb-macros">
+                    <button class="btn icon" data-a="back30" title="Back 30 s (Shift+3)">30<span class="u">s</span></button>
+                    <button class="btn icon" data-a="back10" title="Back 10 s (Shift+2)">10<span class="u">s</span></button>
+                    <button class="btn icon" data-a="back5" title="Back 5 s (Shift+1)">5<span class="u">s</span></button>
+                  </div>
+                  <button class="btn icon" data-a="stepback" title="Previous frame (,)">${icon('left')}</button>
+                  <button class="btn icon primary" data-a="playpause" title="Play / pause (Space)">${icon('play')}</button>
+                  <button class="btn icon" data-a="stepfwd" title="Next frame (.)">${icon('right')}</button>
+                  <div class="pb-macros">
+                    <button class="btn icon" data-a="fwd5" title="Forward 5 s (Shift+4)">5<span class="u">s</span></button>
+                    <button class="btn icon" data-a="fwd10" title="Forward 10 s (Shift+5)">10<span class="u">s</span></button>
+                    <button class="btn icon" data-a="fwd30" title="Forward 30 s (Shift+6)">30<span class="u">s</span></button>
+                  </div>
+                </div>
+                <div class="pb-ctrl-right">
+                  <button class="btn sm" data-a="selectrange" title="Drag on the timeline to pick a range, then export it">${icon('layout')} Select range</button>
+                  <button class="btn sm primary" data-a="export">${icon('download')} Export clip</button>
+                </div>
               </div>
-              <button class="btn icon" data-a="stepback" title="Previous frame (,)">${icon('left')}</button>
-              <button class="btn icon primary" data-a="playpause" title="Play / pause (Space)">${icon('play')}</button>
-              <button class="btn icon" data-a="stepfwd" title="Next frame (.)">${icon('right')}</button>
-              <div class="pb-macros">
-                <button class="btn icon" data-a="fwd5" title="Forward 5 s (Shift+4)">5<span class="u">s</span></button>
-                <button class="btn icon" data-a="fwd10" title="Forward 10 s (Shift+5)">10<span class="u">s</span></button>
-                <button class="btn icon" data-a="fwd30" title="Forward 30 s (Shift+6)">30<span class="u">s</span></button>
-              </div>
-              <select class="pb-speed" aria-label="Speed"></select>
-              <span class="spacer"></span>
-              <button class="btn sm" data-a="now">Jump to now</button>
-            </div>
-            <div class="pb-actions">
-              <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
-              <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
-              <button class="btn sm" data-a="selectrange" title="Drag on the timeline to pick a range, then export it">${icon('layout')} Select range</button>
-              <button class="btn sm primary" data-a="export">${icon('download')} Export clip</button>
-              <span class="hint" id="pbtl-hint"></span>
+              <div class="pb-hintrow"><span class="hint" id="pbtl-hint"></span></div>
             </div>
           </div>
         </div>
@@ -109,6 +116,7 @@ export class PlaybackView {
     this.timeEl = this.root.querySelector('.pb-time');
     this.poolEl = this.root.querySelector('.pb-pool');
     this.stage = this.root.querySelector('.pb-stage');
+    this.panesEl = this.root.querySelector('.pb-panes');
 
     if (!('VideoDecoder' in window)) {
       this.stage.innerHTML = `<div class="pb-veil" style="position:static;height:100%"><div class="msg"><b>This browser can't play DVR recordings.</b><br>Chrome, Edge or Safari 16.4+ is needed (WebCodecs).</div></div>`;
@@ -124,7 +132,11 @@ export class PlaybackView {
 
     this.datePicker = new DateTimePicker(this.root.querySelector('.pb-cal'), {
       epoch: this.currentEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: first.channel,
-      onChange: (epoch) => this.seekTo(epoch),
+      // A calendar/time jump is usually a big move — recenter the timeline's own view on it too, not just
+      // move an (often now off-screen and so invisible) playhead marker within whatever range it already
+      // happened to be showing. Ordinary stepping/macros go through seekTo() directly and don't recenter,
+      // so small in-view adjustments don't cause the timeline to jump/reload on every click.
+      onChange: (epoch) => { this.seekTo(epoch); this.timeline?.goTo(epoch); },
     });
 
     this.root.querySelector('[data-a=playpause]').addEventListener('click', () => this.togglePlay());
@@ -138,10 +150,39 @@ export class PlaybackView {
       this.root.querySelector(`[data-a=back${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch - s));
       this.root.querySelector(`[data-a=fwd${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch + s));
     }
+    this.root.querySelector('[data-a=pbfs]').addEventListener('click', () => this.toggleFullscreen());
 
     this._renderCamList();
-    this._setSelection([first.id]);
+    this._setSelection([first.id]); // sets this.playing before controls are bound, so the very first auto-hide countdown is correct
+    this._bindAutoHideControls();
     this._pollPool();
+  }
+
+  // ---------------------------------------------------------------- overlay controls: show on activity, hide while playing and idle
+  _bindAutoHideControls() {
+    this.controlsEl = this.root.querySelector('.pb-controls');
+    const show = () => {
+      this.controlsEl.classList.add('show');
+      clearTimeout(this._hideTimer);
+      // Never auto-hide while paused (mid-review, actively stepping) or while a popover/dialog spawned
+      // from these controls is open — only hide during ordinary playback, and only after the pointer's
+      // been away for a bit.
+      if (this.playing && !document.body._openPopover && !document.getElementById('modal-root')?.firstChild) {
+        this._hideTimer = setTimeout(() => this.controlsEl.classList.remove('show'), 2600);
+      }
+    };
+    this._showControls = show;
+    this.stage.addEventListener('mousemove', show);
+    this.stage.addEventListener('mouseenter', show);
+    this.stage.addEventListener('touchstart', show, { passive: true });
+    this.stage.addEventListener('mouseleave', () => { if (this.playing) clearTimeout(this._hideTimer) || (this._hideTimer = setTimeout(() => this.controlsEl.classList.remove('show'), 400)); });
+    show();
+  }
+
+  toggleFullscreen() {
+    const el = this.root.querySelector('.pb');
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el?.requestFullscreen?.().catch(() => toast('Full screen is not available here.', 'bad'));
   }
 
   // ---------------------------------------------------------------- camera panel (multi-select, max 4)
@@ -173,7 +214,7 @@ export class PlaybackView {
     const cams = this.cams();
     const primaryChanged = this.panes[0] && this.panes[0].cam.id !== ids[0];
     const keep = new Map(this.panes.map((p) => [p.cam.id, p]));
-    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); keep.delete(id); }
+    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); pane.zoom?.destroy(); keep.delete(id); }
     this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
     this._layoutPanes();
     this._renderCamList();
@@ -199,8 +240,12 @@ export class PlaybackView {
     const el = document.createElement('div');
     el.className = 'pb-pane';
     el.innerHTML = `<div class="pb-pane-label">${esc(cam.name || 'Camera ' + cam.channel)}</div>
-      <canvas></canvas>
-      <canvas class="enh-canvas" hidden></canvas>
+      <div class="pb-pic">
+        <canvas></canvas>
+        <canvas class="enh-canvas" hidden></canvas>
+      </div>
+      <div class="hitzone"></div>
+      <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div>`;
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
@@ -213,11 +258,18 @@ export class PlaybackView {
       onQueued: (info) => this._onPaneState(pane, 'queued', `Recorder busy: ${info.busy}/${info.limit} sessions in use`),
     });
     if (this.enhPreset && this.enhPreset !== 'off') this._applyEnhance(pane, this.enhPreset);
+    // Zoom/pan, same component the live view uses: wheel/pinch/drag, double-click/tap to toggle.
+    const zoomtag = el.querySelector('.zoomtag');
+    pane.zoom = new ZoomPan(el, el.querySelector('.hitzone'), {
+      dbl: true,
+      onChange: (st) => { zoomtag.hidden = st.s <= 1.001; zoomtag.textContent = `${Math.round(st.s * 100)}%`; },
+    });
+    zoomtag.addEventListener('click', () => pane.zoom.reset());
     return pane;
   }
 
   _teardownPanes() {
-    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); }
+    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); p.zoom?.destroy(); }
     this.panes = [];
   }
 
@@ -257,12 +309,12 @@ export class PlaybackView {
   }
 
   _layoutPanes() {
-    this.stage.innerHTML = '';
+    this.panesEl.innerHTML = '';
     const n = this.panes.length;
-    this.stage.className = 'pb-stage' + (n > 1 ? ' multi' : '');
-    this.stage.style.gridTemplateColumns = n <= 1 ? '1fr' : n === 2 ? 'repeat(2, 1fr)' : n === 3 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)';
-    this.stage.style.gridTemplateRows = n <= 2 ? '1fr' : 'repeat(2, 1fr)';
-    for (const p of this.panes) this.stage.append(p.el);
+    this.panesEl.className = 'pb-panes' + (n > 1 ? ' multi' : '');
+    this.panesEl.style.gridTemplateColumns = n <= 1 ? '1fr' : n === 2 ? 'repeat(2, 1fr)' : n === 3 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)';
+    this.panesEl.style.gridTemplateRows = n <= 2 ? '1fr' : 'repeat(2, 1fr)';
+    for (const p of this.panes) this.panesEl.append(p.el);
   }
 
   _setSelectRangeMode(on) {
@@ -286,6 +338,7 @@ export class PlaybackView {
       if (p.player.ws?.readyState === WebSocket.OPEN) p.player.resumeFollow();
       else p.player.connect(p.cam.id, iso, this.speed);
     }
+    this._showControls?.(); // starts the auto-hide countdown now that playing again
   }
 
   pause() {
@@ -293,6 +346,7 @@ export class PlaybackView {
     this._paintPlayIcon();
     for (const p of this.panes) p.player.pauseHere();
     this._onState('paused');
+    this._showControls?.(); // paused = actively reviewing — stays visible (show() checks this.playing)
   }
 
   togglePlay() { this.playing ? this.pause() : this.play(); }
@@ -322,6 +376,7 @@ export class PlaybackView {
     this.playing = false;
     this._paintPlayIcon();
     this._onState('paused');
+    this._showControls?.();
     // no spinner-first here: stepping is normally instant now (buffered), and flashing a veil on every
     // click would make the common case feel slower than it is — only the rare backward-past-buffer fetch
     // takes real time, and that pane's own veil (wired in _makePane) covers it if it does.
@@ -400,6 +455,7 @@ export class PlaybackView {
     else if (e.shiftKey && e.key === '5') this.seekTo(this.currentEpoch + 10);
     else if (e.shiftKey && e.key === '6') this.seekTo(this.currentEpoch + 30);
     else if (e.key === 'b' || e.key === 'B') this.bookmarkHere();
+    else if (e.key === 'f' || e.key === 'F') this.toggleFullscreen();
   }
 
   // ---------------------------------------------------------------- bookmarks (spec section 9)
@@ -525,6 +581,7 @@ export class PlaybackView {
   destroy() {
     document.removeEventListener('keydown', this.onKey);
     clearInterval(this._poolTimer);
+    clearTimeout(this._hideTimer);
     this._teardownPanes();
     this.timeline?.destroy();
     this.root.innerHTML = '';

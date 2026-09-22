@@ -1,10 +1,11 @@
 // Multi-scale timeline: coverage + event lanes, wheel/pinch zoom anchored at the cursor, drag to pan,
 // click to seek. Renders to a <canvas>; data (coverage spans, events) is fetched per visible day and cached.
-import { api } from './api.js';
+import { esc } from './ui.js';
 
 const MIN_PX_PER_SEC = 1440 / (24 * 3600);   // whole day fits ~1440px
 const MAX_PX_PER_SEC = 200;                   // ~5ms/px at max zoom (frame-level)
 const KIND_COLOR = { motion: '#eab308', line: '#f87171', intrusion: '#f87171', tamper: '#f87171', videoloss: '#6b7280', bookmark: '#22d3ee' };
+const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
 
 const dayStr = (d) => d.toISOString().slice(0, 10);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -14,9 +15,11 @@ export class Timeline {
   constructor(el, opts) {
     this.el = el;
     this.opts = opts;
-    this.el.innerHTML = '<canvas></canvas>';
+    this.el.innerHTML = '<canvas></canvas><div class="tl-tip" hidden></div>';
     this.canvas = el.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
+    this.tip = el.querySelector('.tl-tip');
+    this.hovered = null;
     this.center = Date.now() / 1000;   // epoch seconds at the horizontal center
     this.pxPerSec = 1440 / (24 * 3600);
     this.cursorTime = null;
@@ -105,7 +108,11 @@ export class Timeline {
         drag.moved += Math.abs(dx);
         this.center = drag.center - dx / this.pxPerSec;
         this.reload();
-      } else this.draw();
+        this._hideTip();
+      } else {
+        this.draw();
+        this._updateTip(e);
+      }
     });
     c.addEventListener('pointerup', (e) => {
       if (drag && this.selectMode) {
@@ -124,7 +131,7 @@ export class Timeline {
       }
       drag = null;
     });
-    c.addEventListener('pointerleave', () => { this.cursorTime = null; this.draw(); });
+    c.addEventListener('pointerleave', () => { this.cursorTime = null; this.draw(); this._hideTip(); });
     c.addEventListener('gesturestart', (e) => { e.preventDefault(); this._gbase = this.pxPerSec; });
     c.addEventListener('gesturechange', (e) => { e.preventDefault(); this._zoomTo(this._gbase * e.scale, e); });
   }
@@ -233,6 +240,50 @@ export class Timeline {
   }
 
   setPlayhead(epochSec) { this.playhead = epochSec; this.draw(); }
+
+  // ---------------------------------------------------------------- hover tooltip (kind + start/end)
+  /** Finds the event under (clientX, clientY), matching the same geometry draw() uses for the events lane,
+   * so the hit area always agrees with what's actually drawn (including the bookmark flag's shape). */
+  _hitTest(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    const x = clientX - r.left, y = clientY - r.top;
+    const evY = 28, evH = 14;
+    if (y < evY - 14 || y > evY + evH + 3) return null; // outside the events lane (generous for the bookmark flag above it)
+    const t0 = this.center - r.width / 2 / this.pxPerSec;
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      const ev = this.events[i];
+      const x1 = (new Date(ev.start_utc).getTime() / 1000 - t0) * this.pxPerSec;
+      const x2 = (new Date(ev.end_utc).getTime() / 1000 - t0) * this.pxPerSec;
+      const isBookmark = ev.kind === 'bookmark';
+      const left = isBookmark ? x1 - 3 : x1 - 1, right = isBookmark ? x1 + 10 : Math.max(x1 + 2, x2) + 1;
+      if (x >= left && x <= right) return ev;
+    }
+    return null;
+  }
+
+  _updateTip(e) {
+    const ev = this._hitTest(e.clientX, e.clientY);
+    this.hovered = ev;
+    if (!ev) { this._hideTip(); return; }
+    const fmt = (iso) => new Date(iso).toLocaleString(undefined, { timeZone: this.opts.tz, hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
+    const when = durSec < 1 ? fmt(ev.start_utc) : `${fmt(ev.start_utc)} → ${fmt(ev.end_utc)}`;
+    this.tip.innerHTML = `<b>${esc(KIND_LABEL[ev.kind] || ev.kind)}</b><span>${esc(when)}</span>`;
+    this.tip.hidden = false;
+    const hostRect = this.el.getBoundingClientRect();
+    let left = e.clientX - hostRect.left + 12;
+    const tw = this.tip.offsetWidth || 160;
+    if (left + tw > hostRect.width - 8) left = e.clientX - hostRect.left - tw - 12;
+    this.tip.style.left = `${Math.max(4, left)}px`;
+    this.tip.style.top = `${Math.max(2, 28 - 34)}px`;
+    this.canvas.style.cursor = 'pointer';
+  }
+
+  _hideTip() {
+    this.hovered = null;
+    this.tip.hidden = true;
+    if (!this.selectMode) this.canvas.style.cursor = '';
+  }
 
   destroy() { this.ro.disconnect(); }
 }

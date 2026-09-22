@@ -265,34 +265,65 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-pool.warn { color: var(--warn); border-color: var(--warn); }
 
 /* multi-pane video grid */
-.pb-stage.multi { display: grid; gap: 3px; background: var(--line); padding: 0; place-items: initial; }
+.pb-panes.multi { display: grid; gap: 3px; background: var(--line); padding: 0; place-items: initial; }
 .pb-pane { position: relative; background: #000; overflow: hidden; display: grid; place-items: center; }
 .pb-pane > * { grid-area: 1 / 1; }
+.pb-pic { width: 100%; height: 100%; display: grid; place-items: center; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transform-origin: center; }
+.pb-pane.zanim .pb-pic { transition: transform .2s ease; }
 .pb-pane canvas { max-width: 100%; max-height: 100%; display: block; }
 .pb-pane .enh-canvas { pointer-events: none; z-index: 1; }
+.pb-pane .hitzone { position: absolute; inset: 0; z-index: 3; }
+.pb-pane > .zoomtag { position: absolute; right: 8px; bottom: 8px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+.pb-pane > .zoomtag:hover { filter: brightness(1.1); }
 .pb-pane-label { position: absolute; top: 0; left: 0; right: 0; z-index: 2; padding: 5px 8px; font-size: 12px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px #000; background: linear-gradient(#000a, transparent); pointer-events: none; }
-.pb-pane .pb-veil { padding: 10px; }
+.pb-pane .pb-veil { padding: 10px; z-index: 4; }
 .pb-pane .pb-veil .msg { font-size: 12px; }
 .pb-center { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pb-topline { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
-.pb-stage { position: relative; flex: 1; min-height: 0; background: #000; display: grid; place-items: stretch; overflow: hidden; }
-.pb-stage > .pb-pane { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.pb:fullscreen .pb-topline { background: transparent; border-bottom: 0; }
+/* .pb-stage is just the video viewport now — the transport lives inside it as an overlay (below) so the
+   video gets the full height instead of losing a fixed strip to a permanently-visible control bar. */
+.pb-stage { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
+.pb-panes { position: absolute; inset: 0; display: grid; place-items: stretch; }
+.pb-panes > .pb-pane { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .pb-canvas { max-width: 100%; max-height: 100%; display: block; }
 .pb-veil { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; text-align: center; padding: 16px; }
-/* Controls sit in a visually distinct panel below the video (never overlapping it) — two logically
-   grouped rows: transport (position/speed) on top, secondary actions (enhance/bookmark/export) below. */
-.pb-controls { flex: none; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line-2); box-shadow: 0 -4px 10px rgba(0, 0, 0, .25); }
-.pb-transport { display: flex; align-items: center; gap: 6px; padding: 10px 14px 6px; flex-wrap: wrap; }
-.pb-macros { display: flex; gap: 3px; padding: 2px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line); }
-.pb-macros .btn.icon { border: 0; background: transparent; }
-.pb-transport .btn.icon { position: relative; width: auto; min-width: 34px; padding: 0 8px; }
-.pb-transport .btn.icon .u { font-size: 9px; margin-left: 1px; opacity: .7; }
-.pb-transport select.pb-speed { height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); }
+/* Controls float over the bottom of the video (spec: "give maximum to the video") instead of taking a
+   permanent strip below it — a gradient scrim, visible while paused or the pointer is near the bottom of
+   the video, fading out otherwise so the picture gets the space back. Same idea as any video player's
+   auto-hiding transport bar. */
+.pb-controls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; flex-direction: column;
+  background: linear-gradient(to top, rgba(6, 9, 14, .94) 0%, rgba(6, 9, 14, .8) 55%, transparent 100%);
+  padding-top: 34px; opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity .22s ease, transform .22s ease; }
+.pb-controls.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+/* Three zones so the transport (play/step/rewind) reads as the visual center of the bar regardless of how
+   much is in the side groups — the 1fr/auto/1fr columns keep it centered rather than just "left-aligned
+   after whatever came before it", which is what a single flex row gives you. */
+.pb-ctrlrow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; padding: 10px 14px 8px; }
+.pb-ctrl-left { display: flex; align-items: center; gap: 8px; }
+.pb-ctrl-center { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.pb-ctrl-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.pb-macros { display: flex; gap: 3px; padding: 2px; border-radius: 9px; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); }
+.pb-macros .btn.icon { border: 0; background: transparent; color: #fff; }
+.pb-controls .btn { color: #f2f4f7; }
+.pb-controls .btn:not(.primary) { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .16); }
+.pb-controls .btn:not(.primary):hover { background: rgba(255, 255, 255, .16); }
+.pb-ctrl-center .btn.icon { position: relative; width: auto; min-width: 34px; padding: 0 8px; }
+.pb-ctrl-center .btn.icon .u { font-size: 9px; margin-left: 1px; opacity: .7; }
+.pb-speed { width: 64px; height: 34px; padding: 0 4px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .08); color: #f2f4f7; font-size: 13px; text-align: center; text-align-last: center; }
 .pb-time { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 500; }
-.pb-actions { display: flex; align-items: center; gap: 8px; padding: 6px 14px 10px; flex-wrap: wrap; }
-.pb-actions #pbtl-hint:not(:empty) { color: var(--accent); font-size: 12.5px; font-weight: 600; }
-.pb-timeline { flex: none; height: 90px; border-top: 1px solid var(--line); background: var(--panel); }
+.pb-hintrow { padding: 0 14px 10px; text-align: center; }
+.pb-hintrow #pbtl-hint:not(:empty) { color: var(--accent); font-size: 12.5px; font-weight: 600; }
+@media (max-width: 900px) {
+  .pb-ctrlrow { grid-template-columns: 1fr; justify-items: center; }
+  .pb-ctrl-left, .pb-ctrl-right { justify-content: center; }
+}
+.pb-timeline { position: relative; flex: none; height: 90px; border-top: 1px solid var(--line); background: var(--panel); }
 .pb-timeline canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+.tl-tip { position: absolute; z-index: 10; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); pointer-events: none; white-space: nowrap; }
+.tl-tip b { font-size: 12.5px; }
+.tl-tip span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pb:fullscreen .pb-timeline { display: none; } /* fullscreen is for watching the picture; scrub before or after */
 .pb-source { display: none; }
 @media (min-width: 1100px) { .pb-source { display: inline-flex; } }
 

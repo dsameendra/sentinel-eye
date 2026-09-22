@@ -50,7 +50,7 @@ export class ZoomPan {
   // ---------------------------------------------------------------- geometry
   metrics() {
     const r = this.stage.getBoundingClientRect();
-    const p = this.stage.querySelector('cam-player');
+    const p = this.stage.querySelector('cam-player, canvas'); // live tiles use <cam-player>, playback panes a <canvas> — either gives the real letterboxed content box
     return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height, bw: p ? p.offsetWidth : r.width, bh: p ? p.offsetHeight : r.height };
   }
 
