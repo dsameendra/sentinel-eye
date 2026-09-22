@@ -81,7 +81,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 /* a grid tile on loan to the large view: its own chrome (click-to-focus hitzone, name bar, buttons) is
    replaced by the focus view's — the tile itself (and its live connection) keeps running underneath */
 .tile.in-focus { border: 0; border-radius: 0; }
-.tile.in-focus .hit, .tile.in-focus .ov, .tile.in-focus .tile-actions, .tile.in-focus > .zoomtag { display: none; }
+.tile.in-focus .hit, .tile.in-focus .ov, .tile.in-focus .tile-actions, .tile.in-focus > .zoomtag, .tile.in-focus .ev-badges { display: none; }
 .stage { position: absolute; inset: 0; container-type: size; overflow: hidden; display: grid; place-items: center; }
 .stage > * { grid-area: 1 / 1; }
 /* The player is a box with the picture's real shape (--ar), sized to fit (or fill) the tile. The video is stretched

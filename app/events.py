@@ -222,6 +222,13 @@ class AlertStreamSubscriber:
         dt = re.search(r"<dateTime>([^<]+)</dateTime>", xml)
         if not (et and dt):
             return
+        # The DVR also posts a system heartbeat on this same stream — channelID 0, eventType videoloss,
+        # eventState inactive, roughly every 9s (~9k/day) — that is not a real per-channel event. Verified
+        # against the raw notification body directly (not inferred from the DB): a channelID of 0 or a
+        # missing channelID never carries a real event in practice, so skip ingesting either case rather
+        # than defaulting to a fake "channel 0" that matches no camera and pollutes search/badges.
+        if not ch or not ch.group(1).isdigit() or int(ch.group(1)) == 0:
+            return
         name = et.group(1)
         kind_map = {"motion": "motion", "linedetection": "line", "shelteralarm": "tamper", "videoloss": "videoloss"}
         kind = kind_map.get(name.lower())
@@ -231,7 +238,7 @@ class AlertStreamSubscriber:
             utc = datetime.datetime.fromisoformat(dt.group(1)).astimezone(datetime.timezone.utc).isoformat()
         except ValueError:
             return
-        channel = int(ch.group(1)) if ch and ch.group(1).isdigit() else 0
+        channel = int(ch.group(1))
         edge = "start" if (not state or state.group(1) == "active") else "stop"
         self.last_event_utc = utc
         spans = stitch([(kind, edge, channel, utc)])
