@@ -52,6 +52,7 @@ Everything below was measured on your DVR with read-only requests, most of it tw
 | **Exception log** | `videoLost/<ch>` (explains recording gaps — e.g. all channels lost video 2026-09-17 14:50:53), `illlegealAccess` (failed logins) | Used to label gaps in the coverage lane with a reason instead of leaving them blank. |
 | **Live event stream** (`Event/notification/alertStream`) | Same event types, pushed live, heartbeat ~9 s | Captures events from the moment Sentinel Eye is running, in real time — no polling needed for "now". |
 | **Analytics capability** | Line-crossing + intrusion ("field") **supported but disabled** on most channels; face detection is *advertised* in capabilities but returns `403 notSupport` when actually queried — it does not work on this hardware. Motion is enabled per-channel already. | No object attributes, no human/vehicle classification, no face recognition, no plates from the DVR, ever. That is entirely our own AI (section 4.3). |
+| **Line-crossing/intrusion is a single shared hardware resource for the whole DVR, not per-channel.** Tried to enable it on a second channel (ch 1) while it was already on for ch 4: rejected (`humanEnginesNoResource`). Freed ch 4, ch 1 then enabled fine; with ch 1 on, a third channel (ch 3) was rejected the same way. **Only one channel, system-wide, can run this analytic at a time.** All test changes were reverted; the DVR was left exactly as found (ch 4 only, verified byte-for-byte against a backup taken first). | Direct ISAPI test (enable/disable sequence on ch 1/3/4, each checked against a saved backup) | Section 6's original three-option menu assumed several channels could each get line-crossing — that assumption was wrong. Section 6 is corrected below to reflect the real, single-channel constraint. |
 | **DVR "smart search"** | `isSupportSmartSearch=true`; the endpoint exists (`400 badXmlFormat`, not `404`) but the request schema is undocumented | **Approved spike** (1–2 h): reverse-engineer the request. If it works, region/motion search over the DVR's *entire* 43-day history becomes possible without decoding it ourselves. Section 6.3 covers the fallback either way. |
 
 ### 2.4 Timing — the foundation of any synchronised playback
@@ -158,29 +159,36 @@ Legend: ✅ works as asked · 🟡 works with a stated limit · 🔬 needs the a
 
 ---
 
-## 6. Recommended DVR configuration (your decision, options given)
+## 6. Recommended DVR configuration (revised: this DVR shares one analytics engine)
 
-Line-crossing/intrusion/motion events only exist in the DVR's log for channels where they're *enabled on the DVR*.
-Today: motion is on for ch 1 (Road Right), 2 (Living Room), 3 (Gate), 7 (Road Left); line-crossing is on for ch 4
-(Back Right), generating 150–484 events/day — a lot, because the DVR log's 2,000-entry cap (2.3) means a noisy
-channel costs more API calls to read fully. Sentinel Eye reads whatever is enabled; it will not change DVR settings
-on its own. Three options, in order of recommendation:
+**Correction from the first draft of this section:** I assumed line-crossing could be enabled per-channel
+independently, the way motion detection is, and wrote a menu of "targeted vs. broad vs. minimal" options on
+that basis. Testing it directly (section 2.3) showed that's wrong: **this DVR has one shared line-crossing/
+intrusion engine for all 8 channels combined — only one channel in the entire system can run it at a time.**
+Turning it on for a second channel doesn't add coverage, it *moves* the engine away from whichever channel had
+it. Today that channel is **ch 4 (Back Right)**, already generating 150–484 line-crossing events/day.
 
-1. **Recommended — targeted:** keep motion where it is; add line-crossing only on driveway/road-facing channels
-   where a crossing has a clear meaning (candidates: ch 1 Road Right, ch 6 House, ch 7 Road Left — you know the
-   layout better than I do). Leave intrusion/field detection off unless you have a specific zone to guard (it adds
-   log volume similarly to line-crossing). This keeps the alarm log usable and keeps our own AI (4.2) as the source
-   for anything richer.
-2. **Broad:** motion + line-crossing on every channel. Simplest to reason about; the cost is a noisier log (more
-   `logSearch` calls, more entries to de-duplicate against the live stream) and more false triggers from moving
-   shadows/insects on IR cameras at night — the DVR's motion detector has no size/speed filtering.
-3. **Minimal:** leave DVR analytics exactly as they are today and rely entirely on our own AI index (4.2) going
-   forward, and only the *existing* motion/line-crossing channels for history. Zero DVR changes, at the cost of no
-   analytics at all on channels 5, 6, 8 for anything that predates our index.
+Given that hard constraint, the real options are:
 
-I'd start with **option 1** and revisit after a week of real events. Changing it is a DVR Web UI action on your
-side (Configuration → Event → Motion/Line Detection per channel); Sentinel Eye's Settings will show what's
-currently enabled per channel so you don't need to check the DVR UI to know.
+1. **Recommended — leave it where it is (ch 4).** It's already configured, already producing events, and I
+   don't know why ch 4 specifically was chosen (possibly deliberately, by whoever set up the DVR). Doing nothing
+   costs nothing and risks nothing.
+2. **Move it to a different single channel** — if you tell me which one matters most for line-crossing
+   specifically (as opposed to plain motion, which is already independent per-channel and unaffected by this
+   limit), I'll reconfigure it there instead. Candidates by camera view: ch 1 (Road Right), ch 3 (Gate), ch 6
+   (House — actually a road view despite the name), ch 7 (Road Left) all show a road or a driveway suitable for
+   a crossing line; I looked at a current snapshot from each before writing this.
+3. **Turn it off entirely** and rely only on motion (still independent per-channel, already on for ch 1,2,3,7)
+   plus our own AI going forward (section 4.2) — simplest, but loses the one DVR-side line-crossing signal you
+   currently have.
+
+I'd keep **option 1** unless you have a specific reason to move it — tell me the channel and I'll do it (with the
+same before/after verification I used in testing: read the current config, back it up, change it, confirm the
+new state, and I'd show you the result before considering it final). Intrusion/field detection shares the same
+one-engine-for-the-whole-DVR limit, confirmed by the same mechanism (`isSupportFieldDetection` sits behind the
+same capability the error referenced) — so it competes with line-crossing for the same single slot, not a
+separate one. Plain **motion detection has no such limit** — it really is independent per channel, already on for
+ch 1, 2, 3, 7, and can be extended to the rest with no trade-off.
 
 ---
 
@@ -302,15 +310,18 @@ clipper) can mix — each range in a batch can carry its own choice, or you set 
 
 ---
 
-## 12. Still open — the last few decisions
+## 12. Decisions from round 2
 
-Everything from round 1 is settled (section 0 header). Two small things remain before I start M0:
-
-1. **Which channels get AI indexing on by default (4.2)?** It costs CPU per channel while running. My suggestion:
-   start with the channels facing likely areas of interest (you know which — driveway/gate/road channels are my
-   guess from the names) and add more once you've seen the CPU cost in Status. Or start with all 8 and dial back —
-   your call.
-2. **DVR configuration (section 6):** I'd start with option 1 (targeted). Confirm, or pick 2/3.
+1. **AI indexing per channel (4.2): confirmed configurable in Settings.** Every channel gets its own on/off toggle
+   on the Channels page (next to the existing name/fps/aspect controls), default **off**. No default list is
+   hard-coded — you turn on whichever channels matter once you can see the CPU cost per channel in Status, and
+   change it any time. This lands in M3 (the milestone where the AI index itself is built); the toggle exists in
+   Settings from that milestone on.
+2. **DVR configuration (section 6): keep option 1 (leave ch 4 as it is) unless told otherwise** — this is the
+   revised recommendation after discovering the DVR's line-crossing/intrusion engine is a single resource shared
+   by all 8 channels (section 2.3), not independent per channel like I'd first assumed. I made no DVR changes;
+   everything was tested and then reverted, verified byte-for-byte against a backup. If you'd rather move it to a
+   different single channel (candidates and how in section 6, option 2), tell me which one.
 
 Everything else in this document (accounts+HTTPS, export menu, session-queue behaviour, milestone order) is ready
 to build as written.
