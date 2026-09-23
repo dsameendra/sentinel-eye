@@ -60,14 +60,14 @@ export class PlaybackView {
   build(channelId) {
     const cams = this.cams();
     if (!cams.length) {
-      this.root.innerHTML = `<div class="pb"><div class="center-card"><div class="cc-icon">${icon('video')}</div>
+      this.root.innerHTML = `<main class="pb"><div class="center-card"><div class="cc-icon">${icon('video')}</div>
         <h2>No cameras</h2><p>Enable a channel in Settings first.</p>
-        <a class="btn primary" href="#/settings/channels">Open settings</a></div></div>`;
+        <a class="btn primary" href="#/settings/channels">Open settings</a></div></main>`;
       return;
     }
     const first = cams.find((c) => c.id === channelId) || cams[0];
 
-    this.root.innerHTML = `<div class="pb">
+    this.root.innerHTML = `<main class="pb">
       <div class="pb-body">
         <aside class="pb-side pb-side-left">
           <h3>Cameras</h3>
@@ -125,7 +125,7 @@ export class PlaybackView {
         <div class="pb-edge pb-edge-right" aria-hidden="true"></div>
       </div>
       <div class="pb-timeline"></div>
-    </div>`;
+    </main>`;
 
     const speedSel = this.root.querySelector('.pb-speed');
     speedSel.innerHTML = SPEEDS.map((s) => `<option value="${s}" ${s === '1' ? 'selected' : ''}>${s.startsWith('0.') ? '1/' + Math.round(1 / parseFloat(s)) : s}×</option>`).join('');

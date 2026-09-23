@@ -102,7 +102,7 @@ The controls themselves lean refined rather than purely mechanical: hover and pr
 A near-monochrome gunmetal-dark UI with exactly one accent hue. Every other color (amber, red, blue) is semantic, not decorative, and appears only for its specific meaning.
 
 ### Primary
-- **Sentinel Green** (`#34d399` dark theme / `#059669` light theme): live status, primary buttons, selected/active nav and tabs, focus rings, selection state, "HD" tag, zoom badge. Text-on-accent uses **Sentinel Green Ink** (`#052e22` dark / `#fff` light). A low-opacity wash, **Sentinel Green Soft** (`rgba(52,211,153,.14)` dark / `rgba(5,150,105,.12)` light), marks the "currently selected/active" background for nav items, pressed buttons, and cards.
+- **Sentinel Green** (`#34d399` dark theme / `#048059` light theme): live status, primary buttons, selected/active nav and tabs, focus rings, selection state, "HD" tag, zoom badge. Text-on-accent uses **Sentinel Green Ink** (`#052e22` dark / `#fff` light). A low-opacity wash, **Sentinel Green Soft** (`rgba(52,211,153,.14)` dark / `rgba(4,128,89,.12)` light), marks the "currently selected/active" background for nav items, pressed buttons, and cards. Light theme's value is deliberately darker than dark theme's — audited directly (WCAG relative-luminance formula, not eyeballed): the original `#059669` cleared only 3.77:1 as white button text and 3.45:1 as text-on-background, both under the 4.5:1 AA floor for normal text; `#048059` is the minimum darkening (same hue/saturation) that clears 4.5:1 in both roles.
 
 ### Neutral — "Gunmetal Night"
 Cool, dark blue-black grays that carry almost the entire UI; the light theme swaps in an equivalent light gray-blue family at the same structural roles.
@@ -112,13 +112,21 @@ Cool, dark blue-black grays that carry almost the entire UI; the light theme swa
 - **Gunmetal Line / Line-2** (`#262e3a` / `#313b4a` dark, `#dfe4ec` / `#c9d1dd` light): hairline dividers and borders; Line-2 is the stronger, hover/focus-adjacent border.
 - **Text Primary** (`#e7ebf1` dark / `#16202e` light): body and heading text.
 - **Text Muted** (`#8b97a8` dark / `#5d6b7e` light): secondary text, labels, hints, inactive nav.
-- **Text Faint** (`#5c6878` dark / `#8f9bab` light): placeholder-level text, disabled/empty-state icons, inactive dots.
+- **Text Faint** (`#5c6878` dark / `#808ea0` light): placeholder-level text, disabled/empty-state icons, inactive dots. Light theme's value was audited and darkened from an earlier `#8f9bab` (2.58:1 against the light background, below even the lenient 3:1 UI-component floor) to `#808ea0` (3.05:1) — dark theme's value already cleared AA.
 - **Video Tile** (`#05070a`, same in both themes): the near-black backdrop behind every camera tile and video stage — always darker than the surrounding chrome so footage reads as the visual floor of the screen.
 
 ### Semantic
 - **Warn Amber** (`#fbbf24` dark / `#b45309` light): warning states only (e.g. a pending/waiting connection dot, storage-pool warnings).
-- **Danger Red** (`#f87171` dark / `#dc2626` light) + **Danger Red Soft** wash: destructive actions, offline/error states, tamper and video-loss event badges, form validation errors.
+- **Danger Red** (`#f87171` dark / `#da2323` light) + **Danger Red Soft** wash: destructive actions, offline/error states, tamper and video-loss event badges, form validation errors. Light theme's value was audited and darkened from `#dc2626` (4.42:1 against the light background, just under the 4.5:1 AA floor) to `#da2323` (4.53:1).
 - **Info Blue** (`#60a5fa` dark / `#2563eb` light): reserved, low-frequency informational accent (kept distinct from Sentinel Green so it never reads as "live").
+
+### Qualitative — Timeline
+Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js`). Categorical, not semantic state, so — unlike every color above — these intentionally stay the same in both themes: their job is telling lanes/kinds apart, not matching a light/dark mood. Defined as CSS custom properties (`--ev-motion`, `--ev-videoloss`, `--ev-bookmark`, `--cam-1..4`) and read via `getComputedStyle` at draw time rather than baked into the canvas code as hex literals.
+- **Ev Motion** (`#eab308`): motion event spans.
+- Line-crossing / intrusion / tamper events reuse **Danger Red** directly (already the exact value) rather than a duplicate token.
+- **Ev Video-loss** (`#6b7280`): video-loss event spans.
+- **Ev Bookmark** (`#22d3ee`): the bookmark flag glyph.
+- **Cam 1-4** (`#60a5fa`, `#f472b6`, `#34d399`, `#fb923c`): the left-edge lane-identity dot when more than one camera's events share the timeline.
 
 ### Named Rules
 **The Single Accent Rule.** Sentinel Green is the only color used for emphasis, selection, or primary action. If a control isn't live, active, selected, or the primary action in its group, it does not get colored — it stays gunmetal/muted.

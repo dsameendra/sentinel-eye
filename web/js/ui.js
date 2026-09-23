@@ -65,6 +65,19 @@ export function toast(msg, kind = 'ok', ms = 4200) {
   setTimeout(() => t.remove(), ms);
 }
 
+/** Keeps Tab/Shift+Tab cycling within an open dialog instead of walking onto whatever's behind the scrim
+ * (the topbar nav, tile controls) — found by audit, not assumed: neither confirmDialog nor bookmarkDialog
+ * trapped focus even though both already set an initial focus target. */
+function trapTab(e, container) {
+  if (e.key !== 'Tab' || !container) return;
+  const focusable = [...container.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => el.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
 export function confirmDialog({ title, body, ok = 'Confirm', danger = false }) {
   return new Promise((resolve) => {
     const root = document.getElementById('modal-root');
@@ -72,7 +85,7 @@ export function confirmDialog({ title, body, ok = 'Confirm', danger = false }) {
       <h3>${esc(title)}</h3><p>${esc(body)}</p>
       <div class="row"><button class="btn" data-x="0">Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" data-x="1">${esc(ok)}</button></div></div></div>`;
     const done = (v) => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } else trapTab(e, root.querySelector('.dialog')); };
     document.addEventListener('keydown', onKey, true);
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(false); });
     root.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => done(b.dataset.x === '1')));
@@ -100,7 +113,11 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
       note: root.querySelector('#bm-note').value.trim(),
       severity: root.querySelector('#bm-sev').value,
     });
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } else if (e.key === 'Enter' && e.target.id === 'bm-title') submit(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+      else if (e.key === 'Enter' && e.target.id === 'bm-title') submit();
+      else trapTab(e, root.querySelector('.dialog'));
+    };
     document.addEventListener('keydown', onKey, true);
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(null); });
     root.querySelector('[data-x="0"]').addEventListener('click', () => done(null));

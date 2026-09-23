@@ -13,14 +13,18 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 
 const MIN_PX_PER_SEC = 1440 / (24 * 3600);   // whole day fits ~1440px
 const MAX_PX_PER_SEC = 200;                   // ~5ms/px at max zoom (frame-level)
-const KIND_COLOR = { motion: '#eab308', line: '#f87171', intrusion: '#f87171', tamper: '#f87171', videoloss: '#6b7280', bookmark: '#22d3ee' };
+// Fallback values only — real paint colours come from the --ev-*/--cam-* custom properties (app.css),
+// read via getComputedStyle in draw() the same way --line/--muted/--accent already are just below. Kept
+// here only so a missing stylesheet degrades instead of throwing (same defensive pattern as line/text/
+// accent's own `|| '#333'`-style fallbacks).
+const KIND_COLOR_FALLBACK = { motion: '#eab308', line: '#f87171', intrusion: '#f87171', tamper: '#f87171', videoloss: '#6b7280', bookmark: '#22d3ee' };
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
 
 const dayStr = (d) => d.toISOString().slice(0, 10);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 const LANE_H = 14, LANE_GAP = 3;   // per-camera event lane height/gap — matches the original single-lane size exactly when there's only one camera, so the common case looks unchanged
-const CAM_COLORS = ['#60a5fa', '#f472b6', '#34d399', '#fb923c'];   // per-camera lane accent (left edge + label), up to MAX_PANES=4
+const CAM_COLORS_FALLBACK = ['#60a5fa', '#f472b6', '#34d399', '#fb923c'];   // per-camera lane accent (left edge + label), up to MAX_PANES=4
 
 export class Timeline {
   /** @param el host element @param opts {channels: [{channel, name}] (primary first — drives coverage/seek), onSeek(isoTime), tzOffsetMin: DVR UTC offset in minutes} */
@@ -233,6 +237,14 @@ export class Timeline {
     const line = style.getPropertyValue('--line').trim() || '#333';
     const text = style.getPropertyValue('--muted').trim() || '#888';
     const accent = style.getPropertyValue('--accent').trim() || '#34d399';
+    const danger = style.getPropertyValue('--danger').trim() || KIND_COLOR_FALLBACK.line;
+    const kindColor = {
+      motion: style.getPropertyValue('--ev-motion').trim() || KIND_COLOR_FALLBACK.motion,
+      line: danger, intrusion: danger, tamper: danger,
+      videoloss: style.getPropertyValue('--ev-videoloss').trim() || KIND_COLOR_FALLBACK.videoloss,
+      bookmark: style.getPropertyValue('--ev-bookmark').trim() || KIND_COLOR_FALLBACK.bookmark,
+    };
+    const camColors = ['--cam-1', '--cam-2', '--cam-3', '--cam-4'].map((v, i) => style.getPropertyValue(v).trim() || CAM_COLORS_FALLBACK[i]);
 
     const t0 = this.center - w / 2 / this.pxPerSec;
     const chans = this.opts.channels;
@@ -255,7 +267,7 @@ export class Timeline {
       if (chans.length > 1) {
         // small fixed colour key at the left edge of the lane, ties this row to a camera regardless of
         // scroll position; hovering an event also names its camera in the tooltip.
-        ctx.fillStyle = CAM_COLORS[i % CAM_COLORS.length];
+        ctx.fillStyle = camColors[i % camColors.length];
         ctx.fillRect(2, laneY(i) + (LANE_H - 6) / 2, 6, 6);
       }
     }
@@ -268,12 +280,12 @@ export class Timeline {
       if (x2 < -2 || x1 > w + 2) continue;
       if (ev.kind === 'bookmark') {
         // a small flag above the lane rather than a bar — bookmarks are an instant, not a span
-        ctx.fillStyle = KIND_COLOR.bookmark;
+        ctx.fillStyle = kindColor.bookmark;
         ctx.beginPath(); ctx.moveTo(x1, y - 12); ctx.lineTo(x1 + 9, y - 8); ctx.lineTo(x1, y - 4); ctx.closePath(); ctx.fill();
         ctx.fillRect(x1 - 1, y - 12, 2, LANE_H + 12);
         continue;
       }
-      ctx.fillStyle = KIND_COLOR[ev.kind] || '#60a5fa';
+      ctx.fillStyle = kindColor[ev.kind] || accent;
       ctx.fillRect(x1, y, Math.max(2, x2 - x1), LANE_H);
     }
     // time grid + labels

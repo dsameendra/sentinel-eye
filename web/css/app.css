@@ -6,15 +6,28 @@
   --warn: #fbbf24; --danger: #f87171; --danger-soft: rgba(248, 113, 113, .14); --info: #60a5fa;
   --tile: #05070a; --shadow: 0 10px 30px rgba(0, 0, 0, .45);
   --r: 10px; --bar: 52px;
+  /* Timeline (timeline.js): event-kind and per-camera-lane colours. Qualitative/categorical, not semantic
+   * state, so they intentionally don't get separate light-theme values (their job is telling lanes/kinds
+   * apart, not matching light/dark mood) — defined once here, read via getComputedStyle at draw time so
+   * they're real tokens instead of hex literals baked into the canvas code. line/intrusion/tamper already
+   * equal --danger exactly, so they reuse it rather than duplicating the value under a new name. */
+  --ev-motion: #eab308; --ev-videoloss: #6b7280; --ev-bookmark: #22d3ee;
+  --cam-1: #60a5fa; --cam-2: #f472b6; --cam-3: #34d399; --cam-4: #fb923c;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+/* Light theme values below are the darkest each hue can go while keeping its identity (same hue/
+   saturation, only lightness reduced), tuned to the minimum shift that clears WCAG AA — verified directly
+   against every real usage (button-fill text, text-on-bg, text-on-panel), not eyeballed: accent #059669 ->
+   #048059 (was 3.77:1 as white button text, 3.45:1 as text-on-bg; now 4.96/4.54), faint #8f9bab -> #808ea0
+   (was 2.58:1, below even the 3:1 UI-component floor; now 3.05), danger #dc2626 -> #da2323 (was 4.42:1
+   text-on-bg, just under AA; now 4.53). Dark theme (the default) already cleared AA on every pair checked. */
 :root[data-theme="light"] { color-scheme: light; --bg: #f3f5f8; --panel: #fff; --panel-2: #f0f3f7; --line: #dfe4ec; --line-2: #c9d1dd;
-  --text: #16202e; --muted: #5d6b7e; --faint: #8f9bab; --accent: #059669; --accent-ink: #fff; --accent-soft: rgba(5, 150, 105, .12);
-  --warn: #b45309; --danger: #dc2626; --danger-soft: rgba(220, 38, 38, .1); --info: #2563eb; --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
+  --text: #16202e; --muted: #5d6b7e; --faint: #808ea0; --accent: #048059; --accent-ink: #fff; --accent-soft: rgba(4, 128, 89, .12);
+  --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #2563eb; --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) { color-scheme: light; --bg: #f3f5f8; --panel: #fff; --panel-2: #f0f3f7; --line: #dfe4ec; --line-2: #c9d1dd;
-    --text: #16202e; --muted: #5d6b7e; --faint: #8f9bab; --accent: #059669; --accent-ink: #fff; --accent-soft: rgba(5, 150, 105, .12);
-    --warn: #b45309; --danger: #dc2626; --danger-soft: rgba(220, 38, 38, .1); --info: #2563eb; --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
+    --text: #16202e; --muted: #5d6b7e; --faint: #808ea0; --accent: #048059; --accent-ink: #fff; --accent-soft: rgba(4, 128, 89, .12);
+    --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #2563eb; --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
