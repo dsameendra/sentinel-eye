@@ -98,7 +98,7 @@ class Display(BaseModel):
     # Starting L0 live-enhancement preset for a newly-opened tile/pane (enhance.js PRESETS keys) — was
     # always "off"; every operator had to re-pick a preset by hand on every tile, every session.
     enhance_default_preset: Literal["off", "night", "haze", "sharpen", "wdr", "retinex", "rainsnow"] = "off"
-    # Starting mode/fidelity for the AI frame enhancer popup (docs/playback-spec.md section 7.8) — were hardcoded
+    # Starting mode/fidelity for the AI frame enhancer popup (docs/SPEC.md section 7.8) — were hardcoded
     # "auto"/0.5; 0.5 is still the recommended fidelity default (spec 2d), now just changeable.
     enhance_default_mode: Literal["auto", "face", "plate", "general"] = "auto"
     enhance_default_fidelity: float = Field(0.5, ge=0.0, le=1.0)

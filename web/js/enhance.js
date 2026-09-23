@@ -4,7 +4,7 @@
 // (edge-aware sharpen, a fast dehaze approximation, CLAHE-inspired local contrast, chromatic-aberration
 // correction, Reinhard-style digital WDR tone-mapping, single-scale Retinex illumination correction, and
 // temporal-median rain/snow-streak reduction), all independently strength-adjustable and stackable in one
-// pass — see docs/playback-spec.md's L0 section for what each one really is and isn't.
+// pass — see docs/SPEC.md's L0 section for what each one really is and isn't.
 //
 // Renders a source <video> or <canvas> through a WebGL fragment shader chain into a target <canvas>, once
 // per animation frame while active. Bypassed entirely (source painted through untouched) when off, so
@@ -12,7 +12,7 @@
 //
 // Deliberately NOT implemented: blind-deconvolution motion-deblur. A misestimated blur kernel produces
 // confident-looking but fabricated structure — the exact failure mode CCSR's diffusion denoising was
-// rejected for elsewhere in this app (docs/playback-spec.md section 7.8.2a). A classical, non-blind technique here
+// rejected for elsewhere in this app (docs/SPEC.md section 7.8.2a). A classical, non-blind technique here
 // would carry the same risk without the AI-pipeline's explicit "reconstructed, not evidence" framing, so
 // it's left out rather than shipped half-trustworthy.
 
@@ -140,7 +140,7 @@ void main() {
   // frame, frame before that) is very likely a falling raindrop/snowflake catching IR light mid-frame, not
   // real scene content — replace it with the temporal median of the three, which is always a real pixel
   // value from an actual frame, never an invented one (same "pick a real value, don't synthesize" principle
-  // as the AI frame-enhancer's median-stacking — docs/playback-spec.md section 7.8.2d). Static/slow content, present
+  // as the AI frame-enhancer's median-stacking — docs/SPEC.md section 7.8.2d). Static/slow content, present
   // in all three frames, is left untouched.
   if (uRainSnow > 0.0) {
     vec3 p1 = texture2D(uPrev1, uv).rgb, p2 = texture2D(uPrev2, uv).rgb;
@@ -476,7 +476,7 @@ export class Enhancer {
     // fragments *inside* the box are actually rasterized/written; the canvas is cleared to transparent
     // first so everywhere else shows the raw pane underneath, completely untouched, through the gap. This
     // is a real GPU cost reduction, not just a visual crop — the rasterizer skips work outside the
-    // scissor rect at the hardware level (spec 2c's ROI note in playback-spec.md).
+    // scissor rect at the hardware level (spec 2c's ROI note in SPEC.md).
     if (this._roi) {
       gl.disable(gl.SCISSOR_TEST);
       gl.clearColor(0, 0, 0, 0);

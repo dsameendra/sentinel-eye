@@ -32,7 +32,7 @@ def main():
     tz = events.tz_local(api)
 
     # ---- 1. cap-splitting superset check, on a day we already know is capped (ch4 line-crossing was noisy)
-    day = datetime.date(2026, 9, 10)  # from docs/playback-spec.md 2.3: 2000 alarm entries that day
+    day = datetime.date(2026, 9, 10)  # from docs/SPEC.md 2.3: 2000 alarm entries that day
     day_start = datetime.datetime.combine(day, datetime.time(0, 0), tzinfo=tz)
     day_entries, capped = events.fetch_day(api, "Alarm", day_start, tz)
     check("day query hits the cap on a known-noisy day", capped or len(day_entries) < 2000,

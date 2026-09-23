@@ -212,7 +212,7 @@ anything on it.
 
 Live viewing, multi-camera DVR playback with frame-locked timing, event search, signed-package export, the
 real-time enhancement filters, and the local AI frame enhancer are all built and in day-to-day use. The
-detailed specification and its build status live in `docs/playback-spec.md` — including the parts
+detailed specification and its build status live in `docs/SPEC.md` — including the parts
 deliberately not built (a native-DVR-file export option, and a standalone offline player), and one open
 investigation into a rare timing edge case on footage recorded many hours before the most recent per-channel
 clock calibration.

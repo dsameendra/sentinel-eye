@@ -1,4 +1,4 @@
-"""AI frame enhancer (spec: docs/playback-spec.md section 7.8 — M6 L2). Real-ESRGAN (general upscale) + GFPGAN
+"""AI frame enhancer (spec: docs/SPEC.md section 7.8 — M6 L2). Real-ESRGAN (general upscale) + GFPGAN
 (face restoration), the standard documented pairing, run locally (no cloud calls). Optional multi-frame
 input is aligned and fused (classical, not learned) before the AI pipeline for noise reduction.
 
@@ -72,7 +72,7 @@ def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.
     """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-7 frames, same dimensions.
     roi: optional (x, y, w, h) fractions (0-1) of the frame to crop to *before* alignment/upscaling — lets
     the operator isolate a plate or face so the AI's fixed output resolution is spent on that subject
-    instead of the whole scene (see docs/playback-spec.md section 7.8.2c). weight: GFPGAN's own fidelity/
+    instead of the whole scene (see docs/SPEC.md section 7.8.2c). weight: GFPGAN's own fidelity/
     identity-preservation knob (0=pure hallucinated reconstruction, 1=barely touched) — see section 2d."""
     _sweep_old_jobs()
     with _jobs_lock:
@@ -132,7 +132,7 @@ def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
             # plate crop (especially after the ROI crop above) mostly moves as one rigid unit that ECC's
             # own translation alignment already tracks, so there's no separate "moving subject" to protect
             # against, and a median is more robust than a mean against exactly the kind of speckle/block
-            # noise that makes DVR-compressed digits ambiguous (docs/playback-spec.md section 7.8.2c).
+            # noise that makes DVR-compressed digits ambiguous (docs/SPEC.md section 7.8.2c).
             fused = _align_and_median(frames) if mode == "plate" else _align_and_fuse(frames)
         else:
             fused = frames[0]
@@ -387,7 +387,7 @@ def _load_models(progress=None):
 def _enhance(bgr, mode, weight=0.5, progress=None):
     """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general. weight: fidelity knob for a
     restored face — 0 is GFPGAN's full reconstruction (can fabricate features), 1 is the real upscaled
-    pixels with no face synthesis at all, 0.5 blends the two evenly (see docs/playback-spec.md section 7.8.2d for why
+    pixels with no face synthesis at all, 0.5 blends the two evenly (see docs/SPEC.md section 7.8.2d for why
     that middle ground is the forensically-sound default). This is a real, verified linear blend against a
     second plain Real-ESRGAN pass — NOT GFPGANer.enhance()'s own `weight` argument, which was found (by
     reading the installed package's model code directly, not assumed) to be silently unused: both

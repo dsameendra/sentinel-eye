@@ -247,7 +247,7 @@ export class Tile {
   // Popover is appended to <body> (openPopover) rather than nested under the tile — a grid tile clips its
   // own overflow (needed for the video picture), which was cutting the dropdown off/garbling it when it
   // was positioned relative to a button inside the tile. Presets are quick-fill starting points; every
-  // slider underneath stays individually adjustable and stacks with the rest (docs/playback-spec.md's L0
+  // slider underneath stays individually adjustable and stacks with the rest (docs/SPEC.md's L0
   // section) — there's no longer a single "which preset is active" state, just the current parameter mix.
   _toggleEnhanceMenu() {
     const btn = this.el.querySelector('[data-a=enhance]');

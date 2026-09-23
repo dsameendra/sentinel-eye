@@ -419,7 +419,7 @@ export class PlaybackView {
     this._drawRoiBox(pane, pane._roi.x, pane._roi.y, pane._roi.w, pane._roi.h);
   }
 
-  // ---------------------------------------------------------------- AI frame enhancer (docs/playback-spec.md section 7.8, M6 L2)
+  // ---------------------------------------------------------------- AI frame enhancer (docs/SPEC.md section 7.8, M6 L2)
   _openFrameEnhancer() {
     if (this.playing || !this.panes.length) return;
     const primary = this.panes[0];
@@ -569,7 +569,7 @@ export class PlaybackView {
     // request did NOT reproduce that specific failure mode, so this removes one source of imprecision —
     // but a fresh connect can still land off target for footage several days old, which turned out to be a
     // separate, deeper issue in the RTP-to-UTC time calibration itself, not this connect-vs-seek choice.
-    // See docs/playback-spec.md's timing notes for that investigation's findings.
+    // See docs/SPEC.md's timing notes for that investigation's findings.
     for (const pane of this.panes) {
       pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
       pane.player.connect(pane.cam.id, iso, this.speed);
@@ -663,7 +663,7 @@ export class PlaybackView {
 
   _paintPlayIcon() {
     this.root.querySelector('[data-a=playpause]').innerHTML = icon(this.playing ? 'pause' : 'play');
-    // The AI frame enhancer (docs/playback-spec.md section 7.8) operates on the exact frame on screen — while
+    // The AI frame enhancer (docs/SPEC.md section 7.8) operates on the exact frame on screen — while
     // playing that's a moving target, so it's disabled rather than silently grabbing whatever frame
     // happens to land at click time.
     const aiBtn = this.root.querySelector('[data-a=aienhance]');

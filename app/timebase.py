@@ -1,8 +1,8 @@
 """Per-channel clock calibration: converts an RTP timestamp (90 kHz, wraps every ~13.25 h) to an absolute
 UTC time, so frames from different channels/sessions can be compared and multi-camera playback can be
-frame-locked (see docs/playback-spec.md section 2.4).
+frame-locked (see docs/SPEC.md section 2.4).
 
-Method (measured, not assumed — see docs/playback-spec.md section 2.6 for why the naive approach was wrong):
+Method (measured, not assumed — see docs/SPEC.md section 2.6 for why the naive approach was wrong):
   1. Decode a few seconds of a channel's LIVE sub-stream, keeping each frame's RTP timestamp.
   2. Find the exact frame where the burned-in on-screen clock's seconds digits change ("ticks over"), by
      diffing the bright (white glyph) pixels of the OSD's seconds region — no OCR of the digit VALUE needed,

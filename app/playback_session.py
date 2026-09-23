@@ -1,5 +1,5 @@
 """DVR playback sessions for the browser player: one background reader per open pane, all sharing a
-4-slot pool (the DVR's hard session cap — docs/playback-spec.md section 2.2/7.3).
+4-slot pool (the DVR's hard session cap — docs/SPEC.md section 2.2/7.3).
 
 Each reader opens an RTSP playback session (`Range: clock=...`), decrypts, depacketizes to NAL units,
 converts each frame's RTP timestamp to an absolute UTC time via the channel's stored calibration, and

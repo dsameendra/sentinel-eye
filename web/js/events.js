@@ -1,5 +1,5 @@
 // Events: filters the unified event index (app/db.py `events`, fed by DVR log backfill + the live
-// alertStream — see docs/playback-spec.md section 8) by camera, kind and a DVR-local date range, shows a
+// alertStream — see docs/SPEC.md section 8) by camera, kind and a DVR-local date range, shows a
 // thumbnail per event (captured from its midpoint, on demand — app/thumbnails.py), and jumps a result
 // straight into Playback at that instant. Motion/line/tamper spans arrive already stitched into start/end
 // windows by app/events.py, so no further run-collapsing is needed here.

@@ -1,7 +1,7 @@
 // The "wand" L0 live-enhancement control panel — shared by the Live grid (Tile), Live focus view, and
 // Playback panes, since all three previously duplicated their own small preset-only popover. Presets are
 // still here as one-click starting points, but every underlying parameter is now an individually
-// adjustable, independently stackable slider (docs/playback-spec.md's L0 section) — moving one slider
+// adjustable, independently stackable slider (docs/SPEC.md's L0 section) — moving one slider
 // after picking a preset just keeps tweaking from there, it doesn't reset to "custom" or lose the rest.
 import { esc, icon } from './ui.js';
 import { PRESETS, saveCustomPreset, hasSavedCustomPreset } from './enhance.js';

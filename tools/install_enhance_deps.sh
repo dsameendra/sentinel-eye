@@ -1,5 +1,5 @@
 #!/bin/zsh
-# One-time setup for the AI frame enhancer (docs/playback-spec.md section 7.8). Not run automatically — the feature
+# One-time setup for the AI frame enhancer (docs/SPEC.md section 7.8). Not run automatically — the feature
 # is optional, and this downloads real weight files (~1.5 GB total across PyTorch, Real-ESRGAN, GFPGAN and
 # facexlib's own detection/parsing models, the last two fetched lazily on first real use).
 #

@@ -1,5 +1,5 @@
 """Event ingest: DVR alarm/exception log backfill (paginated, watermarked, rate-limited) and the live
-alertStream subscriber. See docs/playback-spec.md section 8."""
+alertStream subscriber. See docs/SPEC.md section 8."""
 import datetime
 import re
 import threading

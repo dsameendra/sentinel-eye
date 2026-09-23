@@ -4,7 +4,7 @@ PlaybackReader used for live review, so it goes through psess.pool exactly like 
 Frame timing: naive `ffmpeg -c copy` on this DVR's raw Annex-B stream silently guesses a wrong framerate
 (measured: produced a clip at exactly half the real duration). Muxing here instead assigns each access unit
 its own real PTS via PyAV (verified: frame-identical duration and frame count against the source's own
-timestamps). See docs/playback-spec.md section 10 and the M4 export commit for the measurement.
+timestamps). See docs/SPEC.md section 10 and the M4 export commit for the measurement.
 
 Package "signed evidence" (recommended, option 1): clip(s) + manifest.json (camera, exact DVR time range in
 both UTC and DVR-local, the clock-calibration value used, operator, per-file SHA-256) + an Ed25519 signature

@@ -36,7 +36,7 @@ def playback_path(channel, override=""):
     """DVR recordings live on a completely different endpoint from live view (`tracks`, not `Channels`):
     a `Range: clock=...` PLAY against `/Streaming/Channels/...` is silently ignored and just serves live
     video (verified directly — no error, no warning, just the wrong stream). Sub-streams aren't recorded
-    (docs/playback-spec.md 2.1), so this is always the main track."""
+    (docs/SPEC.md 2.1), so this is always the main track."""
     return override or f"/Streaming/tracks/{channel}01"
 
 

@@ -57,7 +57,7 @@ export class ZoomPan {
     // being earlier in the markup, collapsing bw/bh to 0 and silently clamping all panning to zero
     // (confirmed directly: zoom still worked since it doesn't depend on this, but every pan attempt landed
     // back at x=0,y=0 no matter how far the pointer moved).
-    // img: the AI frame-enhancer popup's result/source view (docs/playback-spec.md section 7.8) — a plain <img>,
+    // img: the AI frame-enhancer popup's result/source view (docs/SPEC.md section 7.8) — a plain <img>,
     // same "real letterboxed content box" need as the other two.
     const p = this.stage.querySelector('cam-player, canvas:not(.enh-canvas), img');
     return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height, bw: p ? p.offsetWidth : r.width, bh: p ? p.offsetHeight : r.height };

@@ -25,10 +25,10 @@ A full self-hosted vendor-app replacement, not just a viewer. Decrypting Hikvisi
 - Frontend is plain ES modules (`web/js/`) with no build step or framework; backend is FastAPI (`app/server.py`).
 - Live view supports layouts 1×1 up to 4×4 plus 1+5/1+7/2+8, drag-to-reorder, SD/HD/Auto quality, zoom/pan (wheel, pinch, touch, drag), snapshot, full screen, keyboard shortcuts.
 - HD streams transcode H.265→H.264 on the Mac for broad browser compatibility; "Play directly" is opt-in.
-- Existing Stage 2+ surfaces already in the codebase: events (list/preview/export), playback/timeline, AI frame enhancement (`enhance_ai.py`, `web/js/enhance*.js`, see `docs/playback-spec.md` section 7.8).
+- Existing Stage 2+ surfaces already in the codebase: events (list/preview/export), playback/timeline, AI frame enhancement (`enhance_ai.py`, `web/js/enhance*.js`, see `docs/SPEC.md` section 7.8).
 
 ## Evidence on Hand
-No fabricated testimonials, customers, benchmarks, or pricing — this is a personal/hobby project run by its own developer, not a product with external customers yet. `docs/playback-spec.md` (the single unified spec, covering playback/review and the AI frame enhancer) and `tools/NOTES.md` (reverse-engineered encryption scheme) are real, current documentation and should be treated as authoritative product detail where relevant.
+No fabricated testimonials, customers, benchmarks, or pricing — this is a personal/hobby project run by its own developer, not a product with external customers yet. `docs/SPEC.md` (the single unified spec, covering playback/review and the AI frame enhancer) and `tools/NOTES.md` (reverse-engineered encryption scheme) are real, current documentation and should be treated as authoritative product detail where relevant.
 
 ## Product Principles
 1. Everything runs locally — no cloud account, no vendor app, no plugin, ever required.

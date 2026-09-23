@@ -303,7 +303,7 @@ class EnhanceRequest(BaseModel):
 
 @app.post("/api/enhance")
 async def create_enhance(req: EnhanceRequest):
-    """Starts a background AI frame-enhancement job (docs/playback-spec.md section 7.8). Frames come from the
+    """Starts a background AI frame-enhancement job (docs/SPEC.md section 7.8). Frames come from the
     client's already-decoded playback buffer — no DVR session, doesn't touch the 4-session budget."""
     import secrets as _secrets
     if not req.images or len(req.images) > 7:

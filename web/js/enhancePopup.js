@@ -1,4 +1,4 @@
-// AI frame enhancer popup (docs/playback-spec.md section 7.8) — grabs a burst of already-decoded frames from a
+// AI frame enhancer popup (docs/SPEC.md section 7.8) — grabs a burst of already-decoded frames from a
 // paused playback pane, runs them through the server's Real-ESRGAN + GFPGAN pipeline, and shows the
 // result in a large zoom/pan/fullscreen viewer with a before/after toggle. Forensic-integrity rules baked
 // in here, not just described: the source (pre-AI) frame is always fetched alongside the enhanced one,
@@ -38,7 +38,7 @@ export function openEnhancePopup(opts) {
   // actual subject instead of mostly on background that was never in question.
   let roi = null;
   let selecting = false;
-  // Client-side "wand" live filters (docs/playback-spec.md's L0 section) layered on top of whichever
+  // Client-side "wand" live filters (docs/SPEC.md's L0 section) layered on top of whichever
   // picture is currently shown, purely for on-screen inspection — never touches the server-side AI
   // pipeline or what a download actually saves, so it can't be mistaken for part of the forensic output.
   let filterParams = { ...FILTER_PRESETS.off };

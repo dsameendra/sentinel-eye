@@ -1,5 +1,5 @@
 // WebCodecs-based DVR playback player. Connects to /api/playback/ws, decodes H.265 Annex-B access units
-// with WebCodecs VideoDecoder (verified directly against this DVR's footage — see docs/playback-spec.md
+// with WebCodecs VideoDecoder (verified directly against this DVR's footage — see docs/SPEC.md
 // section 2.6/7.2), and paints decoded frames to a <canvas>. No <video> element: WebCodecs frames are
 // painted directly, which is what lets us do exact frame-stepping and report a real decoded-frame clock.
 //
@@ -115,7 +115,7 @@ export class WCPlayer {
   }
 
   /** Up to `n` consecutive frames centred on the current paused position, as PNG data URLs (oldest ->
-   * newest), for the AI frame enhancer (docs/playback-spec.md section 7.8) — pulled straight from the decode buffer
+   * newest), for the AI frame enhancer (docs/SPEC.md section 7.8) — pulled straight from the decode buffer
    * already sitting in memory, no new DVR session. Odd counts centre exactly on bufIndex; clamps to
    * whatever's actually buffered around it rather than erroring near either edge of the window. */
   grabFrames(n = 5) {
