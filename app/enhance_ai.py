@@ -385,12 +385,15 @@ def _load_models(progress=None):
 
 
 def _enhance(bgr, mode, weight=0.5, progress=None):
-    """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general. weight: GFPGAN's fidelity knob —
-    0 lets it freely reconstruct a face from its learned prior (can fabricate features), 1 barely touches
-    the input (stays blurry); 0.5-0.6 blends real pixel data with the model's face prior, matching what
-    forensic-enhancement practice recommends for a face specifically (see docs/enhance-ai-spec.md 2d) —
-    recognizable, not either an unmoved blur or an invented person. progress(msg): optional callback fired
-    at each real pipeline stage — named after the actual step running, not a generic "processing" label."""
+    """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general. weight: fidelity knob for a
+    restored face — 0 is GFPGAN's full reconstruction (can fabricate features), 1 is the real upscaled
+    pixels with no face synthesis at all, 0.5 blends the two evenly (see docs/enhance-ai-spec.md 2d for why
+    that middle ground is the forensically-sound default). This is a real, verified linear blend against a
+    second plain Real-ESRGAN pass — NOT GFPGANer.enhance()'s own `weight` argument, which was found (by
+    reading the installed package's model code directly, not assumed) to be silently unused: both
+    GFPGANv1Clean.forward and GFPGANv1.forward accept it only via **kwargs and never reference it, so it
+    had zero effect on the output regardless of value. progress(msg): optional callback fired at each real
+    pipeline stage — named after the actual step running, not a generic "processing" label."""
     step = progress or (lambda _msg: None)
     if mode == "general":
         _load_models_upsampler_only(progress)
@@ -406,11 +409,17 @@ def _enhance(bgr, mode, weight=0.5, progress=None):
 
     _load_models(progress)
     step("Upscaling and restoring faces (GFPGAN)…")
-    _, _, out = _gfpgan.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True, weight=weight)
+    _, _, out = _gfpgan.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True)
     faces_found = len(_gfpgan.face_helper.all_landmarks_5) if hasattr(_gfpgan, "face_helper") else 0
     if mode == "auto" and faces_found == 0:
         step("No face found — sharpening detail…")
         return _classical_sharpen(out), 0
+    if faces_found > 0 and weight > 0.0:
+        step("Blending restoration against real pixels (fidelity)…")
+        _load_models_upsampler_only(progress)
+        real_only, _ = _realesrgan.enhance(bgr, outscale=4)
+        if real_only.shape == out.shape:
+            out = np.clip((1 - weight) * out.astype(np.float32) + weight * real_only.astype(np.float32), 0, 255).astype(np.uint8)
     return out, faces_found
 
 

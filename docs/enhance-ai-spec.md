@@ -92,12 +92,17 @@ see the median-stack note below.
   robust than a mean against exactly the compression-block and sensor speckle noise that makes DVR digits
   ambiguous: it rejects outlier frames instead of blending them in, and every output pixel is a real pixel
   value from one input frame rather than an interpolated in-between value.
-- **GFPGAN's fidelity weight, exposed instead of fixed.** GFPGAN's own `enhance()` call takes a `weight`
-  parameter (0 = reconstruct freely from its learned face prior, can invent features; 1 = barely touch the
-  input, stays blurry) that was previously left at its library default with no way to change it. It's now a
-  slider in the popup (still defaulting to 0.5, GFPGAN's own documented default and the same middle ground
-  forensic face-restoration guides recommend) so an operator can deliberately push toward "closer to the
-  real pixels" or "let it reconstruct more" per frame, rather than getting one fixed trade-off always.
+- **Fidelity slider — a real blend, after finding GFPGAN's own one does nothing.** `GFPGANer.enhance()`
+  takes a `weight` parameter (0 = reconstruct freely from its learned face prior, can invent features; 1 =
+  barely touch the input, stays blurry) that a first version of this slider passed straight through. A
+  later report that the slider "didn't seem to do anything" turned out to be correct: read directly against
+  the installed `gfpgan` package's model code (not assumed), both `GFPGANv1Clean.forward` and
+  `GFPGANv1.forward` accept `weight` only via `**kwargs` and never reference it anywhere in the method — a
+  known real limitation of the public GFPGAN release, not a mistake in this integration. Replaced with an
+  actual linear blend instead: `_enhance()` now also runs a second, plain Real-ESRGAN pass with no face
+  synthesis at all, and mixes it with GFPGAN's restoration by the slider value (0 = full restoration, 1 =
+  the real upscaled pixels, 0.5 = even blend — same direction and default as before, now genuinely doing
+  what it always claimed to).
 
 **Multi-frame input:** when a short burst of consecutive frames is provided (not just one), they're aligned
 (OpenCV ECC, translational — handles the small motion typical over a handful of frames at ~15 fps) and
