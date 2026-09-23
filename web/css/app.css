@@ -430,7 +430,13 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .tl-jumpph:hover { filter: brightness(1.1); }
 .tl-jumpph.left { left: 6px; }
 .tl-jumpph.right { right: 6px; }
-.pb:fullscreen .pb-timeline { display: none; } /* fullscreen is for watching the picture; scrub before or after */
+/* Fullscreen: playback.js moves .pb-timeline to be the first child of .pb-controls (and back out again on
+   exit) instead of leaving it in its normal-flow spot below .pb-body, which fullscreen never renders (no
+   room below the video once the view fills the screen). Nested there, it's already part of the same
+   floating bottom overlay as the transport row and picks up its existing show/hide-on-activity behaviour
+   for free — no separate auto-hide wiring needed. Cosmetic-only override: its own opaque panel background
+   would show as a hard-edged box against .pb-controls' gradient, so blend it in instead. */
+.pb-controls .pb-timeline { border-top: 1px solid rgba(255, 255, 255, .14); background: transparent; }
 .pb-source { display: none; }
 @media (min-width: 1100px) { .pb-source { display: inline-flex; } }
 

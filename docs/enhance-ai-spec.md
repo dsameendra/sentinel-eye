@@ -171,6 +171,13 @@ enhance pipeline and the "modes" in section 3:
   that caveat is exactly the kind of thing that gets mistaken for a fact later.
 - Optional and on-demand (a button, not automatic) because it's not useful on most frames (no plate/sign in
   frame) and shouldn't add latency to the main enhance path for the common case that doesn't need it.
+- **Angled text** (a sign or plate facing partly away from the lens — not the camera itself tilted, a
+  whole-frame rotation is rare here): Tesseract's default page segmentation assumes roughly-horizontal
+  lines and its own orientation detection only corrects 90°-multiple rotations, neither of which covers
+  this. `app/enhance_ai.py`'s `ocr()` now runs a CLAHE contrast pass first, tries the image upright, and —
+  only when that reads poorly (no text, or low confidence) — re-tries a spread of small rotation angles
+  (±5° to ±20°) and keeps whichever attempt actually recognised the most text at the highest confidence.
+  Straight-on text (the common case) stays fast; only the angled/weak case pays for the extra search.
 
 ## 5. UI (Playback page)
 

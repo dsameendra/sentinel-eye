@@ -66,16 +66,16 @@ export function openEnhancePopup(opts) {
       <label class="enh-weight" title="GFPGAN's fidelity knob: lower lets it reconstruct more freely from its learned face prior (risk of inventing features), higher stays closer to the real pixels (risk of staying blurry). 0.5 blends both — the same setting forensic face-restoration guides recommend.">
         Fidelity <input type="range" data-x="weight" min="0" max="1" step="0.05" value="0.5"> <span class="enh-weight-val">0.50</span>
       </label>
-      <button class="btn sm" data-x="select-roi" aria-pressed="false" title="Drag a box over the image to isolate a plate or face — the AI's full output resolution goes to just that area instead of the whole frame.">${icon('crop')} Select region</button>
+      <button class="btn sm" data-x="select-roi" aria-pressed="false" title="Drag a box over the image to isolate a plate or face — the enhancer's full output resolution goes to just that area instead of the whole frame.">${icon('crop')} Select region</button>
       <span class="enh-roi-chip" hidden>Region selected <button class="btn icon sm ghost" data-x="clear-roi" title="Clear region">${icon('close')}</button></span>
-      <button class="btn sm" data-x="wand" aria-pressed="false" title="Client-side live filters (dehaze, sharpen, WDR, Retinex, rain/snow reduction, chromatic aberration fix) and a digital flashlight — layered on top of whichever picture is shown here, purely for inspection. Doesn't change the AI pipeline above or what downloads actually save.">${icon('wand')} Live filters</button>
+      <button class="btn sm" data-x="wand" aria-pressed="false" title="Client-side live filters (dehaze, sharpen, WDR, Retinex, rain/snow reduction, chromatic aberration fix) and a digital flashlight — layered on top of whichever picture is shown here, purely for inspection. Doesn't change the main enhancement above or what downloads actually save.">${icon('wand')} Live filters</button>
     </div>
     <div class="enh-stage">
       <div class="enh-pic"><img class="enh-img" alt="" hidden><canvas class="enh-livefilter-canvas" hidden></canvas></div>
       <div class="hitzone"></div>
       <div class="enh-roi-layer"><div class="enh-roi-box" hidden></div></div>
       <button class="zoomtag" hidden title="Reset zoom">Reset</button>
-      <div class="enh-badge">${icon('alert')} ENHANCED — AI-reconstructed detail, not the original recording. Investigative lead, not evidence.</div>
+      <div class="enh-badge">${icon('alert')} ENHANCED — Reconstructed detail, not the original recording. Investigative lead, not evidence.</div>
       <div class="enh-ocr-panel" hidden>
         <div class="enh-ocr-head">${icon('search')} Text read (OCR) <button class="btn icon sm ghost" data-x="ocr-close" title="Close">${icon('close')}</button></div>
         <div class="enh-ocr-body"></div>
@@ -384,7 +384,7 @@ export function openEnhancePopup(opts) {
         roiBtn.disabled = false;
         root.querySelector('[data-x=dl-result]').disabled = true;
         root.querySelector('[data-x=dl-source]').disabled = false;
-        statusEl.textContent = `AI enhancement unavailable (${e.message}) — showing the unenhanced fused frame.`;
+        statusEl.textContent = `Enhancement unavailable (${e.message}) — showing the unenhanced fused frame.`;
         return;
       }
       job = { job_id, resultUrl: `/api/enhance/${job_id}/result`, sourceUrl: `/api/enhance/${job_id}/source`, roiUsed: !!roi };

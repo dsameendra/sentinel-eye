@@ -81,7 +81,7 @@ export class PlaybackView {
                   <button class="btn sm" data-a="now">Jump to now</button>
                   <button class="btn icon" data-a="bookmark" title="Bookmark this moment (B)">${icon('flag')}</button>
                   <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
-                  <button class="btn icon" data-a="aienhance" title="AI frame enhancer — pause first" aria-label="AI frame enhancer">${icon('scan')}</button>
+                  <button class="btn icon" data-a="aienhance" title="Frame enhancer — pause first" aria-label="Frame enhancer">${icon('scan')}</button>
                 </div>
                 <div class="pb-ctrl-center">
                   <div class="pb-macros">
@@ -222,11 +222,23 @@ export class PlaybackView {
     };
     wire(edgeLeft, left);
     wire(edgeRight, right);
+    // Fullscreen leaves no room below the video for .pb-timeline's normal in-flow spot (below .pb-body) —
+    // it used to just be hidden there entirely ("scrub before or after"). Instead, move it to be the first
+    // child of .pb-controls (and back to being the last child of .pb on exit): nested there it's part of
+    // the same floating bottom overlay as the transport row and inherits its existing show-on-activity/
+    // hide-while-idle behaviour for free, matching every other fullscreen control rather than needing its
+    // own separate auto-hide timer.
+    const pbEl = this.root.querySelector('.pb'), timelineEl = this.root.querySelector('.pb-timeline');
     // Kept on `this` and removed in destroy() — a document-level listener added fresh on every build()
     // and never cleaned up would accumulate one per navigation into Playback, each still holding a
     // reference to that build's (by-then-destroyed) panel elements.
     this._onFsChange = () => {
-      if (!document.fullscreenElement) { left.classList.remove('show'); right.classList.remove('show'); }
+      if (document.fullscreenElement === pbEl) {
+        this.controlsEl?.prepend(timelineEl);
+      } else {
+        pbEl.append(timelineEl); // timeline was already .pb's last child in windowed mode — restores that
+        left.classList.remove('show'); right.classList.remove('show');
+      }
     };
     document.addEventListener('fullscreenchange', this._onFsChange);
   }
@@ -632,7 +644,7 @@ export class PlaybackView {
     // playing that's a moving target, so it's disabled rather than silently grabbing whatever frame
     // happens to land at click time.
     const aiBtn = this.root.querySelector('[data-a=aienhance]');
-    if (aiBtn) { aiBtn.disabled = this.playing; aiBtn.title = this.playing ? 'AI frame enhancer — pause first' : 'AI frame enhancer'; }
+    if (aiBtn) { aiBtn.disabled = this.playing; aiBtn.title = this.playing ? 'Frame enhancer — pause first' : 'Frame enhancer'; }
   }
 
   _key(e) {

@@ -188,20 +188,20 @@ def source_path(job_id):
 
 
 # ------------------------------------------------------------------ OCR (optional, on demand — spec section 4a)
-def ocr(job_id, which):
-    """Reads whichever image ('result' or 'source') is already on disk for this job with Tesseract.
-    Synchronous — a single already-decoded image is sub-second, no job/poll needed like the main pipeline.
-    A *read*, not a generative step: nothing here can invent a character, but Tesseract can still misread
-    real DVR footage (glare, low res, angle), so every line carries its own confidence and the caller is
-    expected to show it as "read this, verify by eye" — never as a determined value on its own."""
+def _ocr_pass(img):
+    """Runs Tesseract once on a PIL image. Returns (lines, mean_confidence, n_words, score) — the last two
+    are how the caller below picks the best of several candidate rotations, not shown to the operator.
+    Words below MIN_WORD_CONF are dropped entirely, not just down-weighted: at a wrong rotation angle,
+    Tesseract doesn't fail cleanly, it often hallucinates several short low-confidence "words" out of
+    rotated edge noise — found directly by testing against a known image, where an early version of this
+    (scoring candidates by raw word count) let a wrong angle's pile of garbage low-confidence words
+    outscore the *correct* angle's few but high-confidence real ones. score = sum of confidence (not the
+    mean) so it rewards both finding more real text and being confident about it, rather than either alone
+    letting a degenerate case win."""
     import pytesseract
-    path = result_path(job_id) if which == "result" else source_path(job_id)
-    if not path:
-        raise FileNotFoundError("That frame isn't ready yet")
-    from PIL import Image as PILImage
-    img = PILImage.open(path)
+    MIN_WORD_CONF = 40
     data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-    lines = {}
+    lines, confs = {}, []
     for i, text in enumerate(data["text"]):
         text = text.strip()
         conf = data["conf"][i]
@@ -211,12 +211,58 @@ def ocr(job_id, which):
             conf = float(conf)
         except (TypeError, ValueError):
             continue
-        if conf < 0:  # Tesseract uses -1 for non-text regions
+        if conf < MIN_WORD_CONF:
             continue
         key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
         lines.setdefault(key, {"words": [], "confs": []})
         lines[key]["words"].append(text)
         lines[key]["confs"].append(conf)
+        confs.append(conf)
+    return lines, (sum(confs) / len(confs) if confs else 0.0), len(confs), sum(confs)
+
+
+def ocr(job_id, which):
+    """Reads whichever image ('result' or 'source') is already on disk for this job with Tesseract.
+    A *read*, not a generative step: nothing here can invent a character, but Tesseract can still misread
+    real DVR footage (glare, low res, angle), so every line carries its own confidence and the caller is
+    expected to show it as "read this, verify by eye" — never as a determined value on its own.
+
+    Tesseract's default page segmentation assumes roughly horizontal lines and does badly on text that
+    isn't square to the camera (a plate or sign viewed at an angle, not a whole-frame rotation, which is
+    the common real case here — a sign facing partly away from the lens, not the camera itself tilted).
+    Its own orientation-and-script detection only corrects 90°-multiple rotations, which doesn't cover
+    that. Fixed with a direct, brute-force approach instead: try the image upright first (fast, and correct
+    for the common straight-on case), and only if that reads poorly, re-try it at a spread of small
+    rotation angles and keep whichever attempt actually recognised the most text with the highest
+    confidence. This trades the previous "always sub-second" latency for "sub-second when the text is
+    already close to upright, a couple of seconds when it had to search for the angle" — still synchronous
+    (no job/poll), and still bounded, since it only ever runs when the operator explicitly asks to read
+    text on one already-in-hand image."""
+    from PIL import Image as PILImage
+    path = result_path(job_id) if which == "result" else source_path(job_id)
+    if not path:
+        raise FileNotFoundError("That frame isn't ready yet")
+    base = PILImage.open(path).convert("RGB")
+
+    # Grayscale + CLAHE local contrast before every OCR attempt — Tesseract reads clean, high-contrast text
+    # far more reliably than a raw photographic frame, and like the classical sharpen pass elsewhere in
+    # this module, this is a deterministic per-pixel remap: it makes real edges more legible, it invents
+    # no character.
+    import cv2
+    import numpy as np
+    gray = cv2.cvtColor(np.array(base), cv2.COLOR_RGB2GRAY)
+    gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    pre = PILImage.fromarray(gray)
+
+    lines, conf, n, score = _ocr_pass(pre)
+    if n == 0 or conf < 75:  # weak or empty first pass — the shape a meaningfully angled line of text takes
+        best = (lines, conf, n, score)
+        for angle in (-20, -15, -10, -5, 5, 10, 15, 20):
+            rotated = pre.rotate(angle, resample=PILImage.BICUBIC, expand=True, fillcolor=255)
+            cand = _ocr_pass(rotated)
+            if cand[3] > best[3]:  # total confidence-weighted evidence wins, not raw word count (see _ocr_pass)
+                best = cand
+        lines = best[0]
     out = []
     for v in lines.values():
         out.append({"text": " ".join(v["words"]), "confidence": round(sum(v["confs"]) / len(v["confs"]), 1)})
