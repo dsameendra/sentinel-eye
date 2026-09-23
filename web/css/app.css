@@ -241,6 +241,8 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 .enh-modes { margin-left: auto; }
 .enh-fuse { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .enh-fuse input { margin: 0; }
+.enh-top2 { flex: none; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.enh-top2 .enh-modes { margin-left: 0; }
 .enh-topactions { display: flex; gap: 6px; }
 .enh-stage { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; container-type: size; display: grid; place-items: center; }
 .enh-pic { display: grid; place-items: center; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transform-origin: center; }

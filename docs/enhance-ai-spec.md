@@ -42,6 +42,96 @@ a way a slightly-too-smooth face is not). Plates get Real-ESRGAN's general upsca
 mild, classical (non-AI) contrast/sharpen pass (CLAHE + unsharp mask) — real detail made more legible,
 nothing invented. This is called out explicitly in the UI (section 5), not silently downgraded.
 
+### 2a. Two engines, user's choice
+
+Added on request ("make it the best it can be") as a second, selectable engine — Real-ESRGAN+GFPGAN stays
+the default (fast, ~40s/frame, already proven), and CCSR-v2 is offered as "best quality, slow" for when
+that matters more than turnaround time. The mode row (auto/face/plate/general) is Real-ESRGAN-specific and
+hides when CCSR is selected — CCSR has no equivalent concept, it restores everything through one unified
+pass.
+
+### 2b. SUPIR was asked for first; CCSR-v2 is what's actually viable on this Mac
+
+SUPIR ("Scaling-Up Image Restoration") was the requested first choice and, on capability alone, is the
+stronger of the two. It wasn't used: its own documented *minimum* configuration needs ~12GB for the
+diffusion model plus ~16GB for LLaVA (its captioning step) — 28GB+, and even that reduced mode depends on
+`bitsandbytes` 8-bit quantization, which is CUDA-only and has no Apple Silicon/MPS build at all. This Mac
+has 18GB of *unified* memory, shared with macOS and the rest of this app running at the same time. Its
+own environment is pinned to Python 3.8 with a CUDA-oriented stack (xformers, bitsandbytes,
+flash-attention) that would need porting on top of the memory problem. This isn't "needs more engineering
+time" — it's a hardware ceiling checked directly against SUPIR's own numbers, confirmed with the user
+before spending any further effort on it.
+
+**CCSR-v2** (github.com/csslc/CCSR, CCSR-v2 branch, Apache 2.0) is the practical substitute: built on
+Stable Diffusion **2.1** (not SDXL, roughly a third the size), implemented against the standard
+`diffusers` library (real MPS support, unlike SUPIR's CUDA-only stack), no captioning-model dependency,
+and — its actual headline feature — documented support for as few as 1-2 diffusion steps instead of
+SUPIR's default 50. Total weights: ~2.4GB (SD2.1-base) + ~1.7GB (CCSR's own ControlNet + VAE checkpoints)
+≈ 4GB, versus SUPIR's 28GB+ floor. The CCSR-v2 paper directly benchmarks itself against SUPIR (among
+others) on stability and fidelity, so this isn't "the model that happened to fit" — it's a real SOTA-class
+restoration model in its own right, just a lighter architecture.
+
+**Pipeline (6 steps, the values CCSR's own README gives as its "multi-step diffusion" example):** align the
+input to a 4x-upscaled, 8-divisible canvas → CCSR's ControlNet-guided diffusion denoising, tiled (both the
+UNet/ControlNet pass and the VAE encode/decode) so a multi-thousand-pixel image never has to fit in memory
+all at once → decode. No text prompt describing the *scene* is needed or used beyond a fixed
+"photo-realistic, sharp, clean CCTV footage" steer plus the DVR frame itself as the conditioning image —
+CCSR restores from the image, it doesn't generate from a description of it.
+
+**Not a pip install:** CCSR ships as scripts (not a package) pinned to `diffusers==0.21.0`/
+`transformers==4.25.0` — versions with no wheels for a Python this new, and CCSR's custom pipeline/
+ControlNet code assumes CUDA in several places. Rather than fight ancient pinned versions, the four files
+that actually need CCSR's custom code (`pipeline_ccsr.py`, `controlnet.py` — a genuine architectural fork
+of diffusers' ControlNet, not a drop-in replacement, confirmed by diffing it against upstream — `vaehook.py`
+for tiling, `wavelet_color_fix.py`) are vendored into `app/ccsr/` against the *current* `diffusers`, with
+the real incompatibilities found and fixed by actually running the pipeline rather than by inspection:
+
+- Import paths for symbols diffusers has since reorganized into subpackages (`diffusers.models.unets.*`),
+  and a mixin (`FromOriginalControlnetMixin`) that no longer exists and was safe to drop (only used as an
+  unused base class).
+- The upstream device helper imports an AUTOMATIC1111-webui-only module (`modules.mac_specific`); replaced
+  with a direct `torch.backends.mps` check — it's all that helper actually did — and a hardcoded
+  `torch.device("cuda")` default, wrong on this machine regardless.
+- Two unconditional `torch.cuda.synchronize()` calls (perf timestamps around the sampling loop) — guarded
+  to fall through to `torch.mps.synchronize()` instead of hard-crashing the process with `AssertionError:
+  Torch not compiled with CUDA enabled`.
+- A `torch.tensor(weights, device=self.device)` building the tile-blend Gaussian mask from a numpy
+  `float64` array — MPS doesn't support float64 at all (`TypeError`); cast to float32 first.
+- A scheduler attribute (`self.scheduler.custom_timesteps`) that existed in diffusers 0.21.0 but not in the
+  version installed here; read via `getattr(..., False)` instead of a bare attribute access.
+- A single-step `add_noise()` call passed a 0-d (scalar) timestep tensor where the current diffusers
+  expects something iterable — `.reshape(-1)` fixes it without changing what it computes.
+- **The one real, independent bug, not a version-drift symptom:** `_sliding_windows()`'s tile-splitting math
+  produces *zero* tiles when the image is smaller than one tile (`h < tile_size`) — a genuine off-by-logic
+  error in the upstream code (Python's modulo on a negative dividend can still be 0, silently skipping the
+  "did we miss a partial tile" fallback too). With zero tiles, the accumulation loop downstream never runs,
+  and dividing the still-all-zero prediction by the still-all-zero weight count produces an all-NaN result
+  three function calls later — no exception anywhere in between, just a black frame. Found by actually
+  running a real (small) image through the pipeline, not by code review; fixed by clamping the tile size to
+  the image's own dimensions, guaranteeing at least one window always exists.
+- **fp16-on-MPS instability, found the same way:** even after every fix above, real inference produced a
+  provably-valid-shaped output that was NaN throughout. Traced (by inserting temporary instrumentation and
+  checking `torch.isnan()` at each stage, not by guessing) to the UNet/ControlNet forward pass itself — the
+  latents going in were clean, the ones coming out were already NaN. This is a known class of MPS+fp16
+  instability, not unique to this checkpoint. Fixed by running the whole pipeline in float32 on MPS instead
+  of the usual fp16 (fp16 is kept for an actual CUDA device, where it's proven stable) — slower, but
+  produces a real image instead of a silently-black one. Several other call sites in the vendored pipeline
+  hardcoded `.to(torch.float16)` regardless of what dtype the rest of the pipeline was actually running in
+  (including inside the now-fixed tile-blend function) — each changed to defer to the model's/VAE's actual
+  dtype instead of assuming fp16.
+- A stock-diffusers `CrossAttnDownBlock2D`/`UNetMidBlock2DCrossAttn` call in the vendored ControlNet passed
+  an `image_encoder_hidden_states` kwarg those stock blocks have never accepted — vestigial from a CCSR
+  variant that isn't this checkpoint (confirmed via this checkpoint's own config: `use_image_cross_attention:
+  false`) — dropped rather than plumbed through.
+
+**Model provenance:** the official `stabilityai/stable-diffusion-2-1-base` HuggingFace repo now requires a
+logged-in, license-accepted account to download at all (previously public) — this install has no user HF
+token, so an ungated community mirror of the identical public weights (`Manojb/stable-diffusion-2-1-base`,
+same filenames) is used instead. CCSR's own ControlNet/VAE checkpoints are only published by the authors
+via Google Drive/Baidu (no official HF mirror); a diffusers-format community re-upload
+(`YaronElh/CCSR-v2`) is used for the same reason SD2.1 needed one — scripted downloads need a stable HTTP
+URL, not an interactive-login file host.
+
 **Multi-frame input:** when a short burst of consecutive frames is provided (not just one), they're aligned
 (OpenCV ECC, translational — handles the small motion typical over a handful of frames at ~15 fps) and
 fused *before* the AI pipeline runs, using a **per-pixel motion-adaptive weighted blend against the
@@ -85,7 +175,7 @@ whatever's already on screen, paused, this instant.
 
 ## 4. API
 
-- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest]}` (1–7 images, same dimensions). Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
+- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", engine: "realesrgan"|"ccsr", images: [base64 PNG, oldest→newest]}` (1–7 images, same dimensions; `mode` only matters for the `realesrgan` engine). Starts a background job (same job/poll pattern as `/api/export`) — a Real-ESRGAN+GFPGAN pass takes tens of seconds, a CCSR pass (real iterative diffusion, section 2b) low-single-digit minutes. Returns `{job_id}`.
 - `GET /api/enhance/{job_id}` — `{state: queued|working|done|error, progress, error}`.
 - `GET /api/enhance/{job_id}/result` — the enhanced PNG, once done.
 - `GET /api/enhance/{job_id}/source` — the fused-but-not-AI-processed reference frame (the "before"), for the popup's before/after comparison — this is what the input actually looked like, not a claim about ground truth.

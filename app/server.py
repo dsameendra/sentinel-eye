@@ -290,6 +290,7 @@ class EnhanceRequest(BaseModel):
     channel: int
     at_utc: str = ""
     mode: Literal["auto", "face", "plate", "general"] = "auto"
+    engine: Literal["realesrgan", "ccsr"] = "realesrgan"
     images: list[str]  # base64 PNG, oldest -> newest, 1-7 frames
 
 
@@ -301,7 +302,7 @@ async def create_enhance(req: EnhanceRequest):
     if not req.images or len(req.images) > 7:
         raise HTTPException(422, "1-7 frames expected")
     job_id = _secrets.token_hex(8)
-    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc)
+    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc, req.engine)
     return {"job_id": job_id}
 
 
