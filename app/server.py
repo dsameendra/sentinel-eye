@@ -291,6 +291,8 @@ class EnhanceRequest(BaseModel):
     at_utc: str = ""
     mode: Literal["auto", "face", "plate", "general"] = "auto"
     images: list[str]  # base64 PNG, oldest -> newest, 1-7 frames
+    roi: list[float] | None = None  # optional [x, y, w, h] fractions (0-1) — crop before enhancing
+    weight: float = 0.5  # GFPGAN fidelity (0=free reconstruction, 1=barely touched) — spec section 2d
 
 
 @app.post("/api/enhance")
@@ -300,8 +302,12 @@ async def create_enhance(req: EnhanceRequest):
     import secrets as _secrets
     if not req.images or len(req.images) > 7:
         raise HTTPException(422, "1-7 frames expected")
+    if req.roi is not None and len(req.roi) != 4:
+        raise HTTPException(422, "roi must be [x, y, w, h]")
+    if not 0.0 <= req.weight <= 1.0:
+        raise HTTPException(422, "weight must be between 0 and 1")
     job_id = _secrets.token_hex(8)
-    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc)
+    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc, req.roi, req.weight)
     return {"job_id": job_id}
 
 

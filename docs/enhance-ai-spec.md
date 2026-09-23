@@ -38,9 +38,66 @@ nothing about this feature should call out to the internet at inference time):
 No dedicated license-plate model is used — open, reliable, permissively-licensed plate-specific
 super-resolution models are not readily available, and a wrong/overconfident plate reconstruction is the
 single worst thing this feature could produce (a fabricated character on a plate is actively dangerous in
-a way a slightly-too-smooth face is not). Plates get Real-ESRGAN's general upscale plus a deliberately
-mild, classical (non-AI) contrast/sharpen pass (CLAHE + unsharp mask) — real detail made more legible,
-nothing invented. This is called out explicitly in the UI (section 5), not silently downgraded.
+a way a slightly-too-smooth face is not). Plates get Real-ESRGAN's general upscale plus a classical (non-AI)
+levels/contrast/sharpen pass (percentile contrast stretch + CLAHE + unsharp mask, pushed harder than the
+face/general path — 2c/2d) — real detail made more legible, nothing invented. This is called out explicitly
+in the UI (section 5), not silently downgraded.
+
+### 2a. CCSR-v2 was tried and removed — diffusion denoising destroys exactly what this tool exists to read
+
+A later pass added CCSR-v2, a diffusion-based (Stable Diffusion 2.1) SOTA restoration model, as a second,
+user-selectable "best quality" engine (SUPIR, the model actually requested at the time, needs 28GB+ RAM and
+CUDA-only tooling — a hard wall on this Mac's 18GB unified memory, surfaced to the user before writing
+integration code; CCSR was the viable alternative). It was fully vendored, patched for MPS, tuned to avoid
+out-of-memory, and worked end-to-end — but real DVR-footage testing showed its denoising step doesn't just
+smooth sensor noise, it actively redraws small high-frequency detail (burned-in timestamps, plate
+characters, small signage text) into plausible-looking but wrong shapes, because that's what a diffusion
+model's learned prior does to anything it treats as "noise" rather than "signal." That's the single worst
+failure mode this whole feature is designed against (section 6) — a confident-looking but fabricated
+character — so the model was removed entirely rather than kept as an option a reviewer could reach for by
+mistake. The vendored code and this section are gone from a later revert; this paragraph is kept only as a
+record of why, since the natural next idea ("just use the SOTA diffusion model") was tried and has a
+specific, confirmed reason not to work for this tool's actual content.
+
+### 2b. Real forensic-enhancement practice, adapted to what's implementable here
+
+The two improvements below (2c, 2d) are a direct translation of how manual forensic frame enhancement is
+actually done — de-noise/stack a base layer, isolate the plate or face before upscaling it, use a
+restoration model's *fidelity* control deliberately rather than at a fixed default — into what an in-browser
+single/burst-frame tool can do without external software (Topaz Video AI, Photoshop) or a full compositing
+pipeline. The one piece deliberately not adopted is producing a single "final composite" image (video +
+plate callout + face callout stitched together): this tool's output is an interactive, zoomable single
+image per subject, not a rendered still for a report, so a separate crop-per-subject workflow (below) serves
+the same purpose without inventing a new artifact type.
+
+### 2c. Region-of-interest crop — isolate before you upscale
+
+The operator can drag a box over the displayed frame (source or result — the box is stored as fractions of
+the frame, so it means the same thing on either) to crop to just a plate or face *before* alignment and
+upscaling. This is the single highest-leverage change here: a plate that's 3% of a 1080p frame is still only
+~3% of the frame after a flat 4x upscale of the whole scene — cropping first means every one of the AI
+pipeline's output pixels goes to the subject that was actually asked about, not mostly to background
+resolution nobody needed. Plate mode's fusion also changes when multiple frames and an ROI are combined
+(2d): a tight crop is small enough, and moves close enough to rigidly, that ECC's own translation alignment
+tracks it directly, so there's no separate "independently-moving subject" risk left to protect against —
+see the median-stack note below.
+
+### 2d. Two more direct translations of manual practice
+
+- **Median stacking for plate mode.** When plate mode runs on more than one frame, fusion uses a plain
+  per-pixel median across the ECC-aligned stack instead of the motion-adaptive weighted blend used
+  elsewhere. The blend's whole reason to exist (§2, "multi-frame input") is protecting an independently-
+  moving subject *elsewhere in a wide shot* from being averaged away — but that risk doesn't apply to a
+  rigid plate/text region the way it does to a person walking through a wide scene, and a median is more
+  robust than a mean against exactly the compression-block and sensor speckle noise that makes DVR digits
+  ambiguous: it rejects outlier frames instead of blending them in, and every output pixel is a real pixel
+  value from one input frame rather than an interpolated in-between value.
+- **GFPGAN's fidelity weight, exposed instead of fixed.** GFPGAN's own `enhance()` call takes a `weight`
+  parameter (0 = reconstruct freely from its learned face prior, can invent features; 1 = barely touch the
+  input, stays blurry) that was previously left at its library default with no way to change it. It's now a
+  slider in the popup (still defaulting to 0.5, GFPGAN's own documented default and the same middle ground
+  forensic face-restoration guides recommend) so an operator can deliberately push toward "closer to the
+  real pixels" or "let it reconstruct more" per frame, rather than getting one fixed trade-off always.
 
 **Multi-frame input:** when a short burst of consecutive frames is provided (not just one), they're aligned
 (OpenCV ECC, translational — handles the small motion typical over a handful of frames at ~15 fps) and
@@ -63,10 +120,14 @@ gets most of the achievable benefit for a handful of frames spanning well under 
 
 ```
 N frames (1–7, from the paused position's decode buffer, already in memory client-side)
-  → [N > 1] align to the middle frame (ECC, translation) + motion-adaptive weighted fuse → 1 frame
+  → [roi set] crop every frame to the operator-drawn region (2c) — before anything else
+  → [N > 1] align to the middle frame (ECC, translation), then fuse → 1 frame:
+      mode = "plate": per-pixel median across the aligned stack (2d)
+      otherwise: motion-adaptive weighted blend against the reference frame
   → Real-ESRGAN x4 upscale (background/whole-frame)
-  → GFPGAN face detection + restoration, blended back into the upscaled frame (only if ≥1 face found)
-  → [mode = "plate" or no faces found and mode = "auto"] CLAHE + unsharp mask, mild
+  → GFPGAN face detection + restoration (fidelity weight from the operator, default 0.5 — 2d), blended back
+    into the upscaled frame (only if ≥1 face found)
+  → [mode = "plate" or no faces found and mode = "auto"] levels stretch + CLAHE + unsharp mask
   → clamp output to a sane max dimension (6000px longest side) — high enough that a 1080p source's full 4x
     output (4320px) is never touched; only kicks in for a source that was already larger going in.
     **Previously set to 2048px, which is smaller than a 1080p source's own 4x output — every enhancement
@@ -85,7 +146,7 @@ whatever's already on screen, paused, this instant.
 
 ## 4. API
 
-- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest]}` (1–7 images, same dimensions). Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
+- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest], roi: [x, y, w, h]|null, weight: 0.0-1.0}` (1–7 images, same dimensions). `roi` (optional, 2c) is fractions of the frame to crop to before enhancing. `weight` (default 0.5, 2d) is GFPGAN's fidelity knob. Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
 - `GET /api/enhance/{job_id}` — `{state: queued|working|done|error, progress, error}`.
 - `GET /api/enhance/{job_id}/result` — the enhanced PNG, once done.
 - `GET /api/enhance/{job_id}/source` — the fused-but-not-AI-processed reference frame (the "before"), for the popup's before/after comparison — this is what the input actually looked like, not a claim about ground truth.
@@ -131,6 +192,10 @@ enhance pipeline and the "modes" in section 3:
   - A **mode switch** (Auto / Face priority / Plate & text / General) to re-run with a different emphasis
     without re-grabbing frames — Auto picks face-restoration if GFPGAN finds a face, else the plate/general
     classical-sharpen path.
+  - A **fidelity slider** (2d), shown for Face priority/Auto, controlling GFPGAN's real-pixels-vs-reconstruct
+    trade-off — defaults to 0.5, re-runs on release.
+  - A **"Select region" tool** (2c): drag a box over the image to isolate a plate or face; clears with one
+    click. Re-runs automatically on release, cropping to that region before every later step.
 
 ## 6. Forensic integrity (spec §14's stated risk, addressed directly here)
 

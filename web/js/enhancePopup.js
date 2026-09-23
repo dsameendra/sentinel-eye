@@ -14,6 +14,8 @@ const MODES = [
   ['general', 'General'],
 ];
 
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
 /** @param opts { images: [dataURL,...] (oldest->newest, already grabbed), channel (DVR channel number),
  *  atUtc (ISO string, for the header) } */
 export function openEnhancePopup(opts) {
@@ -23,6 +25,15 @@ export function openEnhancePopup(opts) {
   // even with the motion-adaptive weighting — see app/enhance_ai.py's _align_and_fuse. Single-frame is the
   // safer default; fusion is there to turn on for a specifically noisy, mostly-static frame.
   let fuse = false;
+  // GFPGAN's own fidelity knob (spec 2d) — 0.5 is its own documented default (blend real pixels with its
+  // face prior), exposed here rather than hardcoded so the operator can push toward "barely touched" or
+  // "let it reconstruct more freely" per the specific frame.
+  let weight = 0.5;
+  // Fractions (0-1) of the frame to crop to before enhancing (spec 2c) — null means "whole frame", the
+  // original behaviour. Isolating a plate/face this way spends the AI's fixed output resolution on the
+  // actual subject instead of mostly on background that was never in question.
+  let roi = null;
+  let selecting = false;
   let showingSource = false;
   let zoom = null;
   let job = null; // { job_id, resultUrl, sourceUrl, faces_found }
@@ -37,15 +48,23 @@ export function openEnhancePopup(opts) {
       ${burst.length > 1 ? `<label class="enh-fuse" title="Blend ${burst.length} nearby frames to reduce noise on static content — off by default because it can soften a moving subject even with motion-aware blending.">
         <input type="checkbox" data-x="fuse"> Combine ${burst.length} frames (denoise)
       </label>` : ''}
-      <div class="seg enh-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${esc(l)}</button>`).join('')}</div>
       <div class="enh-topactions">
         <button class="btn sm" data-x="fullscreen" title="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon sm ghost" data-x="close" title="Close" aria-label="Close">${icon('close')}</button>
       </div>
     </div>
+    <div class="enh-top2">
+      <div class="seg enh-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${esc(l)}</button>`).join('')}</div>
+      <label class="enh-weight" title="GFPGAN's fidelity knob: lower lets it reconstruct more freely from its learned face prior (risk of inventing features), higher stays closer to the real pixels (risk of staying blurry). 0.5 blends both — the same setting forensic face-restoration guides recommend.">
+        Fidelity <input type="range" data-x="weight" min="0" max="1" step="0.05" value="0.5"> <span class="enh-weight-val">0.50</span>
+      </label>
+      <button class="btn sm" data-x="select-roi" aria-pressed="false" title="Drag a box over the image to isolate a plate or face — the AI's full output resolution goes to just that area instead of the whole frame.">${icon('crop')} Select region</button>
+      <span class="enh-roi-chip" hidden>Region selected <button class="btn icon sm ghost" data-x="clear-roi" title="Clear region">${icon('close')}</button></span>
+    </div>
     <div class="enh-stage">
       <div class="enh-pic"><img class="enh-img" alt="" hidden></div>
       <div class="hitzone"></div>
+      <div class="enh-roi-layer"><div class="enh-roi-box" hidden></div></div>
       <button class="zoomtag" hidden title="Reset zoom">Reset</button>
       <div class="enh-badge">${icon('alert')} ENHANCED — AI-reconstructed detail, not the original recording. Investigative lead, not evidence.</div>
       <div class="enh-ocr-panel" hidden>
@@ -73,6 +92,13 @@ export function openEnhancePopup(opts) {
   const toggleBtn = root.querySelector('[data-x=toggle-src]');
   const zoomtag = root.querySelector('.zoomtag');
   const viewer = root.querySelector('.enh-viewer');
+  const weightLabel = root.querySelector('.enh-weight');
+  const weightInput = root.querySelector('[data-x=weight]');
+  const weightVal = root.querySelector('.enh-weight-val');
+  const roiLayer = root.querySelector('.enh-roi-layer');
+  const roiBox = root.querySelector('.enh-roi-box');
+  const roiBtn = root.querySelector('[data-x=select-roi]');
+  const roiChip = root.querySelector('.enh-roi-chip');
 
   // `stage` (untransformed) is what ZoomPan measures for its pan-clamp math — the CSS zoom transform lives
   // on `pic`, a child of it. Passing `pic` itself here was the bug: an element's own transform inflates
@@ -85,10 +111,14 @@ export function openEnhancePopup(opts) {
   });
   zoomtag.addEventListener('click', () => zoom.reset());
 
+  const roiResizeObs = new ResizeObserver(() => updateRoiBoxDisplay());
+  roiResizeObs.observe(stage);
+
   const onKey = (e) => { if (e.key === 'Escape' && !document.fullscreenElement) close(); };
   const onFs = () => viewer.classList.toggle('is-fs', document.fullscreenElement === viewer);
   const close = () => {
     zoom?.destroy();
+    roiResizeObs.disconnect();
     document.removeEventListener('fullscreenchange', onFs);
     document.removeEventListener('keydown', onKey);
     if (document.fullscreenElement === viewer) document.exitFullscreen();
@@ -103,10 +133,16 @@ export function openEnhancePopup(opts) {
   document.addEventListener('fullscreenchange', onFs);
   document.addEventListener('keydown', onKey);
 
+  function updateWeightVisibility() {
+    weightLabel.hidden = !(mode === 'face' || mode === 'auto');
+  }
+  updateWeightVisibility();
+
   root.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.mode === mode) return;
     mode = b.dataset.mode;
     root.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.mode === mode)));
+    updateWeightVisibility();
     run();
   }));
 
@@ -115,9 +151,81 @@ export function openEnhancePopup(opts) {
     run();
   });
 
+  weightInput.addEventListener('input', () => { weightVal.textContent = Number(weightInput.value).toFixed(2); });
+  weightInput.addEventListener('change', () => { weight = Number(weightInput.value); run(); });
+
+  // ---------------------------------------------------------------- region-of-interest crop (spec 2c)
+  // Fraction-based (0-1 of the image), not pixel-based — the same box maps correctly onto the original
+  // full-resolution frame whether it was drawn over the (smaller) source preview or the (4x-upscaled)
+  // result, so redrawing after a mode/fuse switch never needs rescaling.
+  function clientToImgFrac(clientX, clientY) {
+    const r = img.getBoundingClientRect();
+    if (!r.width || !r.height) return { fx: 0, fy: 0 };
+    return { fx: clamp((clientX - r.left) / r.width, 0, 1), fy: clamp((clientY - r.top) / r.height, 0, 1) };
+  }
+  function drawRoiBoxFromFrac(x, y, w, h) {
+    const ir = img.getBoundingClientRect();
+    const lr = roiLayer.getBoundingClientRect();
+    roiBox.style.left = `${ir.left - lr.left + x * ir.width}px`;
+    roiBox.style.top = `${ir.top - lr.top + y * ir.height}px`;
+    roiBox.style.width = `${w * ir.width}px`;
+    roiBox.style.height = `${h * ir.height}px`;
+    roiBox.hidden = false;
+  }
+  function updateRoiBoxDisplay() {
+    if (!roi || img.hidden) { roiBox.hidden = true; return; }
+    drawRoiBoxFromFrac(roi.x, roi.y, roi.w, roi.h);
+  }
+
+  function startSelecting() {
+    if (img.hidden) return;
+    if (zoom.zoomed) zoom.reset(false);
+    selecting = true;
+    roiLayer.classList.add('active');
+    roiBtn.setAttribute('aria-pressed', 'true');
+  }
+  function stopSelecting() {
+    selecting = false;
+    roiLayer.classList.remove('active');
+    roiBtn.setAttribute('aria-pressed', 'false');
+  }
+  roiBtn.addEventListener('click', () => { if (selecting) stopSelecting(); else startSelecting(); });
+  root.querySelector('[data-x=clear-roi]').addEventListener('click', () => {
+    roi = null;
+    roiChip.hidden = true;
+    roiBox.hidden = true;
+    run();
+  });
+
+  let dragStart = null;
+  roiLayer.addEventListener('pointerdown', (e) => {
+    if (!selecting) return;
+    e.preventDefault();
+    try { roiLayer.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+    dragStart = clientToImgFrac(e.clientX, e.clientY);
+    drawRoiBoxFromFrac(dragStart.fx, dragStart.fy, 0, 0);
+  });
+  roiLayer.addEventListener('pointermove', (e) => {
+    if (!dragStart) return;
+    const cur = clientToImgFrac(e.clientX, e.clientY);
+    drawRoiBoxFromFrac(Math.min(dragStart.fx, cur.fx), Math.min(dragStart.fy, cur.fy), Math.abs(cur.fx - dragStart.fx), Math.abs(cur.fy - dragStart.fy));
+  });
+  roiLayer.addEventListener('pointerup', (e) => {
+    if (!dragStart) return;
+    const cur = clientToImgFrac(e.clientX, e.clientY);
+    const x = Math.min(dragStart.fx, cur.fx), y = Math.min(dragStart.fy, cur.fy);
+    const w = Math.abs(cur.fx - dragStart.fx), h = Math.abs(cur.fy - dragStart.fy);
+    dragStart = null;
+    stopSelecting();
+    if (w < 0.02 || h < 0.02) { updateRoiBoxDisplay(); return; } // too small to be deliberate — keep any existing selection
+    roi = { x, y, w, h };
+    roiChip.hidden = false;
+    run();
+  });
+
   function updateFrameText() {
     const el = root.querySelector('.enh-frametext');
-    if (el) el.textContent = when + (fuse ? ` · ${burst.length} frames combined` : ' · single frame');
+    if (el) el.textContent = when + (fuse ? ` · ${burst.length} frames combined` : ' · single frame') + (roi ? ' · region selected' : '');
   }
 
   toggleBtn.addEventListener('click', () => {
@@ -128,7 +236,7 @@ export function openEnhancePopup(opts) {
   function applyImage() {
     if (!job) return;
     img.src = showingSource ? job.sourceUrl : job.resultUrl;
-    img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); };
+    img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); updateRoiBoxDisplay(); };
     toggleBtn.innerHTML = showingSource ? `${icon('eye')} Show enhanced` : `${icon('eye')} Show original`;
     root.querySelector('.enh-badge').style.display = showingSource ? 'none' : 'flex';
   }
@@ -163,19 +271,25 @@ export function openEnhancePopup(opts) {
   });
 
   async function run() {
+    stopSelecting();
     updateFrameText();
     loading.hidden = false;
     loading.querySelector('.msg').textContent = 'Starting…';
     img.hidden = true;
+    roiBox.hidden = true;
     toggleBtn.disabled = true;
     ocrBtn.disabled = true;
     ocrPanel.hidden = true;
+    roiBtn.disabled = true;
     root.querySelector('[data-x=dl-result]').disabled = true;
     root.querySelector('[data-x=dl-source]').disabled = true;
     statusEl.textContent = '';
     showingSource = false;
     try {
-      const { job_id } = await api.createEnhance({ channel: opts.channel, at_utc: opts.atUtc || '', mode, images: fuse ? burst : single });
+      const { job_id } = await api.createEnhance({
+        channel: opts.channel, at_utc: opts.atUtc || '', mode, images: fuse ? burst : single,
+        roi: roi ? [roi.x, roi.y, roi.w, roi.h] : null, weight,
+      });
       let j;
       try {
         j = await poll(job_id);
@@ -189,10 +303,11 @@ export function openEnhancePopup(opts) {
         loading.hidden = true;
         img.hidden = false;
         img.src = job.sourceUrl;
-        img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); };
+        img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); updateRoiBoxDisplay(); };
         root.querySelector('.enh-badge').style.display = 'none';
         toggleBtn.disabled = true; // nothing to toggle to — there is no enhanced result
         ocrBtn.disabled = false;
+        roiBtn.disabled = false;
         root.querySelector('[data-x=dl-result]').disabled = true;
         root.querySelector('[data-x=dl-source]').disabled = false;
         statusEl.textContent = `AI enhancement unavailable (${e.message}) — showing the unenhanced fused frame.`;
@@ -204,11 +319,13 @@ export function openEnhancePopup(opts) {
       applyImage();
       toggleBtn.disabled = false;
       ocrBtn.disabled = false;
+      roiBtn.disabled = false;
       root.querySelector('[data-x=dl-result]').disabled = false;
       root.querySelector('[data-x=dl-source]').disabled = false;
       statusEl.textContent = j.faces_found ? `Done — ${j.faces_found} face${j.faces_found > 1 ? 's' : ''} restored.` : 'Done.';
     } catch (e) {
       loading.querySelector('.msg').textContent = e.message || 'Enhancement failed.';
+      roiBtn.disabled = false;
     }
   }
 

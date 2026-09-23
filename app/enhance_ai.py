@@ -68,12 +68,16 @@ def get_job(job_id):
         return dict(_jobs.get(job_id, {})) if job_id in _jobs else None
 
 
-def start_enhance(job_id, images_b64, mode, channel, at_utc):
-    """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-7 frames, same dimensions."""
+def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
+    """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-7 frames, same dimensions.
+    roi: optional (x, y, w, h) fractions (0-1) of the frame to crop to *before* alignment/upscaling — lets
+    the operator isolate a plate or face so the AI's fixed output resolution is spent on that subject
+    instead of the whole scene (see docs/enhance-ai-spec.md section 2c). weight: GFPGAN's own fidelity/
+    identity-preservation knob (0=pure hallucinated reconstruction, 1=barely touched) — see section 2d."""
     _sweep_old_jobs()
     with _jobs_lock:
         _jobs[job_id] = {"state": "queued", "progress": "Queued…", "error": None, "done": False}
-    t = threading.Thread(target=_run, args=(job_id, images_b64, mode, channel, at_utc), daemon=True)
+    t = threading.Thread(target=_run, args=(job_id, images_b64, mode, channel, at_utc, roi, weight), daemon=True)
     t.start()
 
 
@@ -83,7 +87,24 @@ def _set(job_id, **kw):
             _jobs[job_id].update(kw)
 
 
-def _run(job_id, images_b64, mode, channel, at_utc):
+def _crop_to_roi(frames, roi):
+    """roi: (x, y, w, h) as fractions of the frame (0-1), as drawn by the operator over the raw preview
+    frame client-side. Cropped from the *original* full-resolution frame, before any alignment or AI
+    upscaling — this is the whole point: a plate or face that's a small fraction of a 1080p frame stays a
+    small fraction of it even after a flat 4x upscale, but cropping first means every one of the AI
+    model's output pixels goes to the subject instead of mostly to background that was never in question."""
+    x, y, w, h = roi
+    x, y = min(max(x, 0.0), 0.99), min(max(y, 0.0), 0.99)
+    w, h = min(max(w, 0.0), 1.0 - x), min(max(h, 0.0), 1.0 - y)
+    fh, fw = frames[0].shape[:2]
+    x0, y0 = int(x * fw), int(y * fh)
+    x1, y1 = int((x + w) * fw), int((y + h) * fh)
+    if x1 - x0 < 16 or y1 - y0 < 16:
+        return frames  # too small to be a deliberate selection — ignore rather than fail the job
+    return [f[y0:y1, x0:x1] for f in frames]
+
+
+def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
     import base64
     job_dir = ENHANCE_DIR / job_id
     try:
@@ -100,9 +121,19 @@ def _run(job_id, images_b64, mode, channel, at_utc):
         if len(dims) > 1:
             raise ValueError("All frames must be the same size")
 
+        if roi:
+            frames = _crop_to_roi(frames, roi)
+
         if len(frames) > 1:
             _set(job_id, progress=f"Aligning and fusing {len(frames)} frames…")
-            fused = _align_and_fuse(frames)
+            # Plate/text mode gets a plain per-pixel median across the aligned stack rather than the
+            # motion-adaptive blend used elsewhere: the blend's whole reason to exist is protecting an
+            # independently-moving subject *elsewhere in a wide shot* from being averaged away — but a
+            # plate crop (especially after the ROI crop above) mostly moves as one rigid unit that ECC's
+            # own translation alignment already tracks, so there's no separate "moving subject" to protect
+            # against, and a median is more robust than a mean against exactly the kind of speckle/block
+            # noise that makes DVR-compressed digits ambiguous (docs/enhance-ai-spec.md section 2c).
+            fused = _align_and_median(frames) if mode == "plate" else _align_and_fuse(frames)
         else:
             fused = frames[0]
 
@@ -119,7 +150,7 @@ def _run(job_id, images_b64, mode, channel, at_utc):
             _set(job_id, progress="Waiting for another enhancement to finish…")
         with _inference_lock:
             _set(job_id, progress="Loading models…" if _gfpgan is None else "Running AI enhancement…")
-            result, faces_found = _enhance(fused, mode)
+            result, faces_found = _enhance(fused, mode, weight)
             # MPS (this Mac's GPU backend) doesn't always release memory back promptly between calls the
             # way CUDA's allocator does — left unmanaged, back-to-back jobs in one server session measurably
             # slow down over time (observed directly: a clean single job ran in ~40s, later ones crept well
@@ -244,6 +275,37 @@ def _align_and_fuse(frames):
     return np.clip(fused, 0, 255).astype(np.uint8)
 
 
+def _align_and_median(frames):
+    """Plate/text mode's own fusion: ECC-align every frame to the reference (same translation-only model
+    as _align_and_fuse) then take a plain per-pixel median across the aligned stack — no motion masking.
+    Chosen specifically for hard, high-frequency edges (digit/letter strokes) rather than the soft gradients
+    a face has: a median is far more robust than a mean against compression block noise and single-frame
+    sensor speckle (it rejects outliers instead of averaging them in), and unlike a mean it never produces
+    an in-between blurred edge — every output pixel is a real pixel value from one of the input frames, just
+    the one most frames agree on. See _run's caller comment for why the motion-masking that _align_and_fuse
+    needs doesn't apply here."""
+    import cv2
+    mid = len(frames) // 2
+    ref = frames[mid]
+    ref_gray = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
+    warp_mode = cv2.MOTION_TRANSLATION
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-4)
+    aligned = [ref]
+    for i, f in enumerate(frames):
+        if i == mid:
+            continue
+        gray = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        warp_matrix = np.eye(2, 3, dtype=np.float32)
+        try:
+            _, warp_matrix = cv2.findTransformECC(ref_gray, gray, warp_matrix, warp_mode, criteria)
+            warped = cv2.warpAffine(f, warp_matrix, (f.shape[1], f.shape[0]), flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+        except cv2.error:
+            continue  # alignment failed for this frame — skip it, don't fold in a misaligned one
+        aligned.append(warped)
+    stack = np.stack(aligned, axis=0).astype(np.float32)
+    return np.median(stack, axis=0).astype(np.uint8)
+
+
 def _resize(img, wh):
     import cv2
     return cv2.resize(img, wh, interpolation=cv2.INTER_LANCZOS4)
@@ -275,8 +337,12 @@ def _load_models():
         )
 
 
-def _enhance(bgr, mode):
-    """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general."""
+def _enhance(bgr, mode, weight=0.5):
+    """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general. weight: GFPGAN's fidelity knob —
+    0 lets it freely reconstruct a face from its learned prior (can fabricate features), 1 barely touches
+    the input (stays blurry); 0.5-0.6 blends real pixel data with the model's face prior, matching what
+    forensic-enhancement practice recommends for a face specifically (see docs/enhance-ai-spec.md 2d) —
+    recognizable, not either an unmoved blur or an invented person."""
     if mode == "general":
         _load_models_upsampler_only()
         out, _ = _realesrgan.enhance(bgr, outscale=4)
@@ -284,10 +350,10 @@ def _enhance(bgr, mode):
     if mode == "plate":
         _load_models_upsampler_only()
         out, _ = _realesrgan.enhance(bgr, outscale=4)
-        return _classical_sharpen(out), 0
+        return _classical_sharpen(out, strong=True), 0
 
     _load_models()
-    _, _, out = _gfpgan.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True)
+    _, _, out = _gfpgan.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True, weight=weight)
     faces_found = len(_gfpgan.face_helper.all_landmarks_5) if hasattr(_gfpgan, "face_helper") else 0
     if mode == "auto" and faces_found == 0:
         return _classical_sharpen(out), 0
@@ -312,16 +378,27 @@ def _load_models_upsampler_only():
         )
 
 
-def _classical_sharpen(bgr):
-    """Non-AI legibility pass for plates/text and the no-face-found fallback (spec section 2/6): CLAHE
-    contrast + a mild unsharp mask. Makes real detail more legible; invents nothing."""
+def _classical_sharpen(bgr, strong=False):
+    """Non-AI legibility pass for plates/text and the no-face-found fallback (spec section 2/6): a levels-
+    style contrast stretch, CLAHE local contrast, and an unsharp mask. Makes real detail more legible;
+    invents nothing — every step here is a deterministic per-pixel remap, not a learned model. `strong` (used
+    for plate mode specifically) pushes CLAHE and the unsharp amount further, since there's no face/skin
+    region here to worry about oversharpening into ringing artifacts — legibility is the only goal."""
     import cv2
+    # Levels: stretch the image's own 1-99th percentile to the full 0-255 range. DVR footage — especially
+    # IR/low-light — rarely uses the full range to begin with, so a plate's dark digits and light background
+    # often sit within a narrow middle band; this is the same "maximize contrast" step a reviewer would do
+    # by hand in Levels/Curves (as recommended for plate work specifically), done as a direct remap.
+    lo, hi = np.percentile(bgr, (1, 99))
+    if hi > lo:
+        bgr = np.clip((bgr.astype(np.float32) - lo) * (255.0 / (hi - lo)), 0, 255).astype(np.uint8)
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=3.0 if strong else 2.0, tileGridSize=(8, 8))
     l = clahe.apply(l)
     lab = cv2.merge((l, a, b))
     contrasted = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
     blurred = cv2.GaussianBlur(contrasted, (0, 0), sigmaX=2)
-    sharpened = cv2.addWeighted(contrasted, 1.5, blurred, -0.5, 0)
+    alpha = 2.0 if strong else 1.5
+    sharpened = cv2.addWeighted(contrasted, alpha, blurred, 1 - alpha, 0)
     return sharpened
