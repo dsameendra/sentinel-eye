@@ -47,7 +47,7 @@
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; }
+body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; accent-color: var(--accent); } /* browser-default form controls (range sliders, radios) otherwise render in the browser's own blue, not Sentinel Green — checkboxes already set this per-element (kept, redundant but harmless), sliders never did */
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
