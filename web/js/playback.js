@@ -418,7 +418,7 @@ export class PlaybackView {
   // only) stays individually adjustable and stacks with the rest — see enhancePanel.js and enhance.js.
   _toggleEnhanceMenu() {
     const btn = this.root.querySelector('[data-a=enhance]');
-    const menu = openPopover(btn, enhancePanelHTML(true), { className: 'enh-menu enh2-panel' });
+    const menu = openPopover(btn, enhancePanelHTML({ roi: true, flashlight: true }), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
     menu.querySelector('[data-x=roi]')?.setAttribute('aria-pressed', String(this._roiSelectMode));
     menu.querySelector('[data-x=flashlight]')?.setAttribute('aria-pressed', String(this._flashlightMode));
@@ -434,6 +434,7 @@ export class PlaybackView {
       onFlashlightToggle: () => {
         this._flashlightMode = !this._flashlightMode;
         menu.querySelector('[data-x=flashlight]')?.setAttribute('aria-pressed', String(this._flashlightMode));
+        for (const pane of this.panes) pane.el.classList.toggle('flashlight-on', this._flashlightMode);
         if (!this._flashlightMode) for (const pane of this.panes) pane.enhancer?.setFlashlight(null);
         this._applyEnhToAllPanes(); // flashlight can be the only thing on — make sure every pane has a live enhancer to drive it
       },

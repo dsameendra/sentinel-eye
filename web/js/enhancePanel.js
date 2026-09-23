@@ -21,9 +21,14 @@ const SLIDERS = [
 ];
 const GROUPS = [...new Set(SLIDERS.map((s) => s.group))];
 
-/** showPlaybackTools: adds the ROI/flashlight row — Playback-only, since those are inspection tools for a
- * paused frame, not something meaningful on a live, moving grid tile. */
-export function enhancePanelHTML(showPlaybackTools) {
+/** opts: { roi, flashlight } — which interactive tools to show. Playback panes get both (drag-select and
+ * cursor-follow only make sense on an inspectable, steppable pane); the AI frame enhancer (enhancePopup.js)
+ * gets flashlight only — it already has its own, differently-scoped region crop (crops before the AI
+ * pipeline runs, not a live GPU-scissor preview), so this doesn't duplicate that with a second, confusingly
+ * similar "select region" control. Live grid tiles/focus view get neither (a live, moving picture isn't
+ * something you inspect at a fixed cursor position or draw a stable box over). */
+export function enhancePanelHTML(opts = {}) {
+  const { roi = false, flashlight = false } = opts;
   return `
     <div class="enh2-presets">${Object.entries(PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
     `<button data-preset="${k}" title="Fills in every slider below at once — still freely adjustable after.">${esc(p.label)}</button>`).join('')}</div>
@@ -37,19 +42,19 @@ export function enhancePanelHTML(showPlaybackTools) {
             <span class="enh2-val" data-kv="${s.key}"></span>
           </label>`).join('')}
       </div>`).join('')}
-    ${showPlaybackTools ? `
+    ${roi || flashlight ? `
       <div class="enh2-group">
-        <div class="enh2-group-label">Playback tools</div>
+        <div class="enh2-group-label">Tools</div>
         <div class="enh2-tools">
-          <button class="btn sm" data-x="roi" aria-pressed="false" title="Drag a box on the pane — the picture above only gets enhanced inside it, everywhere else stays the untouched raw feed (and costs nothing extra to render).">${icon('crop')} Select region</button>
-          <button class="btn sm" data-x="flashlight" aria-pressed="false" title="Move your cursor over the pane to locally lift shadows around it, like a torch — everywhere else keeps its own exposure.">${icon('flashlight')} Digital flashlight</button>
+          ${roi ? `<button class="btn sm" data-x="roi" aria-pressed="false" title="Drag a box on the pane — the picture above only gets enhanced inside it, everywhere else stays the untouched raw feed (and costs nothing extra to render).">${icon('crop')} Select region</button>` : ''}
+          ${flashlight ? `<button class="btn sm" data-x="flashlight" aria-pressed="false" title="Move your cursor over the picture to locally lift shadows around it, like a torch — everywhere else keeps its own exposure.">${icon('flashlight')} Digital flashlight</button>` : ''}
         </div>
       </div>` : ''}`;
 }
 
 /** root: the element enhancePanelHTML() was written into. cbs: { getParams(), onPreset(name),
- * onParam(key, value), onRoiToggle(), onFlashlightToggle() } — the last two only fire if the playback-tools
- * buttons are present. */
+ * onParam(key, value), onRoiToggle(), onFlashlightToggle() } — the last two only fire if the corresponding
+ * button was included via enhancePanelHTML's opts. */
 export function wireEnhancePanel(root, cbs) {
   root.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     cbs.onPreset(b.dataset.preset);

@@ -255,7 +255,7 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 .enh-title .hint { font-weight: 400; }
 .enh-fuse { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .enh-fuse input { margin: 0; }
-.enh-topactions { display: flex; gap: 6px; }
+.enh-topactions { display: flex; gap: 6px; margin-left: auto; flex: none; } /* pinned to the far right of .enh-top regardless of whether the fuse checkbox (only shown for a >1-frame burst) is present */
 .enh-top2 { flex: none; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .enh-weight { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .enh-weight input { width: 110px; }
@@ -263,10 +263,13 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 .enh-roi-chip { display: flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 3px 4px 3px 10px; border-radius: 99px; }
 .enh-stage { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; container-type: size; display: grid; place-items: center; }
 .enh-pic { display: grid; place-items: center; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transform-origin: center; }
+.enh-pic > * { grid-area: 1 / 1; } /* the live-filter canvas overlays the <img> exactly, same trick as .pb-pic's raw+enhanced canvas pair */
 /* Same technique as .pb-pane canvas (see its comment) and .stage cam-player: an intrinsic box shaped like
    the real picture, sized to fit in EITHER direction — a plain max-width/max-height (shrink-only) would
    under-scale a source-resolution "before" frame that's smaller than the viewer, same bug fixed there. */
 .enh-img { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; }
+.enh-livefilter-canvas { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; pointer-events: none; }
+.enh-stage.flashlight-on { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='10' fill='rgba(255,214,130,0.22)' stroke='%23ffd682' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.2' fill='%23ffd682'/%3E%3C/svg%3E") 14 14, crosshair; }
 .enh-stage .hitzone { position: absolute; inset: 0; z-index: 3; touch-action: none; }
 /* Sits above .hitzone (z-index 3) so a drag is captured as a selection instead of a pan while "Select
    region" is active — pointer-events stays none the rest of the time so normal pan/zoom is unaffected. */
@@ -366,6 +369,9 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-pane .pb-roi-layer { position: absolute; inset: 0; z-index: 5; pointer-events: none; cursor: crosshair; }
 .pb-pane .pb-roi-layer.active { pointer-events: auto; }
 .pb-pane .pb-roi-box { position: absolute; border: 2px solid var(--accent); background: rgba(59, 130, 246, .12); pointer-events: none; }
+/* Digital flashlight cursor: a soft ring + hotspot dot standing in for a torch beam, hotspot centred (14,14)
+   so the glow the shader draws lines up with the actual cursor tip, not its corner. */
+.pb-pane.flashlight-on { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='10' fill='rgba(255,214,130,0.22)' stroke='%23ffd682' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.2' fill='%23ffd682'/%3E%3C/svg%3E") 14 14, crosshair; }
 /* Top-right rather than bottom-right: the playback transport is a floating overlay at the bottom of the
    pane now, and a bottom-right pill would sit right on top of it. */
 .pb-pane > .zoomtag { position: absolute; right: 8px; top: 8px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }

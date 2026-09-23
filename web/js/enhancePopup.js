@@ -3,9 +3,11 @@
 // result in a large zoom/pan/fullscreen viewer with a before/after toggle. Forensic-integrity rules baked
 // in here, not just described: the source (pre-AI) frame is always fetched alongside the enhanced one,
 // and the "ENHANCED" label is permanent on screen, never something that can be toggled off.
-import { esc, icon, toast } from './ui.js';
+import { esc, icon, toast, openPopover } from './ui.js';
 import { ZoomPan } from './zoom.js';
 import { api } from './api.js';
+import { Enhancer, PRESETS as FILTER_PRESETS } from './enhance.js';
+import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
 
 const MODES = [
   ['auto', 'Auto'],
@@ -34,6 +36,12 @@ export function openEnhancePopup(opts) {
   // actual subject instead of mostly on background that was never in question.
   let roi = null;
   let selecting = false;
+  // Client-side "wand" live filters (docs/playback-spec.md's L0 section) layered on top of whichever
+  // picture is currently shown, purely for on-screen inspection — never touches the server-side AI
+  // pipeline or what a download actually saves, so it can't be mistaken for part of the forensic output.
+  let filterParams = { ...FILTER_PRESETS.off };
+  let filterFlashlight = false;
+  let liveFilter = null; // Enhancer instance, created lazily on first use
   let showingSource = false;
   let zoom = null;
   let job = null; // { job_id, resultUrl, sourceUrl, faces_found }
@@ -49,7 +57,7 @@ export function openEnhancePopup(opts) {
         <input type="checkbox" data-x="fuse"> Combine ${burst.length} frames (denoise)
       </label>` : ''}
       <div class="enh-topactions">
-        <button class="btn sm" data-x="fullscreen" title="Full screen">${icon('fullscreen')}</button>
+        <button class="btn icon sm ghost" data-x="fullscreen" title="Full screen" aria-label="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon sm ghost" data-x="close" title="Close" aria-label="Close">${icon('close')}</button>
       </div>
     </div>
@@ -60,9 +68,10 @@ export function openEnhancePopup(opts) {
       </label>
       <button class="btn sm" data-x="select-roi" aria-pressed="false" title="Drag a box over the image to isolate a plate or face — the AI's full output resolution goes to just that area instead of the whole frame.">${icon('crop')} Select region</button>
       <span class="enh-roi-chip" hidden>Region selected <button class="btn icon sm ghost" data-x="clear-roi" title="Clear region">${icon('close')}</button></span>
+      <button class="btn sm" data-x="wand" aria-pressed="false" title="Client-side live filters (dehaze, sharpen, WDR, Retinex, rain/snow reduction, chromatic aberration fix) and a digital flashlight — layered on top of whichever picture is shown here, purely for inspection. Doesn't change the AI pipeline above or what downloads actually save.">${icon('wand')} Live filters</button>
     </div>
     <div class="enh-stage">
-      <div class="enh-pic"><img class="enh-img" alt="" hidden></div>
+      <div class="enh-pic"><img class="enh-img" alt="" hidden><canvas class="enh-livefilter-canvas" hidden></canvas></div>
       <div class="hitzone"></div>
       <div class="enh-roi-layer"><div class="enh-roi-box" hidden></div></div>
       <button class="zoomtag" hidden title="Reset zoom">Reset</button>
@@ -99,6 +108,8 @@ export function openEnhancePopup(opts) {
   const roiBox = root.querySelector('.enh-roi-box');
   const roiBtn = root.querySelector('[data-x=select-roi]');
   const roiChip = root.querySelector('.enh-roi-chip');
+  const wandBtn = root.querySelector('[data-x=wand]');
+  const filterCanvas = root.querySelector('.enh-livefilter-canvas');
 
   // `stage` (untransformed) is what ZoomPan measures for its pan-clamp math — the CSS zoom transform lives
   // on `pic`, a child of it. Passing `pic` itself here was the bug: an element's own transform inflates
@@ -119,6 +130,7 @@ export function openEnhancePopup(opts) {
   const close = () => {
     zoom?.destroy();
     roiResizeObs.disconnect();
+    liveFilter?.destroy();
     document.removeEventListener('fullscreenchange', onFs);
     document.removeEventListener('keydown', onKey);
     if (document.fullscreenElement === viewer) document.exitFullscreen();
@@ -172,8 +184,13 @@ export function openEnhancePopup(opts) {
     roiBox.style.height = `${h * ir.height}px`;
     roiBox.hidden = false;
   }
+  // The currently-displayed image (source or result) is already the cropped content once a run has used
+  // `roi` — the server crops before enhancing (spec 2c), so at that point the whole picture IS the
+  // selection and drawing a box over it is meaningless (worse, it was drawing the *old* fractional box in
+  // the wrong place on the *new*, already-cropped picture — the reported bug). Only ever show the box while
+  // still choosing a region against the pre-crop picture, never over a result that already reflects it.
   function updateRoiBoxDisplay() {
-    if (!roi || img.hidden) { roiBox.hidden = true; return; }
+    if (!roi || img.hidden || job?.roiUsed) { roiBox.hidden = true; return; }
     drawRoiBoxFromFrac(roi.x, roi.y, roi.w, roi.h);
   }
 
@@ -223,6 +240,61 @@ export function openEnhancePopup(opts) {
     run();
   });
 
+  // ---------------------------------------------------------------- "wand" live filters + flashlight
+  // Reuses the exact same WebGL engine (enhance.js) and control panel (enhancePanel.js) as the Live/
+  // Playback "wand" — the same dehaze/sharpen/CLAHE-style local contrast/WDR/Retinex/rain-snow/chromatic-
+  // aberration toolkit and digital flashlight, applied here to a static picture instead of a moving video.
+  // A separate Enhancer instance is created lazily and painted with whichever image (source or result) is
+  // currently in `img` — WebGL's texImage2D accepts an <img> element directly, and since `source` is kept
+  // as the same element throughout, later img.src changes (a mode switch, before/after toggle) are picked
+  // up automatically on the next animation frame with no need to recreate anything. This never touches the
+  // AI pipeline's own output or what "Download enhanced/source" actually save (spec 6's forensic-integrity
+  // rules apply to the real pipeline, not a decorative client-side inspection aid).
+  function isFilterOff() {
+    const neutral = Object.entries(FILTER_PRESETS.off).every(([k, v]) => k === 'label' || filterParams[k] === v);
+    return neutral && !filterFlashlight;
+  }
+  function applyLiveFilter() {
+    wandBtn.setAttribute('aria-pressed', String(!isFilterOff()));
+    if (isFilterOff()) {
+      liveFilter?.stop();
+      filterCanvas.hidden = true;
+      return;
+    }
+    if (!liveFilter) {
+      liveFilter = new Enhancer(img, filterCanvas);
+      if (!liveFilter.supported) { liveFilter = null; return; }
+    }
+    liveFilter.setParams(filterParams);
+    filterCanvas.hidden = false;
+    liveFilter.start();
+  }
+  wandBtn.addEventListener('click', () => {
+    const menu = openPopover(wandBtn, enhancePanelHTML({ flashlight: true }), { className: 'enh-menu enh2-panel' });
+    if (!menu) return;
+    menu.querySelector('[data-x=flashlight]')?.setAttribute('aria-pressed', String(filterFlashlight));
+    wireEnhancePanel(menu, {
+      getParams: () => filterParams,
+      onPreset: (name) => { filterParams = { ...(FILTER_PRESETS[name] || FILTER_PRESETS.off) }; applyLiveFilter(); },
+      onParam: (key, value) => { filterParams = { ...filterParams, [key]: value }; applyLiveFilter(); },
+      onFlashlightToggle: () => {
+        filterFlashlight = !filterFlashlight;
+        menu.querySelector('[data-x=flashlight]')?.setAttribute('aria-pressed', String(filterFlashlight));
+        stage.classList.toggle('flashlight-on', filterFlashlight);
+        if (!filterFlashlight) liveFilter?.setFlashlight(null);
+        applyLiveFilter();
+      },
+    });
+  });
+  stage.addEventListener('mousemove', (e) => {
+    if (!filterFlashlight || !liveFilter) return;
+    const r = img.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    liveFilter.setFlashlight(inside ? clamp((e.clientX - r.left) / r.width, 0, 1) : null, inside ? clamp((e.clientY - r.top) / r.height, 0, 1) : null);
+  });
+  stage.addEventListener('mouseleave', () => { if (filterFlashlight) liveFilter?.setFlashlight(null); });
+
   function updateFrameText() {
     const el = root.querySelector('.enh-frametext');
     if (el) el.textContent = when + (fuse ? ` · ${burst.length} frames combined` : ' · single frame') + (roi ? ' · region selected' : '');
@@ -236,7 +308,7 @@ export function openEnhancePopup(opts) {
   function applyImage() {
     if (!job) return;
     img.src = showingSource ? job.sourceUrl : job.resultUrl;
-    img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); updateRoiBoxDisplay(); };
+    img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); updateRoiBoxDisplay(); applyLiveFilter(); };
     toggleBtn.innerHTML = showingSource ? `${icon('eye')} Show enhanced` : `${icon('eye')} Show original`;
     root.querySelector('.enh-badge').style.display = showingSource ? 'none' : 'flex';
   }
@@ -277,6 +349,8 @@ export function openEnhancePopup(opts) {
     loading.querySelector('.msg').textContent = 'Starting…';
     img.hidden = true;
     roiBox.hidden = true;
+    liveFilter?.stop();
+    filterCanvas.hidden = true;
     toggleBtn.disabled = true;
     ocrBtn.disabled = true;
     ocrPanel.hidden = true;
@@ -298,12 +372,12 @@ export function openEnhancePopup(opts) {
         // AI enhancement failed (e.g. the model isn't installed/available) but the aligned/fused source
         // frame is real and on disk — show that instead of leaving the operator with just an error,
         // and be explicit that what's showing is the un-enhanced source, not a silently degraded result.
-        job = { job_id, resultUrl: null, sourceUrl: `/api/enhance/${job_id}/source` };
+        job = { job_id, resultUrl: null, sourceUrl: `/api/enhance/${job_id}/source`, roiUsed: !!roi };
         showingSource = true;
         loading.hidden = true;
         img.hidden = false;
         img.src = job.sourceUrl;
-        img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); updateRoiBoxDisplay(); };
+        img.onload = () => { pic.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); zoom?.clampAll(); zoom?.apply(); updateRoiBoxDisplay(); applyLiveFilter(); };
         root.querySelector('.enh-badge').style.display = 'none';
         toggleBtn.disabled = true; // nothing to toggle to — there is no enhanced result
         ocrBtn.disabled = false;
@@ -313,7 +387,7 @@ export function openEnhancePopup(opts) {
         statusEl.textContent = `AI enhancement unavailable (${e.message}) — showing the unenhanced fused frame.`;
         return;
       }
-      job = { job_id, resultUrl: `/api/enhance/${job_id}/result`, sourceUrl: `/api/enhance/${job_id}/source` };
+      job = { job_id, resultUrl: `/api/enhance/${job_id}/result`, sourceUrl: `/api/enhance/${job_id}/source`, roiUsed: !!roi };
       loading.hidden = true;
       img.hidden = false;
       applyImage();

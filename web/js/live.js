@@ -375,7 +375,7 @@ export class LiveView {
   _toggleFocusEnhanceMenu(tile) {
     const btn = this.focus?.el.querySelector('[data-a=enhance]');
     if (!btn) return;
-    const menu = openPopover(btn, enhancePanelHTML(false), { className: 'enh-menu enh2-panel' });
+    const menu = openPopover(btn, enhancePanelHTML({}), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
     wireEnhancePanel(menu, {
       getParams: () => tile.enhParams,

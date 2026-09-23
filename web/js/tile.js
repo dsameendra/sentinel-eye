@@ -248,7 +248,7 @@ export class Tile {
   // section) — there's no longer a single "which preset is active" state, just the current parameter mix.
   _toggleEnhanceMenu() {
     const btn = this.el.querySelector('[data-a=enhance]');
-    const menu = openPopover(btn, enhancePanelHTML(false), { className: 'enh-menu enh2-panel' });
+    const menu = openPopover(btn, enhancePanelHTML({}), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
     wireEnhancePanel(menu, {
       getParams: () => this.enhParams,

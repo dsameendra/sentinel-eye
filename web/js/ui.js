@@ -1,4 +1,21 @@
 // Small UI helpers: escaping, icons, toasts, dialogs.
+
+// The Fullscreen API paints only the fullscreened element's own subtree (plus the "top layer") — #modal-
+// root and #toasts are both direct children of <body> (web/index.html), siblings of #app, so the moment
+// Playback or Live's focus view goes fullscreen (fullscreening a div inside #app, not <body> itself), any
+// dialog or toast opened while fullscreen is active silently stops rendering, even though it opens fine and
+// its own event listeners keep working — confirmed directly, not assumed (the bookmark dialog and the wand
+// popover both still "worked" with nothing visible). Fixed once, centrally, by moving both containers into
+// whichever element is currently fullscreened, and back to <body> when fullscreen ends — every call site
+// (bookmarkDialog, confirmDialog, toast, openPopover below) just does getElementById and doesn't care where
+// in the document that container currently lives.
+document.addEventListener('fullscreenchange', () => {
+  const target = document.fullscreenElement || document.body;
+  const modalRoot = document.getElementById('modal-root'), toasts = document.getElementById('toasts');
+  if (modalRoot) target.appendChild(modalRoot);
+  if (toasts) target.appendChild(toasts);
+});
+
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -105,7 +122,12 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   const menu = document.createElement('div');
   menu.className = `menu popover-portal ${className}`;
   menu.innerHTML = innerHTML;
-  document.body.appendChild(menu);
+  // The Fullscreen API only paints the fullscreened element's own subtree (plus the "top layer") — a node
+  // appended to <body> while e.g. Playback or Live's focus view is fullscreened silently never renders,
+  // even though it opens and its listeners work fine. Confirmed directly: the wand popover's click handler
+  // ran, the menu existed in the DOM, it just wasn't visible. Mount into the fullscreened element itself
+  // when there is one.
+  (document.fullscreenElement || document.body).appendChild(menu);
   const r = anchorEl.getBoundingClientRect();
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
   let left = align === 'left' ? r.left : r.right - mw;

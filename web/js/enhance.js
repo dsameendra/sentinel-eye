@@ -336,9 +336,14 @@ export class Enhancer {
   /** rect: {x,y,w,h} fractions (0-1, top-left origin) or null for whole-frame. Playback only. */
   setRoi(rect) { this._roi = rect; }
 
-  /** x,y: fractions (0-1, top-left origin) of the pane, or null to turn the flashlight off. Playback only. */
+  /** x,y: fractions (0-1, top-left origin — normal DOM/CSS convention) of the pane, or null to turn the
+   * flashlight off. Playback only. Y is flipped before storing: vUv (what the shader compares uFlashPos
+   * against) is bottom-left origin — aPos*0.5+0.5 puts vUv=(0,0) at NDC's bottom-left, and window/NDC space
+   * has y=-1 at the bottom, not the top. Passing a top-based y straight through put the flashlight exactly
+   * mirrored vertically from the real cursor position — confirmed directly, not a hypothetical: with the
+   * cursor at the top of a pane the glow rendered at the bottom, and vice versa. */
   setFlashlight(x, y, strength = 0.8, radius = 0.18) {
-    this._flash = x == null ? { x: -1, y: -1, radius, strength: 0 } : { x, y, radius, strength };
+    this._flash = x == null ? { x: -1, y: -1, radius, strength: 0 } : { x, y: 1 - y, radius, strength };
   }
 
   start() {
@@ -360,7 +365,9 @@ export class Enhancer {
 
   _draw() {
     const gl = this.gl, src = this.source;
-    const w = src.videoWidth || src.width || 0, h = src.videoHeight || src.height || 0;
+    // videoWidth/Height: <video>. naturalWidth/Height: <img> (its .width/.height reflect CSS/attribute
+    // sizing, not the real pixel size, which is what the shader actually needs). .width/.height: <canvas>.
+    const w = src.videoWidth || src.naturalWidth || src.width || 0, h = src.videoHeight || src.naturalHeight || src.height || 0;
     if (!w || !h) return;
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
     this._ensureSized(w, h);
