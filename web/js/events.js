@@ -47,7 +47,12 @@ export class EventsView {
     this._init();
   }
 
-  cams() { return this.ctx.settings().channels.filter((c) => c.enabled); }
+  // Same order the operator arranged on Live/Settings (display.order) — see playback.js's identical fix
+  // for why this can't just be the enabled subset in raw backend order.
+  cams() {
+    const by = Object.fromEntries(this.ctx.settings().channels.filter((c) => c.enabled).map((c) => [c.id, c]));
+    return this.ctx.settings().display.order.map((id) => by[id]).filter(Boolean);
+  }
   camById(ch) { return this.cams().find((c) => c.channel === ch); }
 
   // ------------------------------------------------------------- camera filter (same pattern as Playback's own picker)

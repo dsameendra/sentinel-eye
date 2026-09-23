@@ -47,7 +47,14 @@ export class PlaybackView {
     this.build(channelId);
   }
 
-  cams() { return this.ctx.settings().channels.filter((c) => c.enabled); }
+  // Same order the operator arranged on Live/Settings (display.order), not just the enabled subset in
+  // whatever order the backend happens to return channels — found via report, not assumed: this used to
+  // ignore display.order entirely, so the camera picker here (and the primary/coverage camera it implies)
+  // could silently disagree with Live's own arrangement.
+  cams() {
+    const by = Object.fromEntries(this.ctx.settings().channels.filter((c) => c.enabled).map((c) => [c.id, c]));
+    return this.ctx.settings().display.order.map((id) => by[id]).filter(Boolean);
+  }
   get primary() { return this.panes[0]?.cam; }
 
   build(channelId) {
