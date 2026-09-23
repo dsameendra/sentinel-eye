@@ -55,31 +55,4 @@ if ! command -v tesseract >/dev/null; then
   brew install tesseract
 fi
 
-echo "== CCSR engine (optional 'best quality, slow' alternative to Real-ESRGAN — spec section 2b) =="
-$PIP install diffusers transformers accelerate safetensors lpips einops
-# CCSR (github.com/csslc/CCSR, CCSR-v2 branch, Apache 2.0) ships as scripts, not a pip package, and its
-# custom pipeline/controlnet code is pinned to diffusers==0.21.0/transformers==4.25.0 — versions with no
-# wheels for a Python this new. Vendored into app/ccsr/ with the modern-diffusers/MPS/tiling fixes already
-# applied (see that directory's own comments for exactly what and why); this script only fetches weights.
-mkdir -p data/models/ccsr/sd21base/{unet,vae,text_encoder,tokenizer,scheduler,feature_extractor} data/models/ccsr/ccsrv2/{controlnet,vae}
-# huggingface_hub's own downloader (snapshot_download) was observed to silently stall indefinitely on this
-# network — plain curl against the same URLs did not. Fetched directly instead, in parallel per component.
-# Base model: an ungated mirror of stabilityai/stable-diffusion-2-1-base (the official repo now requires a
-# logged-in, license-accepted HF token to download at all — this mirror is the identical public weights,
-# filenames included, without that gate).
-SD21="https://huggingface.co/Manojb/stable-diffusion-2-1-base/resolve/main"
-curl -sL "$SD21/model_index.json" -o data/models/ccsr/sd21base/model_index.json
-( for f in unet/config.json "unet/diffusion_pytorch_model.fp16.safetensors"; do curl -sL "$SD21/$f" -o "data/models/ccsr/sd21base/$f"; done ) &
-( for f in vae/config.json "vae/diffusion_pytorch_model.fp16.safetensors"; do curl -sL "$SD21/$f" -o "data/models/ccsr/sd21base/$f"; done ) &
-( for f in text_encoder/config.json "text_encoder/model.fp16.safetensors"; do curl -sL "$SD21/$f" -o "data/models/ccsr/sd21base/$f"; done ) &
-( for f in tokenizer/merges.txt tokenizer/vocab.json tokenizer/tokenizer_config.json tokenizer/special_tokens_map.json; do curl -sL "$SD21/$f" -o "data/models/ccsr/sd21base/$f"; done ) &
-( for f in scheduler/scheduler_config.json feature_extractor/preprocessor_config.json; do curl -sL "$SD21/$f" -o "data/models/ccsr/sd21base/$f"; done ) &
-wait
-# CCSR-v2's own controlnet (stage 1) + VAE (stage 2) checkpoints — the authors only publish these via
-# Google Drive/Baidu; this is a community re-upload in diffusers-loadable safetensors format.
-CCSR="https://huggingface.co/YaronElh/CCSR-v2/resolve/main"
-( for f in controlnet/config.json controlnet/diffusion_pytorch_model.safetensors; do curl -sL "$CCSR/$f" -o "data/models/ccsr/ccsrv2/$f"; done ) &
-( for f in vae/config.json vae/diffusion_pytorch_model.safetensors; do curl -sL "$CCSR/$f" -o "data/models/ccsr/ccsrv2/$f"; done ) &
-wait
-
-echo "== done — first real Real-ESRGAN/GFPGAN enhance request will still download those weights (~700MB) =="
+echo "== done — first real enhance request will still download Real-ESRGAN/GFPGAN/facexlib weights (~700MB) =="

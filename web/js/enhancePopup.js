@@ -14,21 +14,11 @@ const MODES = [
   ['general', 'General'],
 ];
 
-// Real-ESRGAN+GFPGAN is the default: proven, ~40s/frame on this Mac. CCSR-v2 is the SOTA-class diffusion
-// alternative (docs/enhance-ai-spec.md's engine comparison) — meaningfully better detail reconstruction,
-// meaningfully slower (low-single-digit minutes/frame — real iterative diffusion, not a single upscale
-// pass). Not default because that latency shouldn't surprise anyone who didn't ask for it.
-const ENGINES = [
-  ['realesrgan', 'Real-ESRGAN (fast)'],
-  ['ccsr', 'CCSR (best quality, slow)'],
-];
-
 /** @param opts { images: [dataURL,...] (oldest->newest, already grabbed), channel (DVR channel number),
  *  atUtc (ISO string, for the header) } */
 export function openEnhancePopup(opts) {
   const root = document.getElementById('modal-root');
   let mode = 'auto';
-  let engine = 'realesrgan';
   // Off by default (spec: multi-frame fusion helps a static/noisy scene but can soften a moving subject
   // even with the motion-adaptive weighting — see app/enhance_ai.py's _align_and_fuse. Single-frame is the
   // safer default; fusion is there to turn on for a specifically noisy, mostly-static frame.
@@ -36,12 +26,6 @@ export function openEnhancePopup(opts) {
   let showingSource = false;
   let zoom = null;
   let job = null; // { job_id, resultUrl, sourceUrl, faces_found }
-  // Bumped on every run() call, so a run superseded by a later one (mode/engine/fuse changed, or the
-  // button double-clicked, while a job was still in flight) can tell its own eventually-arriving result is
-  // stale and discard it instead of overwriting whatever the newer run already displayed — found as a real
-  // race, not a hypothetical: switching engine right after opening let an earlier Real-ESRGAN result
-  // silently replace an in-progress CCSR run's "still working" state once the older job happened to finish.
-  let runToken = 0;
   const burst = opts.images;                 // the full grabbed burst, oldest -> newest
   const single = [burst[Math.floor(burst.length / 2)]]; // the exact paused frame — the middle of an odd-length burst
 
@@ -53,14 +37,11 @@ export function openEnhancePopup(opts) {
       ${burst.length > 1 ? `<label class="enh-fuse" title="Blend ${burst.length} nearby frames to reduce noise on static content — off by default because it can soften a moving subject even with motion-aware blending.">
         <input type="checkbox" data-x="fuse"> Combine ${burst.length} frames (denoise)
       </label>` : ''}
+      <div class="seg enh-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${esc(l)}</button>`).join('')}</div>
       <div class="enh-topactions">
         <button class="btn sm" data-x="fullscreen" title="Full screen">${icon('fullscreen')}</button>
         <button class="btn icon sm ghost" data-x="close" title="Close" aria-label="Close">${icon('close')}</button>
       </div>
-    </div>
-    <div class="enh-top2">
-      <div class="seg enh-engines" role="group" aria-label="Engine">${ENGINES.map(([k, l]) => `<button data-engine="${k}" aria-pressed="${k === engine}">${esc(l)}</button>`).join('')}</div>
-      <div class="seg enh-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${esc(l)}</button>`).join('')}</div>
     </div>
     <div class="enh-stage">
       <div class="enh-pic"><img class="enh-img" alt="" hidden></div>
@@ -129,18 +110,6 @@ export function openEnhancePopup(opts) {
     run();
   }));
 
-  // CCSR has no face/plate/general concept of its own (one unified restoration pass) — the mode row only
-  // means something for Real-ESRGAN+GFPGAN, so it's hidden rather than left showing controls that do
-  // nothing under the other engine.
-  root.querySelectorAll('[data-engine]').forEach((b) => b.addEventListener('click', () => {
-    if (b.dataset.engine === engine) return;
-    engine = b.dataset.engine;
-    root.querySelectorAll('[data-engine]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.engine === engine)));
-    root.querySelector('.enh-modes').hidden = engine !== 'realesrgan';
-    run();
-  }));
-  root.querySelector('.enh-modes').hidden = engine !== 'realesrgan';
-
   root.querySelector('[data-x=fuse]')?.addEventListener('change', (e) => {
     fuse = e.target.checked;
     run();
@@ -148,7 +117,7 @@ export function openEnhancePopup(opts) {
 
   function updateFrameText() {
     const el = root.querySelector('.enh-frametext');
-    if (el) el.textContent = when + (fuse ? ` · ${burst.length} frames combined` : ' · single frame') + (engine === 'ccsr' ? ' · this can take a few minutes' : '');
+    if (el) el.textContent = when + (fuse ? ` · ${burst.length} frames combined` : ' · single frame');
   }
 
   toggleBtn.addEventListener('click', () => {
@@ -194,9 +163,6 @@ export function openEnhancePopup(opts) {
   });
 
   async function run() {
-    const myToken = ++runToken; // see the runToken comment above — this call is now "the current one"
-    const stale = () => myToken !== runToken; // a newer run() started while this one was still in flight
-
     updateFrameText();
     loading.hidden = false;
     loading.querySelector('.msg').textContent = 'Starting…';
@@ -209,12 +175,11 @@ export function openEnhancePopup(opts) {
     statusEl.textContent = '';
     showingSource = false;
     try {
-      const { job_id } = await api.createEnhance({ channel: opts.channel, at_utc: opts.atUtc || '', mode, engine, images: fuse ? burst : single });
+      const { job_id } = await api.createEnhance({ channel: opts.channel, at_utc: opts.atUtc || '', mode, images: fuse ? burst : single });
       let j;
       try {
-        j = await poll(job_id, engine, stale);
+        j = await poll(job_id);
       } catch (e) {
-        if (stale()) return; // superseded — don't fight the run that replaced this one for the UI
         if (!e.sourceReady) throw e; // nothing usable came out of this job at all
         // AI enhancement failed (e.g. the model isn't installed/available) but the aligned/fused source
         // frame is real and on disk — show that instead of leaving the operator with just an error,
@@ -233,7 +198,6 @@ export function openEnhancePopup(opts) {
         statusEl.textContent = `AI enhancement unavailable (${e.message}) — showing the unenhanced fused frame.`;
         return;
       }
-      if (stale()) return;
       job = { job_id, resultUrl: `/api/enhance/${job_id}/result`, sourceUrl: `/api/enhance/${job_id}/source` };
       loading.hidden = true;
       img.hidden = false;
@@ -244,17 +208,16 @@ export function openEnhancePopup(opts) {
       root.querySelector('[data-x=dl-source]').disabled = false;
       statusEl.textContent = j.faces_found ? `Done — ${j.faces_found} face${j.faces_found > 1 ? 's' : ''} restored.` : 'Done.';
     } catch (e) {
-      if (stale()) return;
       loading.querySelector('.msg').textContent = e.message || 'Enhancement failed.';
     }
   }
 
-  function poll(jobId, engine, stale) {
-    // Measured directly against this Mac's GPU: Real-ESRGAN+GFPGAN is ~40s/frame, ~100s for a 5-frame
-    // burst. CCSR is a diffusion model doing real iterative denoising — low-single-digit minutes per
-    // frame is normal, not a hang, so it gets a much longer budget. Either way this also covers a second
-    // job queued right behind an already-running one ("Waiting for another enhancement to finish…").
-    const deadline = Date.now() + (engine === 'ccsr' ? 900000 : 240000);
+  function poll(jobId) {
+    // Measured directly against this Mac's GPU: a single frame is ~40s including first-time model load;
+    // a full 5-frame burst is ~100s. 240s leaves real margin for a burst plus a second job queued right
+    // behind an already-running one (progress says "Waiting for another enhancement to finish…" while that
+    // happens, so the wait is never silent even though it counts against this same deadline).
+    const deadline = Date.now() + 240000;
     return new Promise((resolve, reject) => {
       const tick = async () => {
         if (Date.now() > deadline) { reject(new Error('This is taking much longer than expected — try again, or a shorter burst (single frame).')); return; }
@@ -270,10 +233,7 @@ export function openEnhancePopup(opts) {
           return;
         }
         if (j.state === 'done') { resolve(j); return; }
-        // Still keep polling once superseded (the server-side job runs either way, and run() checks
-        // stale() itself before doing anything with the eventual result) — just stop fighting a newer
-        // run's own "Working…"/"Loading…" text for the one shared status element.
-        if (!stale()) loading.querySelector('.msg').textContent = j.progress || 'Working…';
+        loading.querySelector('.msg').textContent = j.progress || 'Working…';
         setTimeout(tick, 900);
       };
       tick();
