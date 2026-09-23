@@ -2,7 +2,7 @@ import asyncio, sys, json
 sys.path.insert(0, "tools")
 from cdp import Browser
 S = sys.argv[1]
-URL = "http://127.0.0.1:8080/"
+URL = "http://127.0.0.1:8007/"
 PLAYING = "[...document.querySelectorAll('.wall .tile:not(.empty) video')].filter(v=>v.readyState>=2&&v.currentTime>0&&!v.paused).length"
 
 async def main():

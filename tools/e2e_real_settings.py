@@ -4,7 +4,7 @@ sys.path.insert(0, "tools")
 from cdp import Browser
 async def main():
     async with Browser() as b:
-        await b.goto("http://127.0.0.1:8080/#/settings/connection")
+        await b.goto("http://127.0.0.1:8007/#/settings/connection")
         await b.wait_for("document.querySelector('#t-run')", 15)
         await b.js("document.querySelector('#t-run').click()")
         await b.wait_for("document.querySelector('.result')", 40)

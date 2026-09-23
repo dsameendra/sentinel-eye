@@ -165,7 +165,7 @@ channels, display options) is edited from the in-app **Settings** screen. `data/
 ./run.sh
 ```
 
-Opens on **http://127.0.0.1:8080**. There is no login, so keep this on `127.0.0.1` or a network you trust —
+Opens on **http://127.0.0.1:8007**. There is no login, so keep this on `127.0.0.1` or a network you trust —
 do not expose it to the public internet. Set `SENTINEL_HOST`/`SENTINEL_PORT` to change the listen address:
 
 ```sh
@@ -178,7 +178,7 @@ SENTINEL_PORT=8090 ./run.sh
 SENTINEL_HOST=0.0.0.0 ./run.sh
 ```
 
-Then, on your phone (connected to the **same Wi-Fi**), browse to `http://<this-machine's-LAN-IP>:8080` — find
+Then, on your phone (connected to the **same Wi-Fi**), browse to `http://<this-machine's-LAN-IP>:8007` — find
 the IP with `ipconfig getifaddr en0` (Wi-Fi) on the Mac.
 
 Because there is still no login, this makes the dashboard — and your camera feeds — reachable by **anything
