@@ -124,7 +124,7 @@ export class EventsView {
         </div>
         <button class="btn primary" data-a="search" style="width:100%;justify-content:center;margin-top:6px">${icon('search')} Apply filters</button>
         <h3>View</h3>
-        <div class="field toggle-row">
+        <div class="toggle-row">
           <label class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></label>
           <label for="ev-thumbs">Show thumbnails</label>
         </div>
