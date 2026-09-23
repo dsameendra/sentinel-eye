@@ -11,6 +11,21 @@
         ],
         "createdAt": "2026-09-23T12:23:03.087Z",
         "reason": "L221 <img data-ev-id> is intentionally src-less: an IntersectionObserver lazy-loads the real thumbnail, with .ev-thumb-fallback showing a real icon until .loaded — not a broken/placeholder image"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-09-23T14:12:57.848Z",
+        "reason": "Deliberate, documented typeface choice — DESIGN.md's Typography section names Inter explicitly as the system's one UI font; not an unreviewed default."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "web/css/app.css"
+        ],
+        "createdAt": "2026-09-23T14:12:57.875Z",
+        "reason": "Reviewed earlier this session: the only match is .toast.ok/.toast.bad's 3px border-left, a single small floating component already using the system's own semantic accent/danger colors — not the card/callout AI-slop pattern this rule targets. File-scoped only because the rule has no narrower per-line ignore mechanism."
       }
     ]
   }
