@@ -1,4 +1,27 @@
+# Local credentials and cryptographic material.
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials*.json
+secrets*.json
+
+# Recorder state and captured/exported media.
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+captures/
+exports/
+recordings/
+snapshots/
+thumbnails/
+
 bin/go2rtc
 *.log
 .venv/
