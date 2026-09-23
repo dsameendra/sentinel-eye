@@ -149,8 +149,7 @@ def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
         if _inference_lock.locked():
             _set(job_id, progress="Waiting for another enhancement to finish…")
         with _inference_lock:
-            _set(job_id, progress="Loading models…" if _gfpgan is None else "Running AI enhancement…")
-            result, faces_found = _enhance(fused, mode, weight)
+            result, faces_found = _enhance(fused, mode, weight, progress=lambda msg: _set(job_id, progress=msg))
             # MPS (this Mac's GPU backend) doesn't always release memory back promptly between calls the
             # way CUDA's allocator does — left unmanaged, back-to-back jobs in one server session measurably
             # slow down over time (observed directly: a clean single job ran in ~40s, later ones crept well
@@ -358,11 +357,13 @@ def _resize(img, wh):
 
 
 # ------------------------------------------------------------------ model loading (lazy — first call pays the cost)
-def _load_models():
+def _load_models(progress=None):
     global _gfpgan, _realesrgan, _device
     with _models_lock:
         if _gfpgan is not None:
             return
+        if progress:
+            progress("Loading models (first use downloads ~700MB, cached after)…")
         import torch
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
@@ -383,36 +384,45 @@ def _load_models():
         )
 
 
-def _enhance(bgr, mode, weight=0.5):
+def _enhance(bgr, mode, weight=0.5, progress=None):
     """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general. weight: GFPGAN's fidelity knob —
     0 lets it freely reconstruct a face from its learned prior (can fabricate features), 1 barely touches
     the input (stays blurry); 0.5-0.6 blends real pixel data with the model's face prior, matching what
     forensic-enhancement practice recommends for a face specifically (see docs/enhance-ai-spec.md 2d) —
-    recognizable, not either an unmoved blur or an invented person."""
+    recognizable, not either an unmoved blur or an invented person. progress(msg): optional callback fired
+    at each real pipeline stage — named after the actual step running, not a generic "processing" label."""
+    step = progress or (lambda _msg: None)
     if mode == "general":
-        _load_models_upsampler_only()
+        _load_models_upsampler_only(progress)
+        step("Upscaling 4x (Real-ESRGAN)…")
         out, _ = _realesrgan.enhance(bgr, outscale=4)
         return out, 0
     if mode == "plate":
-        _load_models_upsampler_only()
+        _load_models_upsampler_only(progress)
+        step("Upscaling 4x (Real-ESRGAN)…")
         out, _ = _realesrgan.enhance(bgr, outscale=4)
+        step("Sharpening plate/text detail…")
         return _classical_sharpen(out, strong=True), 0
 
-    _load_models()
+    _load_models(progress)
+    step("Upscaling and restoring faces (GFPGAN)…")
     _, _, out = _gfpgan.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True, weight=weight)
     faces_found = len(_gfpgan.face_helper.all_landmarks_5) if hasattr(_gfpgan, "face_helper") else 0
     if mode == "auto" and faces_found == 0:
+        step("No face found — sharpening detail…")
         return _classical_sharpen(out), 0
     return out, faces_found
 
 
-def _load_models_upsampler_only():
+def _load_models_upsampler_only(progress=None):
     # "general"/"plate" modes never need GFPGAN's face model loaded — this trims first-use latency and
     # memory for the common non-face case, at the cost of a second lazy-load path.
     global _realesrgan, _device
     with _models_lock:
         if _realesrgan is not None:
             return
+        if progress:
+            progress("Loading models (first use downloads ~700MB, cached after)…")
         import torch
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
