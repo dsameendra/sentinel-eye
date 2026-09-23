@@ -70,6 +70,21 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .enh-menu button { text-align: left; height: 30px; padding: 0 9px; border-radius: 7px; color: var(--text); font-size: 12.5px; }
 .enh-menu button:hover { background: var(--panel-2); }
 .enh-menu button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* The "wand" L0 panel (enhancePanel.js) — wider than a plain preset list since it holds a slider per
+   parameter, shared by the Live grid tile, Live focus view and every Playback pane's popover. */
+.enh2-panel { min-width: 260px; max-width: 300px; max-height: min(80vh, 620px); overflow-y: auto; gap: 10px; }
+.enh2-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
+.enh2-presets button { flex: none; height: 26px; padding: 0 10px; border-radius: 99px; background: var(--panel-2); color: var(--text); font-size: 12px; }
+.enh2-presets button:hover { background: var(--accent-soft); color: var(--accent); }
+.enh2-group-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 4px 0 2px; }
+.enh2-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; height: 26px; font-size: 12.5px; }
+.enh2-row span:first-child { grid-column: 1; }
+.enh2-row input[type=range] { grid-column: 1 / -1; grid-row: 2; width: 100%; margin: 0; }
+.enh2-row { grid-template-rows: auto auto; height: auto; padding: 3px 0; }
+.enh2-val { grid-column: 2; grid-row: 1; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11.5px; }
+.enh2-tools { display: flex; flex-direction: column; gap: 4px; }
+.enh2-tools button { width: 100%; justify-content: flex-start; }
+.enh2-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .menu .lay { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .menu .lay button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 9px 4px 7px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; }
 .menu .lay button:hover { background: var(--panel-2); color: var(--text); }
@@ -345,6 +360,12 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-panes.fill .pb-pane canvas { width: max(100cqw, calc(100cqh * var(--ar, 1.7778))); }
 .pb-pane .enh-canvas { pointer-events: none; z-index: 1; }
 .pb-pane .hitzone { position: absolute; inset: 0; z-index: 3; }
+/* Sits above .hitzone so a drag is captured as a region selection instead of a pan while armed — same
+   pattern as the AI frame enhancer's own ROI layer (docs/enhance-ai-spec.md 2c), pointer-events stays none
+   the rest of the time so normal pan/zoom is unaffected. */
+.pb-pane .pb-roi-layer { position: absolute; inset: 0; z-index: 5; pointer-events: none; cursor: crosshair; }
+.pb-pane .pb-roi-layer.active { pointer-events: auto; }
+.pb-pane .pb-roi-box { position: absolute; border: 2px solid var(--accent); background: rgba(59, 130, 246, .12); pointer-events: none; }
 /* Top-right rather than bottom-right: the playback transport is a floating overlay at the bottom of the
    pane now, and a bottom-right pill would sit right on top of it. */
 .pb-pane > .zoomtag { position: absolute; right: 8px; top: 8px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }

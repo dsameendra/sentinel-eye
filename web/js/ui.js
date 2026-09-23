@@ -36,6 +36,7 @@ const P = {
   wand: '<path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h.01M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/>',
   scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/>',
   crop: '<path d="M6.13 2 6 18a2 2 0 0 0 2 2h14"/><path d="M2 6.13 18 6a2 2 0 0 1 2 2v14"/>',
+  flashlight: '<path d="M18 6c0 2-2 3-2 5v11a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V11c0-2-2-3-2-5a6 6 0 0 1 12 0Z"/><line x1="6" y1="6" x2="18" y2="6"/><line x1="12" y1="12" x2="12" y2="12"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 

@@ -3,8 +3,9 @@
 // watches for stalls and reconnects, and reports stats.
 import { createPlayer } from './player.js';
 import { ZoomPan } from './zoom.js';
-import { esc, icon, openPopover, closePopover } from './ui.js';
+import { esc, icon, openPopover } from './ui.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
+import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
 
 // H.265 plays natively in Chrome/Edge/Safari. If a browser claims support but fails to decode (or lacks it),
 // we remember that and use the server-converted H.264 stream instead.
@@ -66,7 +67,7 @@ export class Tile {
     this.veil = this.el.querySelector('.veil');
     this.enhCanvas = this.el.querySelector('.enh-canvas');
     this.enhancer = null;
-    this.enhPreset = 'off';
+    this.enhParams = { ...ENHANCE_PRESETS.off };
     if (opts.chrome) {
       this.el.querySelector('.hit').addEventListener('click', () => opts.onFocus?.(this));
       this.el.querySelector('[data-a=quality]').addEventListener('click', (e) => { e.stopPropagation(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
@@ -242,34 +243,44 @@ export class Tile {
   // ---------------------------------------------------------------- L0 live enhancement (WebGL, client-side)
   // Popover is appended to <body> (openPopover) rather than nested under the tile — a grid tile clips its
   // own overflow (needed for the video picture), which was cutting the dropdown off/garbling it when it
-  // was positioned relative to a button inside the tile.
+  // was positioned relative to a button inside the tile. Presets are quick-fill starting points; every
+  // slider underneath stays individually adjustable and stacks with the rest (docs/playback-spec.md's L0
+  // section) — there's no longer a single "which preset is active" state, just the current parameter mix.
   _toggleEnhanceMenu() {
     const btn = this.el.querySelector('[data-a=enhance]');
-    const html = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
-      `<button data-preset="${k}" aria-pressed="${this.enhPreset === k}">${esc(p.label)}</button>`).join('');
-    const menu = openPopover(btn, html, { className: 'enh-menu' });
+    const menu = openPopover(btn, enhancePanelHTML(false), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
-    menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.setEnhancePreset(b.dataset.preset);
-      closePopover();
-    }));
+    wireEnhancePanel(menu, {
+      getParams: () => this.enhParams,
+      onPreset: (name) => this.applyEnhancePreset(name),
+      onParam: (key, value) => this.applyEnhParam(key, value),
+    });
   }
 
-  setEnhancePreset(name) {
-    this.enhPreset = name;
+  applyEnhancePreset(name) {
+    this.enhParams = { ...(ENHANCE_PRESETS[name] || ENHANCE_PRESETS.off) };
+    this._applyEnhParams();
+  }
+
+  applyEnhParam(key, value) {
+    this.enhParams = { ...this.enhParams, [key]: value };
+    this._applyEnhParams();
+  }
+
+  _applyEnhParams() {
     const btn = this.el.querySelector('[data-a=enhance]');
-    btn?.setAttribute('aria-pressed', String(name !== 'off'));
-    if (name === 'off') {
+    const off = Object.entries(ENHANCE_PRESETS.off).every(([k, v]) => k === 'label' || this.enhParams[k] === v);
+    btn?.setAttribute('aria-pressed', String(!off));
+    if (off) {
       this.enhancer?.stop();
       this.enhCanvas.hidden = true;
       return;
     }
     if (!this.enhancer) {
       this.enhancer = new Enhancer(this.cur?.player.video, this.enhCanvas);
-      if (!this.enhancer.supported) { this.enhancer = null; this.enhPreset = 'off'; btn?.setAttribute('aria-pressed', 'false'); return; }
+      if (!this.enhancer.supported) { this.enhancer = null; this.enhParams = { ...ENHANCE_PRESETS.off }; btn?.setAttribute('aria-pressed', 'false'); return; }
     }
-    this.enhancer.setPreset(name);
+    this.enhancer.setParams(this.enhParams);
     this.enhCanvas.hidden = false;
     this.enhancer.start();
   }
@@ -304,7 +315,7 @@ export class Tile {
   /** Captures whichever picture is actually on screen — the L0-enhanced frame if enhancement is on, the
    * original otherwise. That's "your choice" (spec 11.5): toggle enhancement, then snapshot. */
   snapshot() {
-    const enhanced = this.enhPreset !== 'off' && !this.enhCanvas.hidden;
+    const enhanced = !this.enhCanvas.hidden;
     const v = this.cur?.player.video;
     if (enhanced) {
       if (!this.enhCanvas.width) return false;

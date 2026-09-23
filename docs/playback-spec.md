@@ -165,7 +165,7 @@ Legend: ✅ works as asked · 🟡 works with a stated limit · 🔬 needs the a
 | 10 | VCA violation indexing (line-crossing, loitering, counter-flow) | 🟡 | **Line-crossing, intrusion, tamper, motion, video-loss:** DVR's own log — but only where *enabled on the DVR itself* (section 6, recommendations given). **Loitering, counter-flow:** our own AI on tracked objects (needs a tracker; live-forward only, same as feature 9). |
 | 11 | Event colour coding | ✅ | Fixed, colour-blind-safe palette (section 5.1). |
 | 12 | Digital zoom during playback + enhancement | ✅ | Zoom/pan is already built and shared; enhancement in section 7. |
-| 13 | On-the-fly gamma/sharpen/contrast, haze/shadow clean-up | ✅ | WebGL shader chain on the playing frame (tier L0, section 7). |
+| 13 | On-the-fly gamma/sharpen/contrast, haze/shadow clean-up | ✅ | WebGL shader chain on the playing frame (tier L0, section 7 and `web/js/enhance.js`'s own header comment). Extended beyond the original 5: edge-aware sharpen, a fast dehaze approximation, CLAHE-inspired local contrast, chromatic-aberration correction, digital WDR (highlight-rolloff tone mapping), single-scale Retinex illumination correction, and temporal-median rain/snow-streak reduction — every one independently strength-adjustable and stackable in the same pass, not a fixed preset list, plus a Playback-only draggable ROI (enhance runs only inside the box, cheaper and more concentrated than full-frame) and a cursor-follow "digital flashlight". Deliberately not implemented: blind-deconvolution motion deblur — a misestimated blur kernel fabricates confident-looking structure, the same failure class CCSR's diffusion denoising was rejected for in the L2 AI enhancer (`docs/enhance-ai-spec.md` 2a), and this app's own stated rule is real pixels only, nothing invented. |
 | 14 | ML frame-enhancement mode | 🟡 | Tier L2, server-side, on a chosen still/short clip, with forensic labelling (section 7). |
 | 15 | Multi-cut clipper → one export batch | ✅ | Non-destructive range list; each range exported as a DVR playback session, honouring the 4-session queue. |
 | 16 | Dual-format export incl. native `.EXE`/`.DAV` | 🟡 | See section 10 for the full menu of options — a recommended default plus the alternatives, per your request. |
@@ -328,7 +328,11 @@ yet — that's M5/M6).
 3. **Event awareness on live tiles:** motion/line-crossing/tamper/video-loss badges from `alertStream`, optional
    border flash, per-channel mute.
 4. **Detach-and-review:** open a tile in playback while the rest of the grid keeps monitoring live.
-5. **Live enhancement (L0) presets** on any tile; snapshot saves the enhanced or the original frame, your choice.
+5. **Live enhancement (L0)** on any tile — presets as quick-fill starting points, every slider under them
+   individually adjustable and stackable (`web/js/enhancePanel.js`); snapshot saves the enhanced or the
+   original frame, your choice. Playback panes additionally get a draggable ROI (enhance only inside the
+   box) and a cursor-follow digital flashlight, both interactive-inspection tools that don't make sense on a
+   moving live tile.
 6. **Bookmark from live** in one keypress.
 
 ---

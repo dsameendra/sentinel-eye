@@ -1,10 +1,10 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { bookmarkDialog, esc, icon, toast, openPopover, closePopover } from './ui.js';
+import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { api } from './api.js';
-import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
+import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -369,21 +369,19 @@ export class LiveView {
   // ---------------------------------------------------------------- L0 live enhancement (focus bar)
   // The focus view's control bar lives outside the Tile's own element (unlike the grid tile's built-in
   // popover), so it gets its own small menu here rather than reusing Tile._toggleEnhanceMenu — both just
-  // end up calling the same tile.setEnhancePreset(). This is also what fullscreen shows (wall fullscreen
-  // keeps the grid's own per-tile hover controls; opening a tile in focus — including fullscreen focus —
-  // used to have no enhancement control at all, found by checking, not assumed working from the grid case.
+  // end up driving the same tile.enhParams. This is also what fullscreen shows (wall fullscreen keeps the
+  // grid's own per-tile hover controls; opening a tile in focus — including fullscreen focus — used to have
+  // no enhancement control at all, found by checking, not assumed working from the grid case.
   _toggleFocusEnhanceMenu(tile) {
     const btn = this.focus?.el.querySelector('[data-a=enhance]');
     if (!btn) return;
-    const html = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
-      `<button data-preset="${k}" aria-pressed="${tile.enhPreset === k}">${esc(p.label)}</button>`).join('');
-    const menu = openPopover(btn, html, { className: 'enh-menu' });
+    const menu = openPopover(btn, enhancePanelHTML(false), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
-    menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      tile.setEnhancePreset(b.dataset.preset);
-      closePopover();
-    }));
+    wireEnhancePanel(menu, {
+      getParams: () => tile.enhParams,
+      onPreset: (name) => tile.applyEnhancePreset(name),
+      onParam: (key, value) => tile.applyEnhParam(key, value),
+    });
   }
 
   // ---------------------------------------------------------------- instant replay

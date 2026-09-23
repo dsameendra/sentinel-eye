@@ -2,12 +2,13 @@
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
 import { Timeline } from './timeline.js';
-import { bookmarkDialog, esc, icon, toast, openPopover, closePopover } from './ui.js';
+import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
+import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
 import { ZoomPan } from './zoom.js';
 import { openEnhancePopup } from './enhancePopup.js';
 
@@ -16,6 +17,7 @@ const REWIND_MACROS = [5, 10, 30];
 const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
 const EXPORT_SCALE = 16; // must match app/export.py's EXPORT_SCALE — the DVR delivers full frames this fast during export (measured)
 const pad2 = (n) => String(n).padStart(2, '0');
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 export class PlaybackView {
   /** @param ctx { settings(), go(hash) }
@@ -30,6 +32,9 @@ export class PlaybackView {
     this.datePicker = null;        // DateTimePicker bound to the primary camera's coverage
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.clips = [];               // [[startEpoch, endEpoch], …] — multi-cut clipper's pending list (spec 10/15)
+    this.enhParams = { ...ENHANCE_PRESETS.off }; // L0 live-adjust, applied to every pane together
+    this._roiSelectMode = false;   // armed via the wand panel's "Select region" button — next drag on any pane sets *that* pane's ROI
+    this._flashlightMode = false;  // armed via "Digital flashlight" — cursor over any pane locally lifts shadows around it there
     this.onKey = (e) => this._key(e);
     document.addEventListener('keydown', this.onKey);
     this._init(channelId);
@@ -255,7 +260,7 @@ export class PlaybackView {
     const cams = this.cams();
     const primaryChanged = this.panes[0] && this.panes[0].cam.id !== ids[0];
     const keep = new Map(this.panes.map((p) => [p.cam.id, p]));
-    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); pane.zoom?.destroy(); keep.delete(id); }
+    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); pane.zoom?.destroy(); pane._roiResizeObs?.disconnect(); keep.delete(id); }
     this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
     this._layoutPanes();
     this._renderCamList();
@@ -292,32 +297,111 @@ export class PlaybackView {
         <canvas class="enh-canvas" hidden></canvas>
       </div>
       <div class="hitzone"></div>
+      <div class="pb-roi-layer"><div class="pb-roi-box" hidden></div></div>
       <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div>`;
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
     const veil = el.querySelector('.pb-veil');
-    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null };
+    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null };
     pane.player = new WCPlayer(canvas, {
       onFrame: (t) => this._onFrame(pane, t),
       onState: (s, m) => this._onPaneState(pane, s, m),
       onError: (m) => { this._onPaneState(pane, 'error', m); if (pane === this.panes[0]) toast(`${cam.name || 'Camera'}: ${m}`, 'bad', 6000); },
       onQueued: (info) => this._onPaneState(pane, 'queued', `Recorder busy: ${info.busy}/${info.limit} sessions in use`),
     });
-    if (this.enhPreset && this.enhPreset !== 'off') this._applyEnhance(pane, this.enhPreset);
+    this._applyEnhance(pane);
     // Zoom/pan, same component the live view uses: wheel/pinch/drag, double-click/tap to toggle.
     const zoomtag = el.querySelector('.zoomtag');
     pane.zoom = new ZoomPan(el, el.querySelector('.hitzone'), {
       dbl: true,
-      onChange: (st) => { zoomtag.hidden = st.s <= 1.001; zoomtag.textContent = `${Math.round(st.s * 100)}%`; },
+      onChange: (st) => { zoomtag.hidden = st.s <= 1.001; zoomtag.textContent = `${Math.round(st.s * 100)}%`; this._updateRoiBox(pane); },
     });
     zoomtag.addEventListener('click', () => pane.zoom.reset());
+    pane._roiResizeObs = new ResizeObserver(() => this._updateRoiBox(pane));
+    pane._roiResizeObs.observe(el);
+    this._wireRoiAndFlashlight(pane);
     return pane;
   }
 
   _teardownPanes() {
-    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); p.zoom?.destroy(); }
+    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); p.zoom?.destroy(); p._roiResizeObs?.disconnect(); }
     this.panes = [];
+  }
+
+  // ---------------------------------------------------------------- L0 interactive tools (Playback only —
+  // spec's "operator inspecting a paused/stepped frame" scope, not the live grid): a per-pane draggable ROI
+  // that restricts the whole L0 pipeline to just a plate/face box (cheap — a GPU scissor test, not extra
+  // shader work — see enhance.js's ROI comment), and a cursor-follow "digital flashlight" that locally lifts
+  // shadows around the pointer instead of the whole frame.
+  _wireRoiAndFlashlight(pane) {
+    const { el, canvas } = pane;
+    const roiLayer = el.querySelector('.pb-roi-layer');
+    const roiBox = el.querySelector('.pb-roi-box');
+    const frac = (clientX, clientY) => {
+      const r = canvas.getBoundingClientRect();
+      if (!r.width || !r.height) return { fx: 0, fy: 0 };
+      return { fx: clamp01((clientX - r.left) / r.width), fy: clamp01((clientY - r.top) / r.height) };
+    };
+    let dragStart = null;
+    roiLayer.addEventListener('pointerdown', (e) => {
+      if (!this._roiSelectMode) return;
+      e.preventDefault();
+      try { roiLayer.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+      dragStart = frac(e.clientX, e.clientY);
+      this._drawRoiBox(pane, dragStart.fx, dragStart.fy, 0, 0);
+    });
+    roiLayer.addEventListener('pointermove', (e) => {
+      if (!dragStart) return;
+      const cur = frac(e.clientX, e.clientY);
+      this._drawRoiBox(pane, Math.min(dragStart.fx, cur.fx), Math.min(dragStart.fy, cur.fy), Math.abs(cur.fx - dragStart.fx), Math.abs(cur.fy - dragStart.fy));
+    });
+    roiLayer.addEventListener('pointerup', (e) => {
+      if (!dragStart) return;
+      const cur = frac(e.clientX, e.clientY);
+      const x = Math.min(dragStart.fx, cur.fx), y = Math.min(dragStart.fy, cur.fy);
+      const w = Math.abs(cur.fx - dragStart.fx), h = Math.abs(cur.fy - dragStart.fy);
+      dragStart = null;
+      this._roiSelectMode = false;
+      document.querySelectorAll('.pb-roi-layer.active').forEach((l) => l.classList.remove('active'));
+      document.querySelectorAll('[data-x=roi]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      // A drag too small to be deliberate: if this pane already has a region, treat it as "tap to clear";
+      // otherwise it's just a missed/accidental click — leave things as they are.
+      if (w < 0.02 || h < 0.02) {
+        if (pane._roi) { pane._roi = null; pane.enhancer?.setRoi(null); this._updateRoiBox(pane); this._applyEnhance(pane); }
+        return;
+      }
+      pane._roi = { x, y, w, h };
+      this._applyEnhance(pane); // a region can be set with every slider still neutral — make sure a canvas/enhancer exists to show it in
+      pane.enhancer?.setRoi(pane._roi);
+      this._updateRoiBox(pane);
+    });
+    // Flashlight tracking uses plain mousemove (not pointer events), so it's unaffected by the ROI layer's
+    // pointer capture above and needs no dedicated hit-testing element of its own.
+    el.addEventListener('mousemove', (e) => {
+      if (!this._flashlightMode || !pane.enhancer) return;
+      const { fx, fy } = frac(e.clientX, e.clientY);
+      const r = canvas.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      pane.enhancer.setFlashlight(inside ? fx : null, inside ? fy : null);
+    });
+    el.addEventListener('mouseleave', () => { if (this._flashlightMode) pane.enhancer?.setFlashlight(null); });
+  }
+
+  _drawRoiBox(pane, x, y, w, h) {
+    const { canvas, el } = pane;
+    const roiLayer = el.querySelector('.pb-roi-layer'), roiBox = el.querySelector('.pb-roi-box');
+    const ir = canvas.getBoundingClientRect(), lr = roiLayer.getBoundingClientRect();
+    roiBox.style.left = `${ir.left - lr.left + x * ir.width}px`;
+    roiBox.style.top = `${ir.top - lr.top + y * ir.height}px`;
+    roiBox.style.width = `${w * ir.width}px`;
+    roiBox.style.height = `${h * ir.height}px`;
+    roiBox.hidden = false;
+  }
+
+  _updateRoiBox(pane) {
+    if (!pane._roi) { pane.el.querySelector('.pb-roi-box').hidden = true; return; }
+    this._drawRoiBox(pane, pane._roi.x, pane._roi.y, pane._roi.w, pane._roi.h);
   }
 
   // ---------------------------------------------------------------- AI frame enhancer (docs/enhance-ai-spec.md, M6 L2)
@@ -330,27 +414,57 @@ export class PlaybackView {
   }
 
   // ---------------------------------------------------------------- L0 live enhancement (all panes together)
+  // Presets are quick-fill starting points; every slider underneath (and the ROI/flashlight tools, Playback-
+  // only) stays individually adjustable and stacks with the rest — see enhancePanel.js and enhance.js.
   _toggleEnhanceMenu() {
     const btn = this.root.querySelector('[data-a=enhance]');
-    const html = Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
-      `<button data-preset="${k}" aria-pressed="${(this.enhPreset || 'off') === k}">${esc(p.label)}</button>`).join('');
-    const menu = openPopover(btn, html, { className: 'enh-menu' });
+    const menu = openPopover(btn, enhancePanelHTML(true), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
-    menu.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.setEnhancePreset(b.dataset.preset);
-      closePopover();
-    }));
+    menu.querySelector('[data-x=roi]')?.setAttribute('aria-pressed', String(this._roiSelectMode));
+    menu.querySelector('[data-x=flashlight]')?.setAttribute('aria-pressed', String(this._flashlightMode));
+    wireEnhancePanel(menu, {
+      getParams: () => this.enhParams,
+      onPreset: (name) => this.applyEnhancePreset(name),
+      onParam: (key, value) => this.applyEnhParam(key, value),
+      onRoiToggle: () => {
+        this._roiSelectMode = !this._roiSelectMode;
+        menu.querySelector('[data-x=roi]')?.setAttribute('aria-pressed', String(this._roiSelectMode));
+        for (const pane of this.panes) pane.el.querySelector('.pb-roi-layer')?.classList.toggle('active', this._roiSelectMode);
+      },
+      onFlashlightToggle: () => {
+        this._flashlightMode = !this._flashlightMode;
+        menu.querySelector('[data-x=flashlight]')?.setAttribute('aria-pressed', String(this._flashlightMode));
+        if (!this._flashlightMode) for (const pane of this.panes) pane.enhancer?.setFlashlight(null);
+        this._applyEnhToAllPanes(); // flashlight can be the only thing on — make sure every pane has a live enhancer to drive it
+      },
+    });
   }
 
-  setEnhancePreset(name) {
-    this.enhPreset = name;
-    this.root.querySelector('[data-a=enhance]')?.setAttribute('aria-pressed', String(name !== 'off'));
-    for (const pane of this.panes) this._applyEnhance(pane, name);
+  applyEnhancePreset(name) {
+    this.enhParams = { ...(ENHANCE_PRESETS[name] || ENHANCE_PRESETS.off) };
+    this._applyEnhToAllPanes();
   }
 
-  _applyEnhance(pane, name) {
-    if (name === 'off') {
+  applyEnhParam(key, value) {
+    this.enhParams = { ...this.enhParams, [key]: value };
+    this._applyEnhToAllPanes();
+  }
+
+  _isEnhOff() {
+    const neutral = Object.entries(ENHANCE_PRESETS.off).every(([k, v]) => k === 'label' || this.enhParams[k] === v);
+    // Flashlight and ROI both live outside enhParams (per-pane/runtime, not part of the stackable preset
+    // mix), so a neutral slider set doesn't mean "nothing to show" if either is active — without this, the
+    // canvas would be hidden/stopped right out from under a flashlight or region with no other effect on.
+    return neutral && !this._flashlightMode && !this.panes.some((p) => p._roi);
+  }
+
+  _applyEnhToAllPanes() {
+    this.root.querySelector('[data-a=enhance]')?.setAttribute('aria-pressed', String(!this._isEnhOff()));
+    for (const pane of this.panes) this._applyEnhance(pane);
+  }
+
+  _applyEnhance(pane) {
+    if (this._isEnhOff()) {
       pane.enhancer?.stop();
       pane.enhCanvas.hidden = true;
       return;
@@ -358,8 +472,9 @@ export class PlaybackView {
     if (!pane.enhancer) {
       pane.enhancer = new Enhancer(pane.canvas, pane.enhCanvas);
       if (!pane.enhancer.supported) { pane.enhancer = null; return; }
+      if (pane._roi) pane.enhancer.setRoi(pane._roi);
     }
-    pane.enhancer.setPreset(name);
+    pane.enhancer.setParams(this.enhParams);
     pane.enhCanvas.hidden = false;
     pane.enhancer.start();
   }
