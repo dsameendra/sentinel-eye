@@ -18,6 +18,21 @@ colors:
   danger-red-soft: "rgba(248, 113, 113, 0.14)"
   info-blue: "#60a5fa"
   video-tile: "#05070a"
+  scrim: "rgba(0, 0, 0, 0.55)"
+  ov-scrim-soft: "rgba(0, 0, 0, 0.4)"
+  ov-scrim: "rgba(0, 0, 0, 0.5)"
+  ov-scrim-strong: "rgba(0, 0, 0, 0.55)"
+  ov-ink: "#fff"
+  ov-roi: "rgba(59, 130, 246, 0.12)"
+  ov-btn-bg: "rgba(255, 255, 255, 0.08)"
+  ov-btn-bg-hover: "rgba(255, 255, 255, 0.16)"
+  ev-motion: "#eab308"
+  ev-videoloss: "#6b7280"
+  ev-bookmark: "#22d3ee"
+  cam-1: "#60a5fa"
+  cam-2: "#f472b6"
+  cam-3: "#34d399"
+  cam-4: "#fb923c"
 typography:
   title:
     fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
@@ -37,8 +52,23 @@ typography:
     fontWeight: 700
     lineHeight: 1.2
     letterSpacing: "0.04em"
+  small:
+    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: "normal"
+  micro:
+    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontSize: "11px"
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "0.03em"
 rounded:
+  xs: "5px"
+  sm-tight: "7px"
   sm: "8px"
+  sm-wide: "9px"
   md: "10px"
   lg: "12px"
   xl: "14px"
@@ -117,11 +147,20 @@ Cool, dark blue-black grays that carry almost the entire UI; the light theme swa
 
 ### Semantic
 - **Warn Amber** (`#fbbf24` dark / `#b45309` light): warning states only (e.g. a pending/waiting connection dot, storage-pool warnings).
-- **Danger Red** (`#f87171` dark / `#da2323` light) + **Danger Red Soft** wash: destructive actions, offline/error states, tamper and video-loss event badges, form validation errors. Light theme's value was audited and darkened from `#dc2626` (4.42:1 against the light background, just under the 4.5:1 AA floor) to `#da2323` (4.53:1).
+- **Danger Red** (`#f87171` dark / `#da2323` light) + **Danger Red Soft** wash: destructive actions, offline/error states, form validation errors. Light theme's value was audited and darkened from `#dc2626` (4.42:1 against the light background, just under the 4.5:1 AA floor) to `#da2323` (4.53:1).
 - **Info Blue** (`#60a5fa` dark / `#2563eb` light): reserved, low-frequency informational accent (kept distinct from Sentinel Green so it never reads as "live").
 
+### On-Video Overlay (theme-invariant)
+Chrome painted directly over live camera footage — tile/focus overlays, event badges, ROI boxes, playback's floating transport buttons. The video underneath never re-themes, so this whole family is fixed across light and dark rather than switching with the rest of the UI — switching would read as broken, not adaptive. Consolidated here (audited, not assumed) from what were several slightly-different ad-hoc opacities scattered through the stylesheet; every value is unchanged, only centralized and named.
+- **Ov Scrim Soft / Ov Scrim / Ov Scrim Strong** (`rgba(0,0,0,.4)` / `.5` / `.55`): gradient washes and dark overlays behind on-video text and controls (tile name bar, event veils, ROI dimming).
+- **Ov Ink** (`#fff`): text/icon color on the dark chips and badges above (tile action buttons, event badges, nav arrows, pane labels). Not used for the toggle switch's knob, which is a separate, non-video, always-white UI element.
+- **Ov Btn Bg / Ov Btn Bg Hover** (`rgba(255,255,255,.08)` / `.16`): translucent white button fills for controls floating on video (playback's transport bar, `.tag`).
+- **Ov Roi** (`rgba(59,130,246,.12)`): the draggable region-of-interest box fill (frame enhancer, Playback).
+- **Ov Danger** (`#dc2626`): tamper/video-loss event badges specifically — fixed rather than reusing Danger Red, since a badge over a clip shouldn't shift color when the operator's app theme does, and this predates (and no longer numerically matches) either theme's Danger Red.
+- **Scrim** (`rgba(0,0,0,.55)`): the *general* modal backdrop (dialogs) — a different concept from the family above (dims the whole page behind a modal, not chrome painted on video) that happens to share Ov Scrim Strong's exact value today; kept as its own token so the two can diverge later without one dragging the other.
+
 ### Qualitative — Timeline
-Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js`). Categorical, not semantic state, so — unlike every color above — these intentionally stay the same in both themes: their job is telling lanes/kinds apart, not matching a light/dark mood. Defined as CSS custom properties (`--ev-motion`, `--ev-videoloss`, `--ev-bookmark`, `--cam-1..4`) and read via `getComputedStyle` at draw time rather than baked into the canvas code as hex literals.
+Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js`). Categorical, not semantic state, so — like the on-video family above — these intentionally stay the same in both themes: their job is telling lanes/kinds apart, not matching a light/dark mood. Defined as CSS custom properties (`--ev-motion`, `--ev-videoloss`, `--ev-bookmark`, `--cam-1..4`) and read via `getComputedStyle` at draw time rather than baked into the canvas code as hex literals.
 - **Ev Motion** (`#eab308`): motion event spans.
 - Line-crossing / intrusion / tamper events reuse **Danger Red** directly (already the exact value) rather than a duplicate token.
 - **Ev Video-loss** (`#6b7280`): video-loss event spans.
@@ -129,6 +168,7 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 - **Cam 1-4** (`#60a5fa`, `#f472b6`, `#34d399`, `#fb923c`): the left-edge lane-identity dot when more than one camera's events share the timeline.
 
 ### Named Rules
+**The On-Video Invariance Rule.** Anything painted directly over live footage (badges, overlays, ROI boxes, floating transport controls) stays fixed across light/dark theme — the video itself never re-themes, so its chrome shouldn't either. Everything else in this document does adapt per theme; this is the one deliberate exception.
 **The Single Accent Rule.** Sentinel Green is the only color used for emphasis, selection, or primary action. If a control isn't live, active, selected, or the primary action in its group, it does not get colored — it stays gunmetal/muted.
 
 ## Typography
@@ -140,6 +180,8 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 ### Hierarchy
 - **Title** (600, 20px, 1.3 line-height): pane headings (`.pane h1`). Smaller title-weight text (600, 19px / 15px) is reused for card-scale headings like empty-state and focus-view titles.
 - **Body** (400, 14px, 1.45 line-height): the base UI size — nearly everything reads at or near this size.
+- **Small** (400, 13px): the system's actual secondary-text size — hints, sub-labels, result rows, muted supporting lines under a heading. Sits one step below Body; audited and normalized here after being the single most-repeated undocumented size in the implementation (17 uses).
+- **Micro** (600, 11px): compact badges and tags (`.tag`, event badges) where Label's 12px/uppercase treatment would be too loud for a small pill sitting on video.
 - **Label** (700, 12px, 1.2 line-height, `0.04em` uppercase tracking): section labels, table headers, form group labels — always uppercase, always this weight, wherever the UI needs a small structural header.
 
 ### Named Rules
@@ -165,7 +207,10 @@ Flat by default. Panels, cards, tiles, and the topbar sit at the same visual dep
 
 A small, consistent radius scale rather than one blanket value. Containers get a modest, soft-technical radius; anything representing status or a compact selectable chip goes fully round.
 
+- **Extra-small — 5-6px:** the smallest interactive chips (`.tag`, `kbd`, `.grip`, OCR result rows) — one step down from Small, for elements too compact for even a small-button radius.
+- **Small-tight — 7px:** compact interactive rows and small buttons one step under Small — `.seg button`, `.tile-actions button` (video overlay controls), `.cal-day`, `.events-presets button`. Audited and normalized here after being the second most-repeated undocumented radius (5 uses).
 - **Small — 8px:** buttons, inputs, the brand mark square.
+- **Small-wide — 9px:** containers a touch softer than Small but not yet Medium — `.seg`/`.pb-macros` (segmented-control and toolbar-cluster wrappers), `.result`, `.ev-row`. Audited and normalized here after being the third most-repeated undocumented radius (4 uses).
 - **Medium — 10px:** video tiles, layout-option buttons, generic small containers (the system's default, `--r`).
 - **Large — 12px:** cards, popover menus, event cards.
 - **Extra-large — 14px:** modal dialogs, the AI-enhancer's larger popovers.
