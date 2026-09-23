@@ -84,19 +84,25 @@ void main() {
     c = texture2D(uTex, uv).rgb;
   }
 
-  // Fast single-pass dehaze: approximates the "dark channel" locally as the minimum over an 8-sample ring
-  // around this pixel, treats that as an estimate of the haze veil, and removes it. Real Dark Channel Prior
-  // dehazing does a per-patch min over the whole image plus a separate atmospheric-light estimate and a
-  // guided-filter refinement pass — this is the same core idea (haze lifts the black point uniformly; find
-  // the local black point, subtract it) at real-time, single-pass cost, not the full algorithm.
+  vec3 blurred = texture2D(uBlur, uv).rgb;
+
+  // Dark-channel-inspired dehaze: estimates the local haze veil from the minimum colour channel over a
+  // wide ring (14 texels — genuine atmospheric haze varies smoothly over tens to hundreds of pixels, not
+  // the handful an early, too-tight 3-texel version sampled, which barely moved a truly hazy/foggy frame)
+  // combined with the same wide blur pass used elsewhere, then removes that veil the way Dark Channel Prior
+  // does: subtract it, and re-expand contrast by how much veil was there. Real DCP adds a whole-image
+  // atmospheric-light estimate and a guided-filter refinement pass on top of this; this is the same core
+  // physical idea (uniform haze lifts the black point; find the local black point, subtract it) at
+  // real-time, single-pass cost.
   if (uDehaze > 0.0) {
     vec3 mn = c;
     for (int i = 0; i < 8; i++) {
       float a = 6.283185 * float(i) / 8.0;
-      mn = min(mn, texture2D(uTex, uv + vec2(cos(a), sin(a)) * uTexel * 3.0).rgb);
+      mn = min(mn, texture2D(uTex, uv + vec2(cos(a), sin(a)) * uTexel * 14.0).rgb);
     }
-    float veil = min(min(mn.r, mn.g), mn.b);
-    vec3 dehazed = (c - veil) / max(1.0 - veil * 0.9, 0.15);
+    mn = min(mn, blurred);
+    float veil = min(min(mn.r, mn.g), mn.b) * 0.92;
+    vec3 dehazed = (c - veil) / max(1.0 - veil, 0.08);
     c = mix(c, clamp(dehazed, 0.0, 1.0), uDehaze);
   }
 
@@ -116,8 +122,6 @@ void main() {
       c = mix(c, tmed, uRainSnow);
     }
   }
-
-  vec3 blurred = texture2D(uBlur, uv).rgb;
 
   // Local contrast (CLAHE-inspired adaptive contrast — not literal per-tile histogram equalization, which
   // needs a histogram pass this single-shader-stage pipeline doesn't build): boosts the difference between
@@ -193,6 +197,31 @@ export const PRESETS = {
   rainsnow: { label: 'Rain / snow reduction', ...NEUTRAL, rainSnow: 0.7, sharpen: 0.2 },
   custom: { label: 'Custom', ...NEUTRAL },
 };
+
+// Custom preset: whenever a slider is moved after picking a built-in preset (or from scratch), the mix no
+// longer matches any of the presets above — enhancePanel.js's refreshEnhancePanel() detects that and calls
+// saveCustomPreset() with the live values, which both updates PRESETS.custom in place (so a *different*
+// tile/pane's already-open panel picks it up immediately — everything reads PRESETS.custom by property
+// lookup at click time, nothing caches a stale copy) and persists it to localStorage so it survives a
+// reload. Restored once here at module load so it's available on the very first render, not just after the
+// first edit in a session.
+const CUSTOM_KEY = 'sentinel.customFilterPreset';
+try {
+  const saved = JSON.parse(localStorage.getItem(CUSTOM_KEY) || 'null');
+  if (saved && typeof saved === 'object') PRESETS.custom = { label: 'Custom', ...NEUTRAL, ...saved };
+} catch { /* private mode, or corrupt value — keep the neutral default */ }
+
+export function saveCustomPreset(params) {
+  const { label, ...values } = params;
+  PRESETS.custom = { label: 'Custom', ...NEUTRAL, ...values };
+  try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(values)); } catch { /* private mode */ }
+}
+
+/** Whether a real custom preset has ever been saved — the "Custom" slot only shows up as a pickable
+ * preset once it's actually something, not while it's still an untouched, identical-to-Off placeholder. */
+export function hasSavedCustomPreset() {
+  return Object.entries(PRESETS.off).some(([k, v]) => k !== 'label' && PRESETS.custom[k] !== v);
+}
 
 export class Enhancer {
   /** @param source a <video> or <canvas> element to read frames from
@@ -378,7 +407,7 @@ export class Enhancer {
     } catch { return; } // a mid-teardown frame (0x0 video, detached canvas) — skip, try again next frame
 
     const p = this.params;
-    const needBlur = p.localContrast > 0 || p.retinex > 0 || p.sharpen > 0;
+    const needBlur = p.localContrast > 0 || p.retinex > 0 || p.sharpen > 0 || p.dehaze > 0;
     if (needBlur) this._runBlurPass(w, h);
 
     this._bindQuad(this.prog);

@@ -8,7 +8,7 @@ import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
-import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
+import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
 import { ZoomPan } from './zoom.js';
 import { openEnhancePopup } from './enhancePopup.js';
 
@@ -32,7 +32,9 @@ export class PlaybackView {
     this.datePicker = null;        // DateTimePicker bound to the primary camera's coverage
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.clips = [];               // [[startEpoch, endEpoch], …] — multi-cut clipper's pending list (spec 10/15)
-    this.enhParams = { ...ENHANCE_PRESETS.off }; // L0 live-adjust, applied to every pane together
+    // Settings > Enhancement > "Live filters" default preset (was hardcoded "off" — Tile already honoured
+    // this setting, Playback didn't, an inconsistency found and fixed here). Applied to every pane together.
+    this.enhParams = { ...(ENHANCE_PRESETS[ctx.settings().display.enhance_default_preset] || ENHANCE_PRESETS.off) };
     this._roiSelectMode = false;   // armed via the wand panel's "Select region" button — next drag on any pane sets *that* pane's ROI
     this._flashlightMode = false;  // armed via "Digital flashlight" — cursor over any pane locally lifts shadows around it there
     this.onKey = (e) => this._key(e);
@@ -62,7 +64,6 @@ export class PlaybackView {
         <aside class="pb-side pb-side-left">
           <h3>Cameras</h3>
           <div class="cam-list"></div>
-          <p class="hint">Pick up to ${MAX_PANES} — the recorder can only play that many at once.</p>
         </aside>
         <div class="pb-center">
           <div class="pb-topline">
@@ -111,7 +112,6 @@ export class PlaybackView {
         <aside class="pb-side pb-side-right">
           <h3>Jump to date &amp; time</h3>
           <div class="pb-cal"></div>
-          <p class="hint">Pick a day, then a time — it jumps straight there.</p>
         </aside>
         <div class="pb-edge pb-edge-left" aria-hidden="true"></div>
         <div class="pb-edge pb-edge-right" aria-hidden="true"></div>
@@ -305,7 +305,7 @@ export class PlaybackView {
     if (!cam) return null;
     const el = document.createElement('div');
     el.className = 'pb-pane';
-    el.innerHTML = `<div class="pb-pane-label">${esc(cam.name || 'Camera ' + cam.channel)}</div>
+    el.innerHTML = `<div class="pb-pane-label">${esc(cam.name || 'Camera ' + cam.channel)}<span class="tag fx" hidden title="Live filters active">${icon('wand')}</span></div>
       <div class="pb-pic">
         <canvas></canvas>
         <canvas class="enh-canvas" hidden></canvas>
@@ -483,6 +483,8 @@ export class PlaybackView {
   }
 
   _applyEnhance(pane) {
+    const fxTag = pane.el.querySelector('.tag.fx');
+    if (fxTag) fxTag.hidden = !summarizeEnhParams(this.enhParams).active;
     if (this._isEnhOff()) {
       pane.enhancer?.stop();
       pane.enhCanvas.hidden = true;

@@ -47,7 +47,7 @@ export class Tile {
     this.el.innerHTML = `<div class="stage"><canvas class="enh-canvas" hidden></canvas></div>
       <div class="veil"><div class="spin"></div><div class="msg">Connecting…</div></div>
       ${opts.chrome ? `<div class="hit"></div>
-      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="dot wait"></span><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="grow"></span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span><span class="tag kind">SD</span></div>
+      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="dot wait"></span><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span><span class="tag kind">SD</span></div>
       <div class="ov bottom"><span class="stat"></span></div>
       <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="tile-actions">
@@ -274,6 +274,9 @@ export class Tile {
     const btn = this.el.querySelector('[data-a=enhance]');
     const off = Object.entries(ENHANCE_PRESETS.off).every(([k, v]) => k === 'label' || this.enhParams[k] === v);
     btn?.setAttribute('aria-pressed', String(!off));
+    const fxTag = this.el.querySelector('.tag.fx');
+    if (fxTag) fxTag.hidden = off;
+    this.opts.onFxChange?.(!off); // lets the focus view (own separate header, not this tile's own chrome) mirror the pill
     if (off) {
       this.enhancer?.stop();
       this.enhCanvas.hidden = true;

@@ -7,6 +7,7 @@ import { esc, icon, toast, confirmDialog } from './ui.js';
 import { fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api } from './api.js';
+import { openEventPreview } from './eventPreview.js';
 
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
 const RESULT_CAP = 500; // no server-side pagination yet — a capped result set with a "narrow your search" hint is the honest MVP
@@ -28,7 +29,7 @@ export class EventsView {
     this.root = root;
     this.ctx = ctx;
     this.tzOffsetMin = 330;
-    this.channel = 'all';
+    this.selectedCams = new Set(this.cams().map((c) => c.id)); // every enabled camera, to start — matches the previous "all cameras" default
     this.kind = 'all';
     this.preset = '24h';
     this.customFrom = Date.now() / 1000 - 86400;
@@ -48,6 +49,40 @@ export class EventsView {
 
   cams() { return this.ctx.settings().channels.filter((c) => c.enabled); }
   camById(ch) { return this.cams().find((c) => c.channel === ch); }
+
+  // ------------------------------------------------------------- camera filter (same pattern as Playback's own picker)
+  // Always at least one camera selected — an empty result set from "nothing to search" reads as a bug, not
+  // a real "no events" answer, so it's simply not an option. The select-all button doubles as "clear
+  // selection" once everything's already checked, since a true clear-to-zero isn't allowed either.
+  _renderCamList() {
+    const list = this.root.querySelector('.cam-list');
+    if (!list) return;
+    const cams = this.cams();
+    const allOn = cams.length > 0 && this.selectedCams.size === cams.length;
+    const soleSelected = this.selectedCams.size === 1 ? [...this.selectedCams][0] : null;
+    const selectAllBtn = this.root.querySelector('[data-a=selectall]');
+    if (selectAllBtn) {
+      selectAllBtn.innerHTML = allOn ? `${icon('close')} Clear selection` : `${icon('check')} Select all`;
+      selectAllBtn.onclick = () => {
+        this.selectedCams = new Set(allOn ? (cams[0] ? [cams[0].id] : []) : cams.map((c) => c.id));
+        this._renderCamList();
+        this.search();
+      };
+    }
+    list.innerHTML = cams.map((c) => {
+      const on = this.selectedCams.has(c.id);
+      const lastOne = on && c.id === soleSelected;
+      return `<label class="cam-item ${on ? 'on' : ''}" data-id="${c.id}" ${lastOne ? 'title="At least one camera must stay selected"' : ''}>
+        <input type="checkbox" ${on ? 'checked' : ''} ${lastOne ? 'disabled' : ''}>
+        <span class="dot ${on ? 'live' : ''}"></span><span class="name">${esc(c.name || 'Camera ' + c.channel)}</span></label>`;
+    }).join('');
+    list.querySelectorAll('.cam-item input').forEach((cb) => cb.addEventListener('change', () => {
+      const id = cb.closest('.cam-item').dataset.id;
+      if (cb.checked) this.selectedCams.add(id); else this.selectedCams.delete(id);
+      this._renderCamList();
+      this.search();
+    }));
+  }
 
   async _init() {
     this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
@@ -70,12 +105,15 @@ export class EventsView {
 
   // ------------------------------------------------------------- rendering
   build() {
-    const cams = this.cams();
     this.root.innerHTML = `<div class="events-view">
-      <aside class="events-side">
+      <aside class="pb-side pb-side-left">
+        <h3>Cameras</h3>
+        <button class="btn sm" data-a="selectall" style="width:100%;justify-content:center"></button>
+        <div class="cam-list"></div>
+      </aside>
+      <main class="events-main"><div class="events-results"></div></main>
+      <aside class="pb-side pb-side-right">
         <h3>Filters</h3>
-        <div class="field"><label for="ev-cam">Camera</label>
-          <select id="ev-cam"><option value="all">All cameras</option>${cams.map((c) => `<option value="${c.id}">${esc(c.name || 'Camera ' + c.channel)}</option>`).join('')}</select></div>
         <div class="field"><label for="ev-kind">Event type</label>
           <select id="ev-kind"><option value="all">All types</option>${Object.entries(KIND_LABEL).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
         <div class="field"><label>Range</label>
@@ -90,12 +128,10 @@ export class EventsView {
           <label class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></label>
           <label for="ev-thumbs">Show thumbnails</label>
         </div>
-        <p class="hint">Off shows a compact list instead — quicker to scan a lot of events, and doesn't spend any of the recorder's playback sessions generating thumbnails.</p>
       </aside>
-      <main class="events-main"><div class="events-results"></div></main>
     </div>`;
     this.res = this.root.querySelector('.events-results');
-    this.root.querySelector('#ev-cam').addEventListener('change', (e) => { this.channel = e.target.value; this.search(); });
+    this._renderCamList();
     this.root.querySelector('#ev-kind').addEventListener('change', (e) => { this.kind = e.target.value; this.search(); });
     this.root.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
       this.preset = b.dataset.preset;
@@ -122,6 +158,9 @@ export class EventsView {
   }
 
   async search() {
+    // Every camera unchecked isn't "no filter", it's "show nothing" — matches what the checkboxes
+    // themselves imply, and skips a query that would otherwise silently ignore the (empty) selection.
+    if (this.selectedCams.size === 0) { this.results = []; this.loading = false; this.renderResults(); return; }
     this.loading = true;
     this.renderResults();
     const [fromEpoch, toEpoch] = this._range();
@@ -131,9 +170,9 @@ export class EventsView {
       limit: String(RESULT_CAP),
     });
     if (this.kind !== 'all') params.set('kind', this.kind);
-    if (this.channel !== 'all') {
-      const cam = this.cams().find((c) => c.id === this.channel);
-      if (cam) params.set('channel', String(cam.channel));
+    const allCams = this.cams();
+    if (this.selectedCams.size < allCams.length) {
+      for (const c of allCams) if (this.selectedCams.has(c.id)) params.append('channel', String(c.channel));
     }
     try {
       const r = await fetch(`/api/timeline/events?${params}`);
@@ -174,16 +213,17 @@ export class EventsView {
       let attrs = null;
       if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
       const camName = esc(cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`);
-      const openBtn = `<button class="btn sm" data-a="open" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('video')} Open${this.showThumbs ? ' in playback' : ''}</button>`;
+      const previewBtn = `<button class="btn sm primary" data-a="preview" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('play')} Preview</button>`;
+      const openBtn = `<button class="btn sm" data-a="open" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('video')} Open</button>`;
       const delBtn = attrs?.bookmark_id ? `<button class="btn icon ghost sm" data-a="delbm" data-bmid="${attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : '';
       if (this.showThumbs) {
         return `<div class="ev-card" data-id="${ev.id}">
-          <div class="ev-thumb"><img data-ev-id="${ev.id}" alt="" loading="lazy"><div class="ev-thumb-fallback">${icon('video')}</div></div>
+          <div class="ev-thumb" data-a="preview" title="Preview"><img data-ev-id="${ev.id}" alt="" loading="lazy"><div class="ev-thumb-fallback">${icon('video')}</div></div>
           <div class="ev-card-body">
             <div class="ev-card-top"><span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span><span class="ev-card-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span></div>
             <div class="ev-card-cam">${camName}</div>
             ${attrs?.title ? `<div class="ev-card-title">${esc(attrs.title)}</div>` : ''}
-            <div class="ev-card-actions">${delBtn}<span class="spacer"></span>${openBtn}</div>
+            <div class="ev-card-actions">${delBtn}<span class="spacer"></span>${openBtn}${previewBtn}</div>
           </div>
         </div>`;
       }
@@ -195,7 +235,7 @@ export class EventsView {
         <span class="ev-row-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span>
         <span class="ev-row-title">${attrs?.title ? esc(attrs.title) : ''}</span>
         <span class="spacer"></span>
-        ${delBtn}${openBtn}
+        ${delBtn}${openBtn}${previewBtn}
       </div>`;
     }).join('');
     const capNote = this.results.length >= RESULT_CAP
@@ -203,9 +243,14 @@ export class EventsView {
     this.res.innerHTML = `<div class="${this.showThumbs ? 'events-grid' : 'events-list'}">${items}</div>${capNote}`;
     this.res.querySelectorAll(this.showThumbs ? '.ev-card' : '.ev-row').forEach((row, i) => {
       row.querySelector('[data-a=open]')?.addEventListener('click', () => this.openInPlayback(this.results[i]));
+      row.querySelectorAll('[data-a=preview]').forEach((el) => el.addEventListener('click', () => this.openPreview(this.results[i])));
       row.querySelector('[data-a=delbm]')?.addEventListener('click', (e) => this.deleteBookmark(+e.currentTarget.dataset.bmid));
       if (this.showThumbs) this._io.observe(row.querySelector('img'));
     });
+  }
+
+  openPreview(ev) {
+    openEventPreview({ ev, cam: this.camById(ev.channel), onOpenPlayback: () => this.openInPlayback(ev) });
   }
 
   _queueThumb(imgEl) {

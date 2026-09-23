@@ -38,7 +38,14 @@ function shell() {
       <div class="spacer"></div>
       <div class="tools"><span class="clock" id="clock"></span></div></header>
     <div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>`;
-  const tick = () => { const c = document.getElementById('clock'); if (c) c.textContent = new Date().toLocaleTimeString([], { hour12: false }); };
+  const tick = () => {
+    const c = document.getElementById('clock');
+    if (!c) return;
+    const now = new Date();
+    const date = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const time = now.toLocaleTimeString([], { hour12: false });
+    c.textContent = `${date} · ${time}`;
+  };
   tick(); setInterval(tick, 1000);
 }
 

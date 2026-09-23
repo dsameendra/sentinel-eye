@@ -180,6 +180,13 @@ class AlertStreamSubscriber:
         self._thread = None
         self.last_event_utc = None
         self.connected = False
+        # (kind, channel) -> start ts, persisted across live notifications — unlike stitch()'s own dict,
+        # which is scoped to one call and built for batch backfill (a whole day's entries at once, where a
+        # start and its stop are both present in the same call). Each alertStream notification is its own
+        # separate _handle() call, one edge at a time, so stitch() could never actually match a start with
+        # its stop here — every live event was landing as its own zero-length row instead of a real span,
+        # confirmed directly against the DB (every dvr-live row had start_utc == end_utc), not assumed.
+        self._open_starts = {}
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -241,5 +248,13 @@ class AlertStreamSubscriber:
         channel = int(ch.group(1))
         edge = "start" if (not state or state.group(1) == "active") else "stop"
         self.last_event_utc = utc
-        spans = stitch([(kind, edge, channel, utc)])
-        ingest_spans("dvr-live", spans)
+        key = (kind, channel)
+        if edge == "start":
+            self._open_starts[key] = utc
+            ingest_spans("dvr-live", [(kind, channel, utc, utc)])  # provisional row, visible immediately
+        else:
+            s = self._open_starts.pop(key, None)
+            # Same start_utc as the provisional row above (when there was one) — upsert_event's own
+            # conflict key is (source, channel, kind, start_utc), so this extends that row's end_utc in
+            # place instead of inserting a second, disconnected one.
+            ingest_spans("dvr-live", [(kind, channel, s or utc, utc)])

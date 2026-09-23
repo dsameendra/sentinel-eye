@@ -4,7 +4,7 @@ import { Tile } from './tile.js';
 import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
 import { WCPlayer } from './wcplayer.js';
 import { api } from './api.js';
-import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
+import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -242,6 +242,9 @@ export class LiveView {
       onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
       onKindFail: (t, k) => toast(`The ${k === 'main' ? 'HD' : 'SD'} stream could not be started.`, 'bad', 6000) });
     tile.opts.onUpdate = (t) => this.paintFocus(t);
+    // The focus bar is its own header, not the grid tile's own chrome (which is hidden while in focus —
+    // see .tile.in-focus's own CSS comment), so the "filters active" pill needs its own copy kept in sync.
+    tile.opts.onFxChange = (active) => { const t = this.focus?.el.querySelector('.tag.fx'); if (t) t.hidden = !active; };
     if (fromGrid) {
       tile.el.remove();               // detach from the wall; the tile/player object itself stays alive
       tile.el.classList.add('in-focus');
@@ -251,7 +254,7 @@ export class LiveView {
     f.className = 'focus';
     f.innerHTML = `<div class="focus-bar">
         <button class="btn" data-a="close">${icon('left')} Back</button>
-        <h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2><span class="pill stat"></span><span class="spacer"></span>
+        <h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span><span class="pill stat"></span><span class="spacer"></span>
         <div class="seg" role="group" aria-label="Video quality"><button data-k="sub">SD</button><button data-k="main">HD</button></div>
         <div class="zoomctl" role="group" aria-label="Zoom"><button class="btn icon" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
           <button class="btn pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>

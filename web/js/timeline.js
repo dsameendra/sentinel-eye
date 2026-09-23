@@ -375,7 +375,13 @@ export class Timeline {
       const when = durSec < 1 ? fmt(ev.start_utc) : `${fmt(ev.start_utc)} → ${fmt(ev.end_utc)}`;
       const cam = this.opts.channels.length > 1 ? this.opts.channels.find((c) => c.channel === ev.channel)?.name : null;
       const title = cam ? `${KIND_LABEL[ev.kind] || ev.kind} · ${cam}` : (KIND_LABEL[ev.kind] || ev.kind);
-      this.tip.innerHTML = `<b>${esc(title)}</b><span>${esc(when)}</span>`;
+      // Bookmarks are the one kind with an operator-given name — show it as its own line rather than
+      // making the operator click through to find out what they flagged this moment for.
+      let bmTitle = '';
+      if (ev.kind === 'bookmark' && ev.attrs_json) {
+        try { bmTitle = JSON.parse(ev.attrs_json).title || ''; } catch { /* malformed, skip */ }
+      }
+      this.tip.innerHTML = `<b>${esc(title)}</b>${bmTitle ? `<span class="tl-tip-name">${esc(bmTitle)}</span>` : ''}<span>${esc(when)}</span>`;
       this.canvas.style.cursor = 'pointer';
     } else {
       // No event under the pointer — still show what time this point on the timeline is, so hovering

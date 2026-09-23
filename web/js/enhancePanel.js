@@ -4,7 +4,7 @@
 // adjustable, independently stackable slider (docs/playback-spec.md's L0 section) — moving one slider
 // after picking a preset just keeps tweaking from there, it doesn't reset to "custom" or lose the rest.
 import { esc, icon } from './ui.js';
-import { PRESETS } from './enhance.js';
+import { PRESETS, saveCustomPreset, hasSavedCustomPreset } from './enhance.js';
 
 const SLIDERS = [
   { group: 'Look', key: 'brightness', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01 },
@@ -21,6 +21,20 @@ const SLIDERS = [
 ];
 const GROUPS = [...new Set(SLIDERS.map((s) => s.group))];
 
+/** "Off", a preset's own label if params match it exactly, or "Custom (N)" — the one place that decides
+ * what to call the current mix, used both for the panel's own status line and for the small pill shown on
+ * the tile/pane itself wherever this panel is used. */
+export function summarizeEnhParams(params) {
+  const neutral = (p) => Object.entries(PRESETS.off).every(([k, v]) => k === 'label' || p[k] === v);
+  if (neutral(params)) return { label: 'Off', active: false };
+  for (const [k, p] of Object.entries(PRESETS)) {
+    if (k === 'off' || k === 'custom') continue;
+    if (Object.entries(p).every(([pk, pv]) => pk === 'label' || params[pk] === pv)) return { label: p.label, active: true };
+  }
+  const n = Object.entries(PRESETS.off).filter(([k, v]) => k !== 'label' && params[k] !== v).length;
+  return { label: `Custom (${n} adjustment${n > 1 ? 's' : ''})`, active: true };
+}
+
 /** opts: { roi, flashlight } — which interactive tools to show. Playback panes get both (drag-select and
  * cursor-follow only make sense on an inspectable, steppable pane); the AI frame enhancer (enhancePopup.js)
  * gets flashlight only — it already has its own, differently-scoped region crop (crops before the AI
@@ -30,8 +44,9 @@ const GROUPS = [...new Set(SLIDERS.map((s) => s.group))];
 export function enhancePanelHTML(opts = {}) {
   const { roi = false, flashlight = false } = opts;
   return `
-    <div class="enh2-presets">${Object.entries(PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) =>
-    `<button data-preset="${k}" title="Fills in every slider below at once — still freely adjustable after.">${esc(p.label)}</button>`).join('')}</div>
+    <div class="enh2-status"></div>
+    <div class="enh2-presets">${Object.entries(PRESETS).filter(([k]) => k !== 'custom' || hasSavedCustomPreset()).map(([k, p]) =>
+    `<button data-preset="${k}" title="${k === 'custom' ? 'Your last custom mix, saved automatically — apply it here too.' : 'Fills in every slider below at once — still freely adjustable after.'}">${esc(p.label)}</button>`).join('')}</div>
     ${GROUPS.map((g) => `
       <div class="enh2-group">
         <div class="enh2-group-label">${esc(g)}</div>
@@ -62,9 +77,11 @@ export function wireEnhancePanel(root, cbs) {
   }));
   root.querySelectorAll('[data-k]').forEach((inp) => {
     inp.addEventListener('input', () => {
-      const v = Number(inp.value);
-      root.querySelector(`[data-kv="${inp.dataset.k}"]`).textContent = v.toFixed(2);
-      cbs.onParam(inp.dataset.k, v);
+      cbs.onParam(inp.dataset.k, Number(inp.value));
+      // Moving any slider can change what the mix now matches (a preset exactly, or nothing — "Custom"),
+      // same as picking a preset outright does above — the status line and preset highlighting need the
+      // same refresh either way, not just the one slider's own readout.
+      refreshEnhancePanel(root, cbs.getParams());
     });
   });
   root.querySelector('[data-x=roi]')?.addEventListener('click', () => cbs.onRoiToggle());
@@ -78,4 +95,13 @@ export function refreshEnhancePanel(root, params) {
     inp.value = v;
     root.querySelector(`[data-kv="${inp.dataset.k}"]`).textContent = Number(v).toFixed(2);
   });
+  const { label, active } = summarizeEnhParams(params);
+  // Moving a slider after picking a preset (or from scratch) no longer matches any built-in mix — that's
+  // exactly "Custom", and it's saved right here, automatically, the moment it's detected: PRESETS.custom
+  // is updated in place (so a different tile/pane's panel picks it up the next time it's opened) and
+  // persisted to localStorage (so it survives a reload) — no separate "save" action to remember to press.
+  if (label.startsWith('Custom')) saveCustomPreset(params);
+  const status = root.querySelector('.enh2-status');
+  if (status) { status.textContent = label; status.classList.toggle('active', active); }
+  root.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', String(b.textContent === label)));
 }

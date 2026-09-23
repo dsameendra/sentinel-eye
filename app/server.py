@@ -157,7 +157,13 @@ async def timeline_events(channel: list[int] | None = Query(None), start_utc: st
     if kind:
         q += " AND kind=?"
         params.append(kind)
-    q += " ORDER BY start_utc LIMIT ?"
+    # Newest first, then capped — not the other way round. With ORDER BY start_utc ASC (oldest first), a
+    # window with more matching rows than `limit` silently keeps the *oldest* slice and drops everything
+    # more recent, including all of today whenever an earlier, busier day alone already fills the cap —
+    # confirmed directly as the cause of a real "today's events don't show up" report, not a hypothetical.
+    # Both callers (events.js, timeline.js) are unaffected by the order itself: events.js re-sorts
+    # client-side regardless, and timeline.js positions each event by its own timestamp, not array order.
+    q += " ORDER BY start_utc DESC LIMIT ?"
     params.append(limit)
     rows = await run_in_threadpool(db.query, q, tuple(params))
     return [dict(r) for r in rows]

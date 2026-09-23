@@ -207,7 +207,7 @@ export class SettingsView {
   enhancementTab() {
     const d = this.draft.display;
     return `<h1>Enhancement</h1><p class="lead">Defaults for the live "wand" filters and the frame enhancer — every control stays freely adjustable per-session, this just sets where it starts.</p>
-    <section class="card"><h3>Live filters (wand)</h3><p class="sub">The starting preset for a newly-opened live tile or Playback pane. Presets are just quick-fills — every slider underneath stays individually adjustable afterwards.</p>
+    <section class="card"><h3>Live filters</h3><p class="sub">The starting preset for a newly-opened live tile or Playback pane. Presets are just quick-fills — every slider underneath stays individually adjustable afterwards.</p>
       <div class="form"><div class="field wide"><label for="f-enh-preset">Default preset</label>
         <select id="f-enh-preset" data-b="display.enhance_default_preset">${Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) => `<option value="${k}" ${d.enhance_default_preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
         <div class="hint">"Off" (recommended) starts every tile untouched — turn a preset on per-camera from the wand menu when you actually need it.</div></div></div></section>
