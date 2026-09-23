@@ -1,4 +1,4 @@
-// AI frame enhancer popup (docs/enhance-ai-spec.md) — grabs a burst of already-decoded frames from a
+// AI frame enhancer popup (docs/playback-spec.md section 7.8) — grabs a burst of already-decoded frames from a
 // paused playback pane, runs them through the server's Real-ESRGAN + GFPGAN pipeline, and shows the
 // result in a large zoom/pan/fullscreen viewer with a before/after toggle. Forensic-integrity rules baked
 // in here, not just described: the source (pre-AI) frame is always fetched alongside the enhanced one,

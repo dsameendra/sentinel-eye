@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T12:09:54Z",
+  "title": "Design System: Sentinel Eye",
+  "extensions": {
+    "colorMeta": {
+      "sentinel-green": { "role": "primary", "displayName": "Sentinel Green", "canonical": "#34d399", "tonalRamp": ["#17694b", "#209369", "#29bd87", "#42d6a0", "#6cdfb5", "#96e8ca", "#c0f1df", "#eafaf4"] },
+      "gunmetal-bg": { "role": "neutral", "displayName": "Gunmetal Night — Bg", "canonical": "#0b0e13", "tonalRamp": ["#2f3c51", "#415371", "#546b91", "#6e85ab", "#8ea0be", "#aebbd0", "#cfd6e3", "#eff1f6"] },
+      "gunmetal-panel": { "role": "neutral", "displayName": "Gunmetal Night — Panel", "canonical": "#131820", "tonalRamp": ["#303c50", "#425470", "#566c90", "#6f86aa", "#8fa0bc", "#afbcd0", "#cfd6e3", "#eff2f5"] },
+      "danger-red": { "role": "error", "displayName": "Danger Red", "canonical": "#f87171", "tonalRamp": ["#7a0606", "#aa0808", "#db0b0b", "#f42424", "#f75555", "#f98585", "#fbb6b6", "#fee7e7"] },
+      "warn-amber": { "role": "warning", "displayName": "Warn Amber", "canonical": "#fbbf24", "tonalRamp": ["#7d5b02", "#af7f03", "#e1a404", "#fbbd1e", "#fccc50", "#fdda82", "#fee9b4", "#fff8e6"] },
+      "info-blue": { "role": "info", "displayName": "Info Blue", "canonical": "#60a5fa", "tonalRamp": ["#043a7c", "#0551ad", "#0768df", "#2081f8", "#529dfa", "#83b9fb", "#b5d5fd", "#e6f1fe"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Pane headings and modal/section titles only (20px, 19px, 15px variants share this role)." },
+      "body": { "displayName": "Body", "purpose": "The base UI size — nearly all text in the app." },
+      "label": { "displayName": "Label", "purpose": "Uppercase structural labels: table headers, form group labels, section headers." }
+    },
+    "shadows": [
+      { "name": "float", "value": "0 10px 30px rgba(0, 0, 0, 0.45)", "purpose": "The one shadow in the system, for layers that float above normal page flow: popover menus, dialogs, toasts, the settings save bar." }
+    ],
+    "motion": [
+      { "name": "transition-fast", "value": "0.15s ease", "purpose": "Hover/press micro-feedback: borders, backgrounds, opacity (tile actions, toast entrance easing pairs with this)." },
+      { "name": "transition-base", "value": "0.2s ease", "purpose": "Zoom/pan transforms and pressed-state background shifts." },
+      { "name": "transition-slow", "value": "0.22s ease", "purpose": "Larger UI motion: auto-hiding playback controls, fullscreen side-panel slide-ins." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "560px" },
+      { "name": "md", "value": "760px" },
+      { "name": "lg", "value": "800px" },
+      { "name": "xl", "value": "980px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one emphasized action in a group — save, confirm, primary CTA.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid transparent; font: 600 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: filter 0.15s ease, background 0.15s ease, border-color 0.15s ease; } .ds-btn-primary { background: #34d399; border-color: #34d399; color: #052e22; } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default button style for non-primary actions.",
+      "html": "<button class=\"ds-btn ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; font: 500 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; } .ds-btn-secondary { background: #1a2029; border: 1px solid #313b4a; color: #e7ebf1; } .ds-btn-secondary:hover { border-color: #5c6878; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Low-emphasis action, transparent until hovered.",
+      "html": "<button class=\"ds-btn ds-btn-ghost\">Dismiss</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid transparent; font: 500 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; } .ds-btn-ghost { background: transparent; color: #8b97a8; } .ds-btn-ghost:hover { background: #1a2029; color: #e7ebf1; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard text/password/number field used across Settings.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"192.0.2.10\" />",
+      "css": ".ds-input { width: 100%; height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid #313b4a; background: #0b0e13; color: #e7ebf1; font: 400 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-input:hover { border-color: #5c6878; } .ds-input:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; }"
+    },
+    {
+      "name": "Toggle Switch",
+      "kind": "input",
+      "refersTo": "switch",
+      "description": "The only binary on/off control style in the system.",
+      "html": "<label class=\"ds-switch\"><input type=\"checkbox\" checked /><span></span></label>",
+      "css": ".ds-switch { position: relative; display: inline-block; width: 38px; height: 22px; } .ds-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; } .ds-switch span { position: absolute; inset: 0; border-radius: 999px; background: #313b4a; transition: background 0.15s ease; } .ds-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; } .ds-switch input:checked + span { background: #34d399; } .ds-switch input:checked + span::after { transform: translateX(16px); }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "pill-status",
+      "description": "Compact status/quality/filter indicator (connection status, HD/SD tag, live-filter marker).",
+      "html": "<span class=\"ds-pill\"><span class=\"ds-dot\"></span>Live</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; background: #1a2029; border: 1px solid #262e3a; font-size: 12px; color: #8b97a8; } .ds-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.14); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The primary content container across Settings and Events.",
+      "html": "<div class=\"ds-card\"><h3>Recorder connection</h3><p class=\"ds-card-sub\">Address, login, and encryption.</p></div>",
+      "css": ".ds-card { background: #131820; border: 1px solid #262e3a; border-radius: 12px; padding: 18px 20px; } .ds-card h3 { margin: 0 0 3px; font-size: 14.5px; font-weight: 600; color: #e7ebf1; } .ds-card-sub { margin: 0; color: #8b97a8; font-size: 13px; }"
+    },
+    {
+      "name": "The Eye Mark",
+      "kind": "custom",
+      "refersTo": "brand-mark",
+      "description": "Signature mark: a green ring-and-dot iris on a dark square. Used as the browser favicon and in the topbar brand lockup — the only purely-identity use of the accent color.",
+      "html": "<span class=\"ds-eyemark\"></span>",
+      "css": ".ds-eyemark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: #111827; } .ds-eyemark::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid #34d399; box-shadow: inset 0 0 0 2px #111827, inset 0 0 0 5px #34d399; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Watch Room",
+    "overview": "Sentinel Eye reads like the inside of a quiet, dark operations room: everything stays low-contrast and still at rest, built to be stared at for long unattended sessions without wearing on the eyes. Nothing is decorative. Spacing is tight, controls are compact (28–36px), numbers are tabular so they don't jitter, and the interface gets out of the way of the footage it exists to show. The one deliberate exception is color: a single accent green means \"this is live, this is on, this is selected\" everywhere in the app, and it is used sparingly enough that its appearance is always meaningful, never ambient. Amber and red are reserved the same way — warning and danger, never decoration. The whole system is engineered so that when something actually needs attention, it is the only colored thing on the screen.\n\nThe controls themselves lean refined rather than purely mechanical: hover and pressed states get real (if subtle) treatment — brightness shifts, soft accent washes, ring outlines — so the density reads as considered, not thrown together.",
+    "keyCharacteristics": [
+      "Dark by default (color-scheme: dark), with a fully-specified light theme as a first-class alternate, not an afterthought.",
+      "One accent color, used for state (live/selected/primary), never for branding flourish.",
+      "Flat surfaces at rest; shadow appears only on things that float above the normal layout.",
+      "Small, functional type scale — no hero/display type anywhere; this is an instrument panel, not a marketing page.",
+      "Tabular numerals on every timestamp, clock, duration, zoom percentage, and count."
+    ],
+    "rules": [
+      { "name": "The Single Accent Rule", "body": "Sentinel Green is the only color used for emphasis, selection, or primary action. If a control isn't live, active, selected, or the primary action in its group, it does not get colored — it stays gunmetal/muted.", "section": "colors" },
+      { "name": "The Tabular Numbers Rule", "body": "Every numeric read-out — the clock, timestamps, durations, percentages, counts — uses font-variant-numeric: tabular-nums, so digits never shift width as they change on a screen meant to be glanced at repeatedly.", "section": "typography" },
+      { "name": "The Floating-Only Shadow Rule", "body": "If it's part of the normal page layout, it's flat with a border. If it floats above the layout (menu, dialog, toast, save bar), it gets the Float shadow. Nothing in between.", "section": "elevation" },
+      { "name": "The Pill-for-Status Rule", "body": "Full-round shape is reserved for things that represent state or a compact choice (status pills, event badges, quality tags, toggles). Containers that hold content — cards, tiles, dialogs — never go fully round; they stay in the 8–14px range.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do treat Sentinel Green as a state signal first — reach for it when something is live, selected, primary, or on; not as a general brand color to sprinkle around.",
+      "Do keep numeric displays (clocks, timestamps, durations, percentages, counts) on tabular numerals.",
+      "Do keep containers flat with a 1px border; reserve the Float shadow strictly for popovers, dialogs, toasts, and the save bar.",
+      "Do use full-round shape only for status/selection chips and toggles, never for content containers."
+    ],
+    "donts": [
+      "Don't introduce a second accent hue for \"brand\" purposes — amber/red/blue are semantic-only and Sentinel Green already carries all positive/selected/live meaning.",
+      "Don't add shadow to any surface that's part of the normal page flow (cards, tiles, panels, topbar) — that's reserved for floating layers only.",
+      "Don't add a display/hero type size anywhere; this is an Operate-mode instrument panel, not a marketing surface, and the type scale stays functional.",
+      "Don't widen the touch/click targets or padding much past the current compact scale (28–36px control heights) — density is a deliberate trait of a screen meant for long monitoring sessions, not a gap to close."
+    ]
+  }
+}

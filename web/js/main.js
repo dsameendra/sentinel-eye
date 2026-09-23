@@ -97,7 +97,9 @@ async function boot() {
   try {
     state.settings = await api.settings();
   } catch (e) {
-    document.getElementById('view').innerHTML = `<div class="center-card"><h2>Can't reach the server</h2><p>${esc(e.message)}</p><button class="btn primary" onclick="location.reload()">Retry</button></div>`;
+    const view = document.getElementById('view');
+    view.innerHTML = `<div class="center-card"><div class="cc-icon danger">${icon('alert')}</div><h2>Can't reach the server</h2><p>${esc(e.message)}</p><button class="btn primary" data-a="retry">Retry</button></div>`;
+    view.querySelector('[data-a=retry]').addEventListener('click', () => location.reload());
     return;
   }
   applyTheme(state.settings.display.theme);

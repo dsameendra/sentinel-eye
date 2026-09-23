@@ -195,7 +195,7 @@ export class EventsView {
     if (this.loading) { this.res.innerHTML = `<div class="center-card"><div class="spin"></div><p>Searching…</p></div>`; return; }
     if (this.results === null) { this.res.innerHTML = ''; return; }
     if (!this.results.length) {
-      this.res.innerHTML = `<div class="center-card"><h2>No events found</h2><p>Try a different camera, type, or a wider date range.</p></div>`;
+      this.res.innerHTML = `<div class="center-card"><div class="cc-icon muted">${icon('search')}</div><h2>No events found</h2><p>Try a different camera, type, or a wider date range.</p></div>`;
       return;
     }
     const items = this.results.map((ev) => {

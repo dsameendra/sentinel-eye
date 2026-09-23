@@ -87,7 +87,7 @@ export function openEventPreview(opts) {
     exporting = true;
     const original = exportBtn.innerHTML;
     exportBtn.disabled = true;
-    exportBtn.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> Preparing…`;
+    exportBtn.innerHTML = `<span class="spin sm"></span> Preparing…`;
     try {
       const { job_id } = await api.createExport({
         channels: [cam.id],
@@ -102,7 +102,7 @@ export function openEventPreview(opts) {
         const job = await api.exportStatus(job_id);
         if (job.state === 'error') throw new Error(job.error || 'Export failed');
         if (job.state === 'done') break;
-        exportBtn.innerHTML = `<span class="spin" style="width:14px;height:14px"></span> ${esc(job.progress || 'Working…')}`;
+        exportBtn.innerHTML = `<span class="spin sm"></span> ${esc(job.progress || 'Working…')}`;
         await new Promise((r) => setTimeout(r, 1200));
       }
       const a = document.createElement('a');

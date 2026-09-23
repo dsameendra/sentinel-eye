@@ -53,7 +53,8 @@ export class PlaybackView {
   build(channelId) {
     const cams = this.cams();
     if (!cams.length) {
-      this.root.innerHTML = `<div class="pb"><div class="center-card"><h2>No cameras</h2><p>Enable a channel in Settings first.</p>
+      this.root.innerHTML = `<div class="pb"><div class="center-card"><div class="cc-icon">${icon('video')}</div>
+        <h2>No cameras</h2><p>Enable a channel in Settings first.</p>
         <a class="btn primary" href="#/settings/channels">Open settings</a></div></div>`;
       return;
     }
@@ -135,7 +136,7 @@ export class PlaybackView {
     }
 
     this.timeline = new Timeline(this.root.querySelector('.pb-timeline'), {
-      channels: [{ channel: first.channel, name: first.name || `Camera ${first.channel}` }], tz: 'Asia/Kolkata',
+      channels: [{ channel: first.channel, name: first.name || `Camera ${first.channel}` }], tzOffsetMin: this.tzOffsetMin,
       onSeek: (iso) => this.seekTo(new Date(iso).getTime() / 1000),
       onRangeSelect: (a, b) => { this._setSelectRangeMode(false); this.timeline?.clearSelection(); this.openExportDialog([a, b]); },
     });
@@ -317,7 +318,7 @@ export class PlaybackView {
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
     const veil = el.querySelector('.pb-veil');
-    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null };
+    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null, _pauseOnNextFrame: false };
     pane.player = new WCPlayer(canvas, {
       onFrame: (t) => this._onFrame(pane, t),
       onState: (s, m) => this._onPaneState(pane, s, m),
@@ -418,7 +419,7 @@ export class PlaybackView {
     this._drawRoiBox(pane, pane._roi.x, pane._roi.y, pane._roi.w, pane._roi.h);
   }
 
-  // ---------------------------------------------------------------- AI frame enhancer (docs/enhance-ai-spec.md, M6 L2)
+  // ---------------------------------------------------------------- AI frame enhancer (docs/playback-spec.md section 7.8, M6 L2)
   _openFrameEnhancer() {
     if (this.playing || !this.panes.length) return;
     const primary = this.panes[0];
@@ -544,17 +545,24 @@ export class PlaybackView {
 
   togglePlay() { this.playing ? this.pause() : this.play(); }
 
-  /** @param forcePlay start playing even if currently paused (used by "Jump to now") — a plain seekTo()
-   * while paused just updates the position/UI silently, matching the previous behaviour. */
+  /** @param forcePlay start playing even if currently paused (used by "Jump to now"). Used to also update
+   * only the displayed position/UI while paused, leaving the actual player session untouched — found
+   * (not assumed) to desync the two: picking a new date/time while paused moved the playhead and time
+   * fields, but the still-open session just sat at its old position, so pressing Play resumed from wherever
+   * that stale session happened to be (e.g. an initial midnight/deep-link position) instead of from the
+   * newly picked time. A seek is always a deliberate "go here" action regardless of play state, so it now
+   * always reconnects — and, if this wasn't a play request, immediately re-pauses once the first frame at
+   * the new position has actually painted, landing paused exactly where the UI already claimed to be
+   * instead of silently drifting away from it. */
   seekTo(epoch, forcePlay = false) {
     this.currentEpoch = epoch;
     this._renderTime();
     this.timeline?.setPlayhead(epoch);
     this.datePicker?.setEpoch(epoch, { silent: true });
-    if (!this.playing && !forcePlay) return;
-    const iso = new Date(epoch * 1000).toISOString();
-    this.playing = true;
+    const shouldPlay = this.playing || forcePlay;
+    this.playing = shouldPlay;
     this._paintPlayIcon();
+    const iso = new Date(epoch * 1000).toISOString();
     // Always a fresh session, never the in-session "seek" WS message — measured directly (not assumed)
     // that reissuing PLAY with a new clock= range on an already-open RTSP session can land noticeably off
     // target (observed: requested exact midnight, landed ~89 minutes later). A fresh connect for the same
@@ -562,7 +570,10 @@ export class PlaybackView {
     // but a fresh connect can still land off target for footage several days old, which turned out to be a
     // separate, deeper issue in the RTP-to-UTC time calibration itself, not this connect-vs-seek choice.
     // See docs/playback-spec.md's timing notes for that investigation's findings.
-    for (const pane of this.panes) pane.player.connect(pane.cam.id, iso, this.speed);
+    for (const pane of this.panes) {
+      pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
+      pane.player.connect(pane.cam.id, iso, this.speed);
+    }
   }
 
   setSpeed(s) {
@@ -605,6 +616,10 @@ export class PlaybackView {
       this._renderTime();
       this.timeline?.setPlayhead(absTime);
     }
+    // Consumes the flag seekTo() set: this pane just reconnected for a seek that wasn't a play request, so
+    // hold here at the frame that actually landed rather than letting WCPlayer's default post-connect
+    // "follow" behaviour keep streaming it forward in the background while the rest of the UI says paused.
+    if (pane._pauseOnNextFrame) { pane._pauseOnNextFrame = false; pane.player.pauseHere(); }
   }
 
   _onPaneState(pane, s, msg) {
@@ -648,7 +663,7 @@ export class PlaybackView {
 
   _paintPlayIcon() {
     this.root.querySelector('[data-a=playpause]').innerHTML = icon(this.playing ? 'pause' : 'play');
-    // The AI frame enhancer (docs/enhance-ai-spec.md) operates on the exact frame on screen — while
+    // The AI frame enhancer (docs/playback-spec.md section 7.8) operates on the exact frame on screen — while
     // playing that's a moving target, so it's disabled rather than silently grabbing whatever frame
     // happens to land at click time.
     const aiBtn = this.root.querySelector('[data-a=aienhance]');

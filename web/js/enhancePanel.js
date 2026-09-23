@@ -10,6 +10,7 @@ const SLIDERS = [
   { group: 'Look', key: 'brightness', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01 },
   { group: 'Look', key: 'contrast', label: 'Contrast', min: 0.5, max: 2, step: 0.01 },
   { group: 'Look', key: 'gamma', label: 'Gamma', min: 0.4, max: 2.5, step: 0.01 },
+  { group: 'Clarity', key: 'denoise', label: 'Noise reduction', min: 0, max: 1, step: 0.01 },
   { group: 'Clarity', key: 'sharpen', label: 'Sharpen (edge-aware)', min: 0, max: 1.5, step: 0.01 },
   { group: 'Clarity', key: 'localContrast', label: 'Local contrast', min: 0, max: 1.5, step: 0.01 },
   { group: 'Conditions', key: 'shadowLift', label: 'Shadow lift', min: 0, max: 1, step: 0.01 },
@@ -17,7 +18,8 @@ const SLIDERS = [
   { group: 'Conditions', key: 'wdr', label: 'WDR (backlight)', min: 0, max: 1, step: 0.01 },
   { group: 'Conditions', key: 'retinex', label: 'Extreme lighting (Retinex)', min: 0, max: 1, step: 0.01 },
   { group: 'Conditions', key: 'rainSnow', label: 'Rain / snow reduction', min: 0, max: 1, step: 0.01 },
-  { group: 'Lens', key: 'caFix', label: 'Chromatic aberration fix', min: 0, max: 1, step: 0.01 },
+  { group: 'Color & lens', key: 'whiteBalance', label: 'Auto white balance', min: 0, max: 1, step: 0.01 },
+  { group: 'Color & lens', key: 'caFix', label: 'Chromatic aberration fix', min: 0, max: 1, step: 0.01 },
 ];
 const GROUPS = [...new Set(SLIDERS.map((s) => s.group))];
 

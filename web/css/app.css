@@ -19,7 +19,7 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; }
-button, input, select { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
@@ -45,6 +45,11 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .btn.primary:hover { filter: brightness(1.08); }
+/* .spin's default ring/moving-segment colors (white-alpha + accent) are tuned for a dark tile/panel
+   background — inside .btn.primary that background IS var(--accent), so the accent-colored moving segment
+   nearly disappears into its own button. Swap to accent-ink (the button's own text color, already chosen
+   to contrast with accent in both themes) whenever a spinner sits inside a primary button. */
+.btn.primary .spin { border-color: color-mix(in srgb, var(--accent-ink) 22%, transparent); border-top-color: var(--accent-ink); }
 .btn.danger { color: var(--danger); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--panel-2); color: var(--text); }
@@ -127,7 +132,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .stage.zanim .enh-canvas { transition: transform .2s ease; }
 .veil { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; text-align: center; padding: 16px; color: #cbd5e1; background: rgba(5, 7, 10, .78); pointer-events: none; z-index: 2; }
 .veil .msg { max-width: 34ch; font-size: 13px; }
-.spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .18); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .18); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+.spin.sm { width: 14px; height: 14px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .ov { position: absolute; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 7px 9px; color: #fff; pointer-events: none; }
 .ov.top { top: 0; background: linear-gradient(#000a, transparent); }
@@ -184,6 +190,10 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .center-card { margin: auto; max-width: 440px; text-align: center; padding: 34px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
 .center-card h2 { margin: 12px 0 6px; font-size: 19px; }
 .center-card p { margin: 0 0 18px; color: var(--muted); }
+.cc-icon { margin: 0 auto; color: var(--accent); }
+.cc-icon.danger { color: var(--danger); }
+.cc-icon.muted { color: var(--faint); }
+.cc-icon .i { width: 34px; height: 34px; }
 
 /* ---------- settings ---------- */
 .settings { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px 1fr; overflow: hidden; }
@@ -207,9 +217,11 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .range-row { display: flex; align-items: center; gap: 10px; }
 .range-row input[type=range] { flex: 1; }
 .range-val { flex: none; min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
-input[type=text], input[type=password], input[type=number], select { width: 100%; height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); }
-input:disabled, select:disabled { opacity: .5; cursor: not-allowed; background: var(--panel-2); }
-input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--faint); }
+input[type=text], input[type=password], input[type=number], select, textarea { width: 100%; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); }
+input[type=text], input[type=password], input[type=number], select { height: 36px; }
+textarea { padding: 8px 11px; min-height: 74px; resize: vertical; }
+input:disabled, select:disabled, textarea:disabled { opacity: .5; cursor: not-allowed; background: var(--panel-2); }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--faint); }
 input.invalid { border-color: var(--danger); }
 .input-row { display: flex; gap: 6px; }
 .switch { position: relative; display: inline-block; vertical-align: middle; width: 38px; height: 22px; flex: none; }   /* inline-block: width/height must apply inside table cells too */

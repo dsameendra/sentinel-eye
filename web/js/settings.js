@@ -109,7 +109,7 @@ export class SettingsView {
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="t-ch" style="width:auto;min-width:170px" aria-label="Channel to test">${this.draft.channels.map((x) => `<option value="${x.id}" ${first && x.id === first.id ? 'selected' : ''}>${esc(x.name || 'Channel ' + x.channel)} (ch ${x.channel})</option>`).join('') || '<option value="">Channel 1</option>'}</select>
         <div class="seg" role="group" aria-label="Stream"><button data-tk="sub" aria-pressed="${this.tk !== 'main'}">SD</button><button data-tk="main" aria-pressed="${this.tk === 'main'}">HD</button></div>
-        <button class="btn primary" id="t-run" ${this.busy.has('conn') ? 'disabled' : ''}>${this.busy.has('conn') ? '<span class="spin" style="width:14px;height:14px"></span> Testing…' : 'Test connection'}</button></div>
+        <button class="btn primary" id="t-run" ${this.busy.has('conn') ? 'disabled' : ''}>${this.busy.has('conn') ? '<span class="spin sm"></span> Testing…' : 'Test connection'}</button></div>
       ${t ? this.resultHtml(t) : ''}</section>`;
   }
 
@@ -211,7 +211,7 @@ export class SettingsView {
       <div class="form"><div class="field wide"><label for="f-enh-preset">Default preset</label>
         <select id="f-enh-preset" data-b="display.enhance_default_preset">${Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) => `<option value="${k}" ${d.enhance_default_preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
         <div class="hint">"Off" (recommended) starts every tile untouched — turn a preset on per-camera from the wand menu when you actually need it.</div></div></div></section>
-    <section class="card"><h3>Frame enhancer</h3><p class="sub">Starting mode and fidelity for the AI frame enhancer popup (Playback, pause first). docs/enhance-ai-spec.md section 2d covers why 0.5 fidelity is the recommended default.</p>
+    <section class="card"><h3>Frame enhancer</h3><p class="sub">Starting mode and fidelity for the AI frame enhancer popup (Playback, pause first). docs/playback-spec.md section 7.8.2d covers why 0.5 fidelity is the recommended default.</p>
       <div class="form">
         <div class="field wide"><span class="lbl">Default mode</span><div class="seg" role="group" aria-label="Default mode">${ENHANCE_MODES.map(([k, l]) => `<button data-o="enhance_default_mode:${k}" aria-pressed="${d.enhance_default_mode === k}">${l}</button>`).join('')}</div></div>
         ${this.rangeField('display.enhance_default_fidelity', d.enhance_default_fidelity, { id: 'f-fidelity', label: 'Default fidelity', min: 0, max: 1, step: 0.05, hint: 'Lower = more face reconstruction (risk of inventing features); higher = closer to the real pixels (risk of staying blurry). Recommended: 0.5.' })}

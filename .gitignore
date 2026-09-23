@@ -6,7 +6,9 @@ data/
 __pycache__/
 *.pyc
 .DS_Store
-# facexlib (a GFPGAN dependency — docs/enhance-ai-spec.md) downloads its face-detection/parsing weights
-# to ./gfpgan/weights relative to the server's cwd, not somewhere configurable — a few hundred MB that
-# should never land in the repo.
+# facexlib (a GFPGAN dependency — docs/playback-spec.md section 7.8) downloads its face-detection/parsing
+# weights to ./gfpgan/weights relative to the server's cwd, not somewhere configurable — a few hundred MB
+# that should never land in the repo.
 /gfpgan/
+# impeccable's per-session edit-tracking cache — local, keyed by session id, not shared project state.
+.impeccable/hook.cache.json

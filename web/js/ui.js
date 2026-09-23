@@ -88,7 +88,7 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
       <h3>${icon('flag')} Add bookmark</h3>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}
       <div class="form" style="grid-template-columns:1fr">
         <div class="field"><label for="bm-title">Title</label><input id="bm-title" type="text" placeholder="What's happening" maxlength="120"></div>
-        <div class="field"><label for="bm-note">Note (optional)</label><textarea id="bm-note" rows="3" maxlength="2000" style="resize:vertical;padding:8px;border-radius:8px;border:1px solid var(--line-2);background:var(--bg);font:inherit;color:inherit"></textarea></div>
+        <div class="field"><label for="bm-note">Note (optional)</label><textarea id="bm-note" rows="3" maxlength="2000"></textarea></div>
         <div class="field"><label for="bm-sev">Severity</label><select id="bm-sev">
           <option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option>
         </select></div>

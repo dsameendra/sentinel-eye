@@ -7,6 +7,9 @@
 // Coverage (the recorded-footage bar) stays tied to the primary (first) channel only: it drives seeking
 // and jump-to-date, which only make sense against one camera's actual recording at a time.
 import { esc } from './ui.js';
+import { partsFromEpoch } from './dvrtime.js';
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const MIN_PX_PER_SEC = 1440 / (24 * 3600);   // whole day fits ~1440px
 const MAX_PX_PER_SEC = 200;                   // ~5ms/px at max zoom (frame-level)
@@ -20,7 +23,7 @@ const LANE_H = 14, LANE_GAP = 3;   // per-camera event lane height/gap — match
 const CAM_COLORS = ['#60a5fa', '#f472b6', '#34d399', '#fb923c'];   // per-camera lane accent (left edge + label), up to MAX_PANES=4
 
 export class Timeline {
-  /** @param el host element @param opts {channels: [{channel, name}] (primary first — drives coverage/seek), onSeek(isoTime), tz} */
+  /** @param el host element @param opts {channels: [{channel, name}] (primary first — drives coverage/seek), onSeek(isoTime), tzOffsetMin: DVR UTC offset in minutes} */
   constructor(el, opts) {
     this.el = el;
     this.opts = opts;
@@ -281,7 +284,7 @@ export class Timeline {
     for (let t = first; t < t0 + spanSec + step; t += step) {
       const x = (t - t0) * this.pxPerSec;
       ctx.beginPath(); ctx.moveTo(x, gridY); ctx.lineTo(x, h); ctx.stroke();
-      ctx.fillText(fmtTick(t, step, this.opts.tz), x + 3, gridY + 3);
+      ctx.fillText(fmtTick(t, step, this.opts.tzOffsetMin), x + 3, gridY + 3);
     }
     // now marker
     const nowX = (Date.now() / 1000 - t0) * this.pxPerSec;
@@ -369,10 +372,11 @@ export class Timeline {
   _updateTip(e) {
     const ev = this._hitTest(e.clientX, e.clientY);
     this.hovered = ev;
-    const fmt = (iso) => new Date(iso).toLocaleString(undefined, { timeZone: this.opts.tz, hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const fmt = (epochSec) => fmtInstant(epochSec, this.opts.tzOffsetMin);
     if (ev) {
-      const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
-      const when = durSec < 1 ? fmt(ev.start_utc) : `${fmt(ev.start_utc)} → ${fmt(ev.end_utc)}`;
+      const startSec = new Date(ev.start_utc).getTime() / 1000, endSec = new Date(ev.end_utc).getTime() / 1000;
+      const durSec = Math.max(0, endSec - startSec);
+      const when = durSec < 1 ? fmt(startSec) : `${fmt(startSec)} → ${fmt(endSec)}`;
       const cam = this.opts.channels.length > 1 ? this.opts.channels.find((c) => c.channel === ev.channel)?.name : null;
       const title = cam ? `${KIND_LABEL[ev.kind] || ev.kind} · ${cam}` : (KIND_LABEL[ev.kind] || ev.kind);
       // Bookmarks are the one kind with an operator-given name — show it as its own line rather than
@@ -387,7 +391,7 @@ export class Timeline {
       // No event under the pointer — still show what time this point on the timeline is, so hovering
       // anywhere (not just a marker) tells you what clicking there would seek to.
       if (this.cursorTime == null) { this._hideTip(); return; }
-      this.tip.innerHTML = `<span>${esc(fmt(new Date(this.cursorTime * 1000).toISOString()))}</span>`;
+      this.tip.innerHTML = `<span>${esc(fmt(this.cursorTime))}</span>`;
       this.canvas.style.cursor = 'crosshair';
     }
     this.tip.hidden = false;
@@ -413,10 +417,27 @@ function niceStep(target) {
   return steps.find((s) => s >= target) || 86400;
 }
 
-function fmtTick(epochSec, step, tz) {
-  const d = new Date(epochSec * 1000);
-  const opts = { timeZone: tz, hour12: false };
-  if (step >= 3600) return d.toLocaleString('en-GB', { ...opts, month: 'short', day: 'numeric', hour: step >= 86400 ? undefined : '2-digit' });
-  if (step >= 60) return d.toLocaleTimeString('en-GB', { ...opts, hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleTimeString('en-GB', { ...opts, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+// Manual DVR-local formatting (shift-then-read-UTC-fields, same trick as dvrtime.js/events.js) rather than
+// Intl's `timeZone` option: the DVR only ever gives us a raw UTC-minute offset, never a real IANA zone name
+// (see dvrtime.js's own header comment) — handing that offset to `toLocaleString({timeZone: ...})` needs a
+// zone STRING, so this used to pass a hardcoded 'Asia/Kolkata' that only ever matched this deployment's
+// current offset by coincidence. Any DVR on a different UTC offset would have the timeline's own tick
+// labels and hover times silently drawn in the wrong zone while every other DVR-local read-out in the app
+// (the date/time picker, event list, etc.) used the real fetched offset — exactly the kind of "looks right,
+// isn't" desync this pass is trying to eliminate everywhere at once, not just in the seek path.
+function fmtTick(epochSec, step, tzOffsetMin) {
+  const p = partsFromEpoch(epochSec, tzOffsetMin);
+  const hh = String(p.hh).padStart(2, '0'), mi = String(p.mi).padStart(2, '0'), ss = String(p.ss).padStart(2, '0');
+  if (step >= 3600) {
+    const datePart = `${p.da} ${MONTH_ABBR[p.mo]}`;
+    return step >= 86400 ? datePart : `${datePart}, ${hh}:00`;
+  }
+  if (step >= 60) return `${hh}:${mi}`;
+  return `${hh}:${mi}:${ss}`;
+}
+
+function fmtInstant(epochSec, tzOffsetMin) {
+  const p = partsFromEpoch(epochSec, tzOffsetMin);
+  const hh = String(p.hh).padStart(2, '0'), mi = String(p.mi).padStart(2, '0'), ss = String(p.ss).padStart(2, '0');
+  return `${p.da} ${MONTH_ABBR[p.mo]}, ${hh}:${mi}:${ss}`;
 }

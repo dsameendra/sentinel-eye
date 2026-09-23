@@ -12,7 +12,7 @@
 //
 // Deliberately NOT implemented: blind-deconvolution motion-deblur. A misestimated blur kernel produces
 // confident-looking but fabricated structure — the exact failure mode CCSR's diffusion denoising was
-// rejected for elsewhere in this app (docs/enhance-ai-spec.md 2a). A classical, non-blind technique here
+// rejected for elsewhere in this app (docs/playback-spec.md section 7.8.2a). A classical, non-blind technique here
 // would carry the same risk without the AI-pipeline's explicit "reconstructed, not evidence" framing, so
 // it's left out rather than shipped half-trustworthy.
 
@@ -63,6 +63,8 @@ uniform float uCaFix;          // 0..1
 uniform float uWdr;            // 0..1
 uniform float uRetinex;        // 0..1
 uniform float uRainSnow;       // 0..1
+uniform float uWhiteBalance;   // 0..1
+uniform float uDenoise;        // 0..1
 uniform vec2 uFlashPos;        // UV, top-left origin to match vUv
 uniform float uFlashRadius;
 uniform float uFlashStrength;  // 0 = off
@@ -85,6 +87,34 @@ void main() {
   }
 
   vec3 blurred = texture2D(uBlur, uv).rgb;
+
+  // Auto white balance (gray-world): cheap IR-lit night cameras cast a strong colour tint (greenish under
+  // IR illuminators, orange under sodium streetlight) that makes clothing/vehicle colour unreadable — no
+  // existing slider here touches it (brightness/contrast/gamma are luminance-only; CA-fix corrects a lens
+  // artifact, not a scene-wide cast). Gray-world assumes a wide-enough area of the scene averages out to
+  // neutral gray; the already-computed wide blur stands in for "local scene average" (same proxy Retinex/
+  // local-contrast already use for "illumination"), so this needs no extra texture pass. Per-channel gain
+  // is clamped to a modest range so a scene that's genuinely a solid colour (a red door, not a colour cast)
+  // gets nudged toward neutral rather than forced there — a full correction would flatten real color too.
+  if (uWhiteBalance > 0.0) {
+    float avgLuma = luma(blurred);
+    vec3 gain = clamp(avgLuma / max(blurred, 0.06), 0.7, 1.4);
+    c = mix(c, c * gain, uWhiteBalance);
+  }
+
+  // Noise reduction: cheap CCTV sensors are grainy in low light, and sharpening that grain (below) only
+  // amplifies it — this runs first so sharpen/local-contrast work on a cleaner image. Blends each pixel
+  // toward its immediate 4-neighbour average, but only where there's no real edge to lose: reuses the exact
+  // edge test sharpen uses below (same threshold), just inverted — flat regions (sky, walls, a dark corner's
+  // sensor grain) get smoothed, real structure at edges is left untouched. A small, fixed 1-texel cross
+  // tap, not a separate blur pass — the wide "blurred" texture above is deliberately too soft (half-res,
+  // meant for illumination estimates) to double as this without losing real detail.
+  if (uDenoise > 0.0) {
+    vec3 avg4 = (texture2D(uTex, uv + vec2(uTexel.x, 0.0)).rgb + texture2D(uTex, uv - vec2(uTexel.x, 0.0)).rgb
+      + texture2D(uTex, uv + vec2(0.0, uTexel.y)).rgb + texture2D(uTex, uv - vec2(0.0, uTexel.y)).rgb) * 0.25;
+    float edge = smoothstep(0.04, 0.12, length(c - avg4));
+    c = mix(mix(c, avg4, uDenoise), c, edge);
+  }
 
   // Dark-channel-inspired dehaze: estimates the local haze veil from the minimum colour channel over a
   // wide ring (14 texels — genuine atmospheric haze varies smoothly over tens to hundreds of pixels, not
@@ -110,7 +140,7 @@ void main() {
   // frame, frame before that) is very likely a falling raindrop/snowflake catching IR light mid-frame, not
   // real scene content — replace it with the temporal median of the three, which is always a real pixel
   // value from an actual frame, never an invented one (same "pick a real value, don't synthesize" principle
-  // as the AI frame-enhancer's median-stacking — docs/enhance-ai-spec.md 2d). Static/slow content, present
+  // as the AI frame-enhancer's median-stacking — docs/playback-spec.md section 7.8.2d). Static/slow content, present
   // in all three frames, is left untouched.
   if (uRainSnow > 0.0) {
     vec3 p1 = texture2D(uPrev1, uv).rgb, p2 = texture2D(uPrev2, uv).rgb;
@@ -185,11 +215,17 @@ void main() {
 const NEUTRAL = {
   brightness: 0, contrast: 1, gamma: 1, shadowLift: 0, sharpen: 0,
   dehaze: 0, localContrast: 0, caFix: 0, wdr: 0, retinex: 0, rainSnow: 0,
+  whiteBalance: 0, denoise: 0,
 };
 
 export const PRESETS = {
   off: { label: 'Off', ...NEUTRAL },
   night: { label: 'Night lift', ...NEUTRAL, brightness: 0.12, contrast: 1.05, gamma: 1.35, shadowLift: 0.35, sharpen: 0.15 },
+  // The one preset that reaches for denoise + white balance together: IR night footage is both grainy
+  // (sharpen alone amplifies that grain) and colour-cast (IR illuminators skew everything green/purple), and
+  // "Night lift" above predates both sliders — cleaning the picture up before lifting/sharpening it, not
+  // just brightening a noisy, tinted image, is the actual point of a *clarity* preset for this footage.
+  nightclarity: { label: 'Night IR clarity', ...NEUTRAL, brightness: 0.1, contrast: 1.08, gamma: 1.3, shadowLift: 0.3, denoise: 0.45, whiteBalance: 0.6, sharpen: 0.12 },
   haze: { label: 'Shadow & haze lift', ...NEUTRAL, brightness: 0.02, contrast: 1.3, gamma: 1.1, shadowLift: 0.25, sharpen: 0.1, dehaze: 0.4 },
   sharpen: { label: 'Sharpen', ...NEUTRAL, contrast: 1.08, sharpen: 0.6, localContrast: 0.3 },
   wdr: { label: 'Backlight / WDR', ...NEUTRAL, shadowLift: 0.3, wdr: 0.6, contrast: 1.05 },
@@ -267,7 +303,7 @@ export class Enhancer {
     this.uniforms = {};
     for (const name of ['uTex', 'uBlur', 'uPrev1', 'uPrev2', 'uTexel', 'uBrightness', 'uContrast', 'uGamma',
       'uShadowLift', 'uSharpen', 'uDehaze', 'uLocalContrast', 'uCaFix', 'uWdr', 'uRetinex', 'uRainSnow',
-      'uFlashPos', 'uFlashRadius', 'uFlashStrength']) {
+      'uWhiteBalance', 'uDenoise', 'uFlashPos', 'uFlashRadius', 'uFlashStrength']) {
       this.uniforms[name] = gl.getUniformLocation(this.prog, name);
     }
     this.blurUniforms = { uTex: gl.getUniformLocation(this.blurProg, 'uTex'), uDir: gl.getUniformLocation(this.blurProg, 'uDir') };
@@ -407,7 +443,7 @@ export class Enhancer {
     } catch { return; } // a mid-teardown frame (0x0 video, detached canvas) — skip, try again next frame
 
     const p = this.params;
-    const needBlur = p.localContrast > 0 || p.retinex > 0 || p.sharpen > 0 || p.dehaze > 0;
+    const needBlur = p.localContrast > 0 || p.retinex > 0 || p.sharpen > 0 || p.dehaze > 0 || p.whiteBalance > 0;
     if (needBlur) this._runBlurPass(w, h);
 
     this._bindQuad(this.prog);
@@ -429,6 +465,8 @@ export class Enhancer {
     gl.uniform1f(u.uWdr, p.wdr);
     gl.uniform1f(u.uRetinex, p.retinex);
     gl.uniform1f(u.uRainSnow, p.rainSnow);
+    gl.uniform1f(u.uWhiteBalance, p.whiteBalance);
+    gl.uniform1f(u.uDenoise, p.denoise);
     gl.uniform2f(u.uFlashPos, this._flash.x, this._flash.y);
     gl.uniform1f(u.uFlashRadius, this._flash.radius);
     gl.uniform1f(u.uFlashStrength, this._flash.strength);

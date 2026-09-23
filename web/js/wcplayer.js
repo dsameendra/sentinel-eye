@@ -115,7 +115,7 @@ export class WCPlayer {
   }
 
   /** Up to `n` consecutive frames centred on the current paused position, as PNG data URLs (oldest ->
-   * newest), for the AI frame enhancer (docs/enhance-ai-spec.md) — pulled straight from the decode buffer
+   * newest), for the AI frame enhancer (docs/playback-spec.md section 7.8) — pulled straight from the decode buffer
    * already sitting in memory, no new DVR session. Odd counts centre exactly on bufIndex; clamps to
    * whatever's actually buffered around it rather than erroring near either edge of the window. */
   grabFrames(n = 5) {
