@@ -1,14 +1,18 @@
-// Settings: Connection, Channels, Display, Status. Edits a draft copy; nothing is applied until Save.
+// Settings: Connection, Channels, Display, Enhancement, Status. Edits a draft copy; nothing is applied
+// until Save.
 import { api } from './api.js';
 import { LAYOUTS, layoutIds, layoutIcon } from './layouts.js';
+import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { confirmDialog, esc, icon, toast } from './ui.js';
 
 const TABS = [
   ['connection', 'Connection', 'plug'],
   ['channels', 'Channels', 'video'],
   ['display', 'Display', 'monitor'],
+  ['enhancement', 'Enhancement', 'wand'],
   ['status', 'Status', 'activity'],
 ];
+const ENHANCE_MODES = [['auto', 'Auto'], ['face', 'Face priority'], ['plate', 'Plate & text'], ['general', 'General']];
 const HOST_RE = /^[A-Za-z0-9._-]+$/;
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const fpsText = (v) => (v === 'auto' || v == null ? '' : String(v));
@@ -71,7 +75,7 @@ export class SettingsView {
 
   render() {
     clearInterval(this.statusTimer);
-    const fn = { connection: () => this.connectionTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), status: () => this.statusTab() }[this.tab];
+    const fn = { connection: () => this.connectionTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab() }[this.tab];
     this.pane.innerHTML = fn();
     this.wire();
     this.refresh();
@@ -168,21 +172,50 @@ export class SettingsView {
     const d = this.draft.display;
     const opt = (key, val, title, sub) => `<button class="opt" data-o="${key}:${val}" aria-pressed="${d[key] === val}"><b>${title}</b><small>${sub}</small></button>`;
     return `<h1>Display</h1><p class="lead">How the live view looks and behaves.</p>
-    <section class="card"><h3>Picture &amp; behaviour</h3><div class="form">
+    <section class="card"><h3>Appearance</h3><div class="form">
       <div class="field wide"><span class="lbl">Fit</span><div class="seg" role="group" aria-label="Fit"><button data-o="fit:contain" aria-pressed="${d.fit === 'contain'}">Fit</button><button data-o="fit:cover" aria-pressed="${d.fit === 'cover'}">Fill tile</button></div>
         <div class="hint">Applies to both the live grid/large view and Playback. "Fit" never crops (letterboxed if the shapes don't match); "Fill tile" crops to fill the space edge-to-edge.</div></div>
-      <div class="field"><span class="lbl">Theme</span><div class="seg" role="group" aria-label="Theme"><button data-o="theme:auto" aria-pressed="${d.theme === 'auto'}">Auto</button><button data-o="theme:dark" aria-pressed="${d.theme === 'dark'}">Dark</button><button data-o="theme:light" aria-pressed="${d.theme === 'light'}">Light</button></div></div>
-      <div class="field"><label for="f-rot">Auto-rotate pages</label><select id="f-rot" data-b="display.rotate_seconds" data-t="int">${[[0, 'Off'], [5, 'Every 5 seconds'], [10, 'Every 10 seconds'], [15, 'Every 15 seconds'], [30, 'Every 30 seconds'], [60, 'Every minute']].map(([v, l]) => `<option value="${v}" ${+d.rotate_seconds === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <div class="hint">Only matters when there are more cameras than fit on one page.</div></div></div></section>
-    <section class="card"><h3>Default layout</h3><p class="sub">You can also change it any time from the live view.</p>
+      <div class="field"><span class="lbl">Theme</span><div class="seg" role="group" aria-label="Theme"><button data-o="theme:auto" aria-pressed="${d.theme === 'auto'}">Auto</button><button data-o="theme:dark" aria-pressed="${d.theme === 'dark'}">Dark</button><button data-o="theme:light" aria-pressed="${d.theme === 'light'}">Light</button></div></div></div></section>
+    <section class="card"><h3>Layout &amp; rotation</h3>
+      <div class="form"><div class="field"><label for="f-rot">Auto-rotate pages</label><select id="f-rot" data-b="display.rotate_seconds" data-t="int">${[[0, 'Off'], [5, 'Every 5 seconds'], [10, 'Every 10 seconds'], [15, 'Every 15 seconds'], [30, 'Every 30 seconds'], [60, 'Every minute']].map(([v, l]) => `<option value="${v}" ${+d.rotate_seconds === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <div class="hint">Only matters when there are more cameras than fit on one page.</div></div></div>
+      <p class="sub" style="margin-top:14px">Default layout — you can also change it any time from the live view.</p>
       <div class="laygrid">${layoutIds.map((id) => `<button data-o="layout:${id}" aria-pressed="${d.layout === id}">${layoutIcon(id, 44)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div></section>
-    <section class="card"><h3>Video quality</h3><p class="sub">Each camera has a light SD sub-stream and a sharp HD main stream.</p>
-      <div class="opts">${opt('quality', 'auto', 'Auto', 'HD for large tiles and the large view, SD for small tiles')}${opt('quality', 'sub', 'Always SD', 'Lowest bandwidth. Best for big walls')}${opt('quality', 'main', 'Always HD', 'Sharpest picture, heavier on network and CPU')}</div></section>
-    <section class="card"><h3>H.265 (HD) playback</h3><p class="sub">HD streams are usually H.265. Converting them to H.264 on this computer plays smoothly in every browser. Playing H.265 directly saves CPU but can stutter on some cameras and does not work in Firefox.</p>
+    <section class="card"><h3>Streaming</h3><p class="sub">Each camera has a light SD sub-stream and a sharp HD main stream.</p>
+      <div class="opts">${opt('quality', 'auto', 'Auto', 'HD for large tiles and the large view, SD for small tiles')}${opt('quality', 'sub', 'Always SD', 'Lowest bandwidth. Best for big walls')}${opt('quality', 'main', 'Always HD', 'Sharpest picture, heavier on network and CPU')}</div>
+      <p class="sub" style="margin-top:14px">H.265 (HD) playback — HD streams are usually H.265. Converting to H.264 on this computer plays smoothly everywhere; playing H.265 directly saves CPU but can stutter on some cameras and doesn't work in Firefox.</p>
       <div class="opts">${opt('main_codec', 'h264', 'Convert to H.264', 'Recommended. Smooth everywhere; uses some CPU while an HD stream is open')}${opt('main_codec', 'passthrough', 'Play directly', 'No extra CPU. May stutter or fail in some browsers')}</div></section>
+    <section class="card"><h3>Interaction</h3><p class="sub">Fine-tuning for how the overlay controls and snapshots behave — sensible as-is for most people, here if you want to tune them.</p>
+      <div class="form">
+        ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Auto-hide controls after', min: 1, max: 10, step: 0.5, unit: 's', hint: 'How long the play/pause/zoom overlay (Live large view, Playback) stays up after you stop moving the mouse, while playing. Always stays up while paused.' })}
+        ${this.rangeField('display.snapshot_quality', d.snapshot_quality, { id: 'f-snapq', label: 'Snapshot quality', min: 0.5, max: 1, step: 0.01, hint: 'JPEG quality for the camera snapshot button. Higher is sharper but a larger file.' })}
+      </div></section>
     <section class="card"><h3>Keyboard shortcuts</h3><dl class="kv">
       <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next page, or camera in the large view</dd><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open that camera on the page</dd>
       <dt><kbd>E</kbd></dt><dd>Arrange mode (drag to reorder)</dd><dt><kbd>F</kbd></dt><dd>Full screen</dd><dt><kbd>H</kbd> / <kbd>S</kbd></dt><dd>Large view: toggle HD / save snapshot</dd><dt><kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></dt><dd>Large view: zoom in / out / reset (scroll or pinch also works, drag to pan)</dd><dt><kbd>Esc</kbd></dt><dd>Reset zoom, then close the large view</dd></dl></section>`;
+  }
+
+  /** A labelled range slider bound to `data-b` path `bindPath`, with a live numeric readout — the one
+   * reusable piece for every slider added across the settings tabs, since none existed before this. */
+  rangeField(bindPath, value, { id, label, min, max, step, unit = '', hint }) {
+    return `<div class="field"><label for="${id}">${label}</label>
+      <div class="range-row"><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" data-b="${bindPath}" data-t="float" value="${value}">
+        <span class="range-val" data-unit="${unit}">${Number(value).toFixed(step < 1 ? 2 : 0)}${unit}</span></div>
+      ${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
+  }
+
+  enhancementTab() {
+    const d = this.draft.display;
+    return `<h1>Enhancement</h1><p class="lead">Defaults for the live "wand" filters and the frame enhancer — every control stays freely adjustable per-session, this just sets where it starts.</p>
+    <section class="card"><h3>Live filters (wand)</h3><p class="sub">The starting preset for a newly-opened live tile or Playback pane. Presets are just quick-fills — every slider underneath stays individually adjustable afterwards.</p>
+      <div class="form"><div class="field wide"><label for="f-enh-preset">Default preset</label>
+        <select id="f-enh-preset" data-b="display.enhance_default_preset">${Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) => `<option value="${k}" ${d.enhance_default_preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
+        <div class="hint">"Off" (recommended) starts every tile untouched — turn a preset on per-camera from the wand menu when you actually need it.</div></div></div></section>
+    <section class="card"><h3>Frame enhancer</h3><p class="sub">Starting mode and fidelity for the AI frame enhancer popup (Playback, pause first). docs/enhance-ai-spec.md section 2d covers why 0.5 fidelity is the recommended default.</p>
+      <div class="form">
+        <div class="field wide"><span class="lbl">Default mode</span><div class="seg" role="group" aria-label="Default mode">${ENHANCE_MODES.map(([k, l]) => `<button data-o="enhance_default_mode:${k}" aria-pressed="${d.enhance_default_mode === k}">${l}</button>`).join('')}</div></div>
+        ${this.rangeField('display.enhance_default_fidelity', d.enhance_default_fidelity, { id: 'f-fidelity', label: 'Default fidelity', min: 0, max: 1, step: 0.05, hint: 'Lower = more face reconstruction (risk of inventing features); higher = closer to the real pixels (risk of staying blurry). Recommended: 0.5.' })}
+      </div></section>`;
   }
 
   statusTab() {
@@ -222,6 +255,7 @@ export class SettingsView {
     if (t === 'bool') return el.checked;
     if (t === 'int') return el.value === '' ? NaN : Number(el.value);
     if (t === 'fps') { const v = el.value.trim().toLowerCase(); return v === '' || v === 'auto' ? 'auto' : Number(v); }
+    if (t === 'float') return el.value === '' ? NaN : Number(el.value);
     return el.value;
   }
 
@@ -235,6 +269,7 @@ export class SettingsView {
         if (path === 'connection.encrypted' || /^ch\.[^.]+\.enabled$/.test(path)) { this.render(); }
         if (path === 'connection.host' || path.startsWith('connection.')) this.conn = null;
         if (path === 'display.theme') this.ctx.applyTheme(this.draft.display.theme);
+        if (el.type === 'range') { const out = el.parentElement.querySelector('.range-val'); if (out) out.textContent = Number(el.value).toFixed(+el.step < 1 ? 2 : 0) + (out.dataset.unit || ''); }
         this.refresh();
       });
     });

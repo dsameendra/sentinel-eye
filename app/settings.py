@@ -90,6 +90,18 @@ class Display(BaseModel):
     rotate_seconds: int = Field(0, ge=0, le=600)
     theme: Literal["auto", "dark", "light"] = "auto"
     order: list[str] = []
+    # Overlay transport controls (Playback, Live focus) fade out after this many idle seconds while
+    # playing — was a hardcoded 2.6s (web/js/playback.js/live.js), now a real preference.
+    controls_autohide_sec: float = Field(2.6, ge=1.0, le=10.0)
+    # JPEG quality for snapshot downloads (tile.js/live.js) — was hardcoded at 0.92.
+    snapshot_quality: float = Field(0.92, ge=0.5, le=1.0)
+    # Starting L0 live-enhancement preset for a newly-opened tile/pane (enhance.js PRESETS keys) — was
+    # always "off"; every operator had to re-pick a preset by hand on every tile, every session.
+    enhance_default_preset: Literal["off", "night", "haze", "sharpen", "wdr", "retinex", "rainsnow"] = "off"
+    # Starting mode/fidelity for the AI frame enhancer popup (docs/enhance-ai-spec.md) — were hardcoded
+    # "auto"/0.5; 0.5 is still the recommended fidelity default (spec 2d), now just changeable.
+    enhance_default_mode: Literal["auto", "face", "plate", "general"] = "auto"
+    enhance_default_fidelity: float = Field(0.5, ge=0.0, le=1.0)
 
 
 class Settings(BaseModel):

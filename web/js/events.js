@@ -35,6 +35,9 @@ export class EventsView {
     this.customTo = Date.now() / 1000;
     this.results = null; // null = not searched yet
     this.loading = false;
+    // Persisted across visits (matches the localStorage pattern tile.js already uses for the HEVC flag) —
+    // a preference like "I review events as a list" is meant to stick, not reset every time this page opens.
+    try { this.showThumbs = localStorage.getItem('sentinel.eventsThumbs') !== '0'; } catch { this.showThumbs = true; }
     this._thumbQueue = [];
     this._thumbActive = 0;
     this._io = new IntersectionObserver((entries) => {
@@ -82,6 +85,12 @@ export class EventsView {
           <div class="dtp-host" id="ev-to-host"></div>
         </div>
         <button class="btn primary" data-a="search" style="width:100%;justify-content:center;margin-top:6px">${icon('search')} Apply filters</button>
+        <h3>View</h3>
+        <div class="field toggle-row">
+          <label class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></label>
+          <label for="ev-thumbs">Show thumbnails</label>
+        </div>
+        <p class="hint">Off shows a compact list instead — quicker to scan a lot of events, and doesn't spend any of the recorder's playback sessions generating thumbnails.</p>
       </aside>
       <main class="events-main"><div class="events-results"></div></main>
     </div>`;
@@ -95,6 +104,11 @@ export class EventsView {
       if (this.preset !== 'custom') this.search();
     }));
     this.root.querySelector('[data-a=search]').addEventListener('click', () => this.search());
+    this.root.querySelector('#ev-thumbs').addEventListener('change', (e) => {
+      this.showThumbs = e.target.checked;
+      try { localStorage.setItem('sentinel.eventsThumbs', this.showThumbs ? '1' : '0'); } catch { /* private mode */ }
+      this.renderResults();
+    });
 
     this.fromPicker = new DateTimePicker(this.root.querySelector('#ev-from-host'), {
       epoch: this.customFrom, tzOffsetMin: this.tzOffsetMin, label: 'From',
@@ -145,7 +159,7 @@ export class EventsView {
       this.res.innerHTML = `<div class="center-card"><h2>No events found</h2><p>Try a different camera, type, or a wider date range.</p></div>`;
       return;
     }
-    const cards = this.results.map((ev) => {
+    const items = this.results.map((ev) => {
       const cam = this.camById(ev.channel);
       const start = new Date(ev.start_utc), end = new Date(ev.end_utc);
       const durSec = Math.max(0, (end - start) / 1000);
@@ -159,27 +173,38 @@ export class EventsView {
       const timeStr = `${String(localStart.getUTCHours()).padStart(2, '0')}:${String(localStart.getUTCMinutes()).padStart(2, '0')}:${String(localStart.getUTCSeconds()).padStart(2, '0')}`;
       let attrs = null;
       if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
-      return `<div class="ev-card" data-id="${ev.id}">
-        <div class="ev-thumb"><img data-ev-id="${ev.id}" alt="" loading="lazy"><div class="ev-thumb-fallback">${icon('video')}</div></div>
-        <div class="ev-card-body">
-          <div class="ev-card-top"><span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span><span class="ev-card-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span></div>
-          <div class="ev-card-cam">${esc(cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`)}</div>
-          ${attrs?.title ? `<div class="ev-card-title">${esc(attrs.title)}</div>` : ''}
-          <div class="ev-card-actions">
-            ${attrs?.bookmark_id ? `<button class="btn icon ghost sm" data-a="delbm" data-bmid="${attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : ''}
-            <span class="spacer"></span>
-            <button class="btn sm" data-a="open" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('video')} Open in playback</button>
+      const camName = esc(cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`);
+      const openBtn = `<button class="btn sm" data-a="open" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('video')} Open${this.showThumbs ? ' in playback' : ''}</button>`;
+      const delBtn = attrs?.bookmark_id ? `<button class="btn icon ghost sm" data-a="delbm" data-bmid="${attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : '';
+      if (this.showThumbs) {
+        return `<div class="ev-card" data-id="${ev.id}">
+          <div class="ev-thumb"><img data-ev-id="${ev.id}" alt="" loading="lazy"><div class="ev-thumb-fallback">${icon('video')}</div></div>
+          <div class="ev-card-body">
+            <div class="ev-card-top"><span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span><span class="ev-card-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span></div>
+            <div class="ev-card-cam">${camName}</div>
+            ${attrs?.title ? `<div class="ev-card-title">${esc(attrs.title)}</div>` : ''}
+            <div class="ev-card-actions">${delBtn}<span class="spacer"></span>${openBtn}</div>
           </div>
-        </div>
+        </div>`;
+      }
+      // List view: same data, no thumbnail — skips the per-event /thumbnail fetch entirely, which is the
+      // point (each one can cost a real DVR playback session — see THUMB_CONCURRENCY's own comment above).
+      return `<div class="ev-row" data-id="${ev.id}">
+        <span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span>
+        <span class="ev-row-cam">${camName}</span>
+        <span class="ev-row-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span>
+        <span class="ev-row-title">${attrs?.title ? esc(attrs.title) : ''}</span>
+        <span class="spacer"></span>
+        ${delBtn}${openBtn}
       </div>`;
     }).join('');
     const capNote = this.results.length >= RESULT_CAP
       ? `<p class="hint" style="padding:10px 4px">Showing the first ${RESULT_CAP} results — narrow the date range, camera or type to see more.</p>` : '';
-    this.res.innerHTML = `<div class="events-grid">${cards}</div>${capNote}`;
-    this.res.querySelectorAll('.ev-card').forEach((card, i) => {
-      card.querySelector('[data-a=open]')?.addEventListener('click', () => this.openInPlayback(this.results[i]));
-      card.querySelector('[data-a=delbm]')?.addEventListener('click', (e) => this.deleteBookmark(+e.currentTarget.dataset.bmid));
-      this._io.observe(card.querySelector('img'));
+    this.res.innerHTML = `<div class="${this.showThumbs ? 'events-grid' : 'events-list'}">${items}</div>${capNote}`;
+    this.res.querySelectorAll(this.showThumbs ? '.ev-card' : '.ev-row').forEach((row, i) => {
+      row.querySelector('[data-a=open]')?.addEventListener('click', () => this.openInPlayback(this.results[i]));
+      row.querySelector('[data-a=delbm]')?.addEventListener('click', (e) => this.deleteBookmark(+e.currentTarget.dataset.bmid));
+      if (this.showThumbs) this._io.observe(row.querySelector('img'));
     });
   }
 

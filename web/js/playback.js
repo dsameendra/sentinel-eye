@@ -188,7 +188,9 @@ export class PlaybackView {
     const show = () => {
       this.controlsEl.classList.add('show');
       clearTimeout(this._hideTimer);
-      if (this.playing) this._hideTimer = setTimeout(maybeHide, 2600); // paused: stays up, checked continuously if it ever does fire
+      // Settings > Display > Interaction — was hardcoded 2600ms.
+      const delayMs = (this.ctx.settings().display.controls_autohide_sec ?? 2.6) * 1000;
+      if (this.playing) this._hideTimer = setTimeout(maybeHide, delayMs); // paused: stays up, checked continuously if it ever does fire
     };
     this._showControls = show;
     this.stage.addEventListener('mousemove', show);
@@ -422,7 +424,11 @@ export class PlaybackView {
     const primary = this.panes[0];
     const images = primary.player.grabFrames(5);
     if (!images.length) { toast('No decoded frame available to enhance yet.', 'bad'); return; }
-    openEnhancePopup({ images, channel: primary.cam.channel, atUtc: new Date(this.currentEpoch * 1000).toISOString() });
+    const d = this.ctx.settings().display; // Settings > Enhancement — were hardcoded 'auto'/0.5
+    openEnhancePopup({
+      images, channel: primary.cam.channel, atUtc: new Date(this.currentEpoch * 1000).toISOString(),
+      defaultMode: d.enhance_default_mode, defaultFidelity: d.enhance_default_fidelity,
+    });
   }
 
   // ---------------------------------------------------------------- L0 live enhancement (all panes together)

@@ -67,7 +67,9 @@ export class Tile {
     this.veil = this.el.querySelector('.veil');
     this.enhCanvas = this.el.querySelector('.enh-canvas');
     this.enhancer = null;
-    this.enhParams = { ...ENHANCE_PRESETS.off };
+    // Settings > Enhancement > "Live filters" default preset (opts.display is the full display-settings
+    // object, already threaded through from live.js) — was always hardcoded "off".
+    this.enhParams = { ...(ENHANCE_PRESETS[opts.display?.enhance_default_preset] || ENHANCE_PRESETS.off) };
     if (opts.chrome) {
       this.el.querySelector('.hit').addEventListener('click', () => opts.onFocus?.(this));
       this.el.querySelector('[data-a=quality]').addEventListener('click', (e) => { e.stopPropagation(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
@@ -84,6 +86,7 @@ export class Tile {
     // Always start with the SD stream (it is already flowing, so the picture is instant) and swap to HD when it is ready.
     this.cur = this._spawn('sub', false);
     if (opts.kind === 'main') { this.kind = 'sub'; this.setKind('main'); }
+    this._applyEnhParams(); // starts the enhancer immediately if the default preset above isn't "off"
     this._paint();
     this.timer = setInterval(() => this._tick(), 500);
   }
@@ -330,7 +333,7 @@ export class Tile {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(b); a.download = name; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    }, 'image/jpeg', 0.92);
+    }, 'image/jpeg', this.opts.display?.snapshot_quality ?? 0.92); // Settings > Display > Interaction — was hardcoded
     return true;
   }
 

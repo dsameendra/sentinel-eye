@@ -19,18 +19,20 @@ const MODES = [
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 /** @param opts { images: [dataURL,...] (oldest->newest, already grabbed), channel (DVR channel number),
- *  atUtc (ISO string, for the header) } */
+ *  atUtc (ISO string, for the header), defaultMode (Settings > Enhancement, default 'auto'),
+ *  defaultFidelity (Settings > Enhancement, default 0.5) } */
 export function openEnhancePopup(opts) {
   const root = document.getElementById('modal-root');
-  let mode = 'auto';
+  let mode = opts.defaultMode || 'auto';
   // Off by default (spec: multi-frame fusion helps a static/noisy scene but can soften a moving subject
   // even with the motion-adaptive weighting — see app/enhance_ai.py's _align_and_fuse. Single-frame is the
   // safer default; fusion is there to turn on for a specifically noisy, mostly-static frame.
   let fuse = false;
   // Fidelity: a real linear blend between GFPGAN's face restoration and a plain upscale with no face
   // synthesis at all (spec 2d) — NOT GFPGANer's own `weight` argument, which does nothing in the installed
-  // package (verified by reading its model code, not assumed). 0.5 is the recommended middle ground.
-  let weight = 0.5;
+  // package (verified by reading its model code, not assumed). 0.5 (Settings > Enhancement default) is the
+  // recommended middle ground.
+  let weight = opts.defaultFidelity ?? 0.5;
   // Fractions (0-1) of the frame to crop to before enhancing (spec 2c) — null means "whole frame", the
   // original behaviour. Isolating a plate/face this way spends the AI's fixed output resolution on the
   // actual subject instead of mostly on background that was never in question.
@@ -64,7 +66,7 @@ export function openEnhancePopup(opts) {
     <div class="enh-top2">
       <div class="seg enh-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${esc(l)}</button>`).join('')}</div>
       <label class="enh-weight" title="Blends GFPGAN's face restoration against a plain upscale of the same frame with no face synthesis at all. Lower = more restoration (risk of inventing features); higher = closer to the real pixels (risk of staying blurry). 0.5 blends both evenly — the recommended default.">
-        Fidelity <input type="range" data-x="weight" min="0" max="1" step="0.05" value="0.5"> <span class="enh-weight-val">0.50</span>
+        Fidelity <input type="range" data-x="weight" min="0" max="1" step="0.05" value="${weight}"> <span class="enh-weight-val">${weight.toFixed(2)}</span>
       </label>
       <button class="btn sm" data-x="select-roi" aria-pressed="false" title="Drag a box over the image to isolate a plate or face — the enhancer's full output resolution goes to just that area instead of the whole frame.">${icon('crop')} Select region</button>
       <span class="enh-roi-chip" hidden>Region selected <button class="btn icon sm ghost" data-x="clear-roi" title="Clear region">${icon('close')}</button></span>
