@@ -151,7 +151,7 @@ export class SettingsView {
         <button class="btn" id="detect" ${this.busy.has('detect') ? 'disabled' : ''}>${icon('search')} ${this.busy.has('detect') ? 'Detecting…' : 'Detect channels'}</button>
         <span class="muted" style="font-size:12.5px">Frame rate is normally measured from the stream itself (leave “auto”). Set a number only to override it.</span></div>
       ${foundHtml}
-      ${rows.length ? `<table class="tbl"><thead><tr><th></th><th>Ch</th><th>Name</th><th>SD fps</th><th>HD fps</th><th></th></tr></thead><tbody>${body}</tbody></table>`
+      ${rows.length ? `<div class="tbl-scroll"><table class="tbl"><thead><tr><th></th><th>Ch</th><th>Name</th><th>SD fps</th><th>HD fps</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
         : '<p class="muted">No channels yet. Add one or detect them from the recorder.</p>'}</section>`;
   }
 
@@ -236,7 +236,7 @@ export class SettingsView {
           return `<tr><td>${esc(names[id] || id)}</td><td>${label}</td><td><span class="dot ${v.consumers ? 'live' : v.producers ? 'wait' : ''}" style="display:inline-block"></span> ${state}</td><td>${v.consumers}</td></tr>`;
         }).join('');
         card.innerHTML = `<div class="toggle-row" style="margin-bottom:12px"><span class="dot ${st.go2rtc ? 'live' : 'off'}"></span><b>Video engine ${st.go2rtc ? 'running' : 'not responding'}</b></div>
-          <table class="tbl"><thead><tr><th>Camera</th><th>Stream</th><th>State</th><th>Viewers</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No streams configured.</td></tr>'}</tbody></table>`;
+          <div class="tbl-scroll"><table class="tbl"><thead><tr><th>Camera</th><th>Stream</th><th>State</th><th>Viewers</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No streams configured.</td></tr>'}</tbody></table></div>`;
       } catch (e) { card.innerHTML = `<div class="result bad">${icon('alert')}<div>Cannot reach the server: ${esc(e.message)}</div></div>`; }
     };
     await paint();

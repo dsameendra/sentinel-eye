@@ -168,8 +168,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 
 /* focus view */
 .focus { position: absolute; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; }
-.focus-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.focus-bar h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.focus-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.focus-bar h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus .nav-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 6; width: 42px; height: 68px; border: 0; border-radius: 10px; background: rgba(15, 20, 28, .6); color: #fff; display: grid; place-items: center; opacity: 0; transition: opacity .15s; }
 .focus:hover .nav-arrow { opacity: 1; }
 .focus .nav-arrow:hover { background: var(--accent); color: var(--accent-ink); }
@@ -236,6 +236,7 @@ input.invalid { border-color: var(--danger); }
 .result.ok { border-color: var(--accent); background: var(--accent-soft); }
 .result.bad { border-color: var(--danger); background: var(--danger-soft); }
 .result b { font-weight: 600; }
+.tbl-scroll { overflow-x: auto; margin: 0 -1px; } /* scrolls the table itself on narrow screens instead of crushing its columns unreadably — see the mobile section at the end of this file */
 table.tbl { width: 100%; border-collapse: collapse; }
 .tbl th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 8px 8px; text-transform: uppercase; letter-spacing: .04em; }
 .tbl td { padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
@@ -534,7 +535,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .events-custom { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
 .events-main { flex: 1; min-width: 0; overflow: auto; padding: 18px 22px 40px; }
 .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; max-width: 1400px; margin: 0 auto; }
-.ev-card { display: flex; flex-direction: column; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+.ev-card { display: flex; flex-direction: column; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; content-visibility: auto; contain-intrinsic-size: 260px 290px; } /* skips layout/paint for off-screen cards — a real cost on a long results list, especially on mobile */
 .ev-thumb { position: relative; aspect-ratio: 16/9; background: var(--tile); overflow: hidden; cursor: pointer; }
 .ev-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .15s; }
 .ev-thumb.loaded img { opacity: 1; }
@@ -551,7 +552,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 /* List view (thumbnails off) — one row per event, no image at all, so switching here also means zero
    /thumbnail requests and zero extra DVR playback-session pressure, not just a denser layout. */
 .events-list { display: flex; flex-direction: column; gap: 2px; max-width: 1100px; margin: 0 auto; }
-.ev-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); }
+.ev-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: 100% 46px; }
 .ev-row .ev-badge { position: static; flex: none; }
 .ev-row-cam { font-weight: 600; flex: none; min-width: 130px; }
 .ev-row-date { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
@@ -572,4 +573,56 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .events-view { flex-direction: column; }
   .events-custom { flex-direction: row; border-top: 0; }
   .ev-row { flex-wrap: wrap; }
+}
+
+/* ---------- mobile & touch ---------- */
+/* Safe-area insets: matters once this is added to a phone's home screen (standalone display), or on a
+   notched phone in landscape — harmless everywhere else since the env() vars are 0 on unsupported/normal
+   browser-chrome contexts. Layered onto the existing fixed sizes, not replacing them. */
+.topbar { padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+.savebar { padding-bottom: env(safe-area-inset-bottom); }
+.pb-controls { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Touch targets: driven by input capability, not viewport width (a touchscreen laptop is still a mouse
+   context most of the time; a narrow phone browser is still touch) — per DESIGN.md's own Component
+   philosophy this compact 28-34px scale is deliberate for the mouse/desktop case, so it stays completely
+   untouched there. This block only fires under a coarse (touch) pointer, and only bumps the controls small
+   enough to actually miss-tap: 28px icon/segment buttons go to a real 40-44px hit area; already-34px
+   buttons and settings-tab links just get a couple more px of height. Visual size (icon, label, padding)
+   is left alone — only the hit area grows, via padding/min-size, so density doesn't visibly change. */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn.sm { min-height: 40px; }
+  .btn.icon, .btn.sm.icon { min-width: 44px; }
+  .btn:not(.icon):not(.sm) { min-height: 44px; }
+  .seg button { min-height: 40px; min-width: 40px; }
+  .tile-actions button { width: 38px; height: 38px; }
+  .nav a { min-height: 44px; }
+  .side a { min-height: 44px; }
+  .pager .dots button { width: 12px; height: 12px; } /* page dots: 8px is a real miss-tap target on touch */
+  .cal-day { min-height: 36px; }
+  .enh-menu button, .events-presets button { min-height: 40px; }
+  .enh2-presets button { min-height: 34px; padding: 0 12px; } /* stays a compact pill row (many presets, one line) — nudged, not pushed to 40+ */
+}
+
+/* Live grid: on a phone, the desktop layout's own column/row count (up to 4x4) is set inline per-tile by
+   live.js (renderWall()) to build the exact grid the operator picked — CSS alone can't know how many
+   cameras that page holds, but it can override how those same cells are ARRANGED without touching which
+   camera is in which cell or any paging/rotation logic underneath. Below this width every tile reflows
+   into a simple 2-up (1-up if the panel itself is narrower still) auto-flowing grid instead of cramming
+   the desktop's column count into a phone screen — same cameras, same order, same click/zoom behaviour,
+   just legible instead of illegibly tiny. Scrolls instead of clipping if a page has many tiles. */
+@media (max-width: 640px) {
+  .wall { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important; grid-template-rows: none !important; overflow-y: auto; align-content: start; }
+  .wall .tile, .wall .tile.empty { grid-column: auto !important; grid-row: auto !important; aspect-ratio: 16 / 9; }
+  .wall.fill .tile, .wall.fill .tile.empty { aspect-ratio: 4 / 3; } /* "Fill tile" mode: a touch shorter, still stable so the crop isn't extreme on a 2-up phone grid */
+}
+
+/* Playback transport: the rewind-macro / step / play / fwd-macro row (9 controls) is wider than a phone
+   screen at any reasonable button size. Hiding the macros would remove a real feature with no keyboard to
+   fall back to on a phone — instead the row scrolls horizontally, centered content included, so every
+   control stays one swipe away rather than disappearing. */
+@media (max-width: 640px) {
+  .pb-ctrl-center { max-width: 100%; overflow-x: auto; justify-content: flex-start; padding: 2px; -webkit-overflow-scrolling: touch; }
+  .pb-ctrl-center > * { flex: none; }
 }
