@@ -37,6 +37,7 @@ export class PlaybackView {
     this.enhParams = { ...(ENHANCE_PRESETS[ctx.settings().display.enhance_default_preset] || ENHANCE_PRESETS.off) };
     this._roiSelectMode = false;   // armed via the wand panel's "Select region" button — next drag on any pane sets *that* pane's ROI
     this._flashlightMode = false;  // armed via "Digital flashlight" — cursor over any pane locally lifts shadows around it there
+    this._alignSeq = 0;            // bumped on every seek/selection change so a slow, superseded pane's landing can't retroactively trigger alignment
     this.onKey = (e) => this._key(e);
     document.addEventListener('keydown', this.onKey);
     this._init(channelId);
@@ -299,12 +300,15 @@ export class PlaybackView {
     // rather than push — otherwise every camera toggle fills history with entries that all render this
     // same view, and Back becomes a several-times-in-a-row no-op.
     this.ctx.replace(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
-    // (re)connect only the panes that don't already have a live session at the current position
-    const iso = new Date(this.currentEpoch * 1000).toISOString();
-    for (const pane of this.panes) {
-      if (pane.player.ws?.readyState === WebSocket.OPEN || pane.player.ws?.readyState === WebSocket.CONNECTING) continue;
+    // (re)connect only the panes that don't already have a live session at the current position — and, if
+    // any of them lands later than the cameras already playing (same keyframe-snap reality _alignPanes
+    // handles for a full seek), pull the rest forward to match rather than leaving the newly-added camera
+    // permanently a few seconds ahead of the ones already open.
+    const toConnect = this.panes.filter((pane) =>
+      pane.player.ws?.readyState !== WebSocket.OPEN && pane.player.ws?.readyState !== WebSocket.CONNECTING);
+    if (toConnect.length) {
       this.playing = true;
-      pane.player.connect(pane.cam.id, iso, this.speed);
+      this._alignPanes(this.panes, this.currentEpoch, this.speed, this.playing, toConnect);
     }
     this._paintPlayIcon();
   }
@@ -569,18 +573,51 @@ export class PlaybackView {
     const shouldPlay = this.playing || forcePlay;
     this.playing = shouldPlay;
     this._paintPlayIcon();
-    const iso = new Date(epoch * 1000).toISOString();
     // Always a fresh session, never the in-session "seek" WS message — measured directly (not assumed)
     // that reissuing PLAY with a new clock= range on an already-open RTSP session can land noticeably off
     // target (observed: requested exact midnight, landed ~89 minutes later). A fresh connect for the same
-    // request did NOT reproduce that specific failure mode, so this removes one source of imprecision —
-    // but a fresh connect can still land off target for footage several days old, which turned out to be a
-    // separate, deeper issue in the RTP-to-UTC time calibration itself, not this connect-vs-seek choice.
-    // See docs/SPEC.md's timing notes for that investigation's findings.
-    for (const pane of this.panes) {
-      pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
-      pane.player.connect(pane.cam.id, iso, this.speed);
-    }
+    // request did NOT reproduce that specific failure mode, so this removes one source of imprecision.
+    // Separately (see _alignPanes below): each channel's DVR session independently snaps the requested
+    // instant to that channel's own nearest available keyframe, so two cameras seeked to the exact same
+    // epoch can genuinely start from different real recorded moments — several seconds apart, confirmed
+    // directly against the cameras' own burned-in clocks, not just this app's computed label of them. A
+    // calibration error (docs/SPEC.md's timing notes) can compound this, but isn't the whole story: even
+    // with perfect per-channel calibration, independent sessions can still land on different keyframes.
+    for (const pane of this.panes) pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
+    this._alignPanes(this.panes, epoch, this.speed, shouldPlay);
+  }
+
+  /** Connects (or reconnects) every pane in `toConnect` (default: all of `panes`) to `epoch`, then pulls
+   * any pane — connecting or already playing — that sits on an earlier real moment than the latest of its
+   * siblings forward to match, so "the same seek" (or adding a camera mid-review) actually means the same
+   * recorded instant across every camera, not just the same request. One corrective round only (not
+   * recursive): closes a multi-second cross-camera gap down to at most one more channel's own keyframe
+   * interval, which is the realistic floor for independently-seeking DVR sessions. Fewer than 2 panes with
+   * a known position (nothing already playing, and only one camera connecting) is a no-op — nothing to
+   * align against yet. */
+  async _alignPanes(panes, epoch, speed, shouldPlay, toConnect = panes) {
+    const iso = new Date(epoch * 1000).toISOString();
+    const seq = ++this._alignSeq;
+    const connecting = new Set(toConnect);
+    const landings = await Promise.all(panes.map((pane) => {
+      if (!connecting.has(pane)) return Promise.resolve(pane._lastAbsTime ?? null); // already playing — use its current known position
+      return new Promise((resolve) => {
+        pane._alignResolve = (t) => { pane._alignResolve = null; resolve(t); };
+        pane.player.connect(pane.cam.id, iso, speed);
+        setTimeout(() => { if (pane._alignResolve) { const r = pane._alignResolve; pane._alignResolve = null; r(null); } }, 6000);
+      });
+    }));
+    if (seq !== this._alignSeq) return; // superseded by a newer seek/selection change while we were waiting
+    const known = landings.filter((t) => t != null);
+    if (known.length < 2) return;
+    const target = Math.max(...known);
+    const targetIso = new Date(target * 1000).toISOString();
+    panes.forEach((pane, i) => {
+      if (landings[i] != null && landings[i] < target - 0.35) {
+        pane._pauseOnNextFrame = !shouldPlay; // _onFrame already consumed this once for the initial landing — re-arm for the correction
+        pane.player.seek(targetIso, speed);
+      }
+    });
   }
 
   setSpeed(s) {
@@ -610,6 +647,8 @@ export class PlaybackView {
   // ---------------------------------------------------------------- per-pane state -> shared UI
   _onFrame(pane, absTime) {
     pane.veil.hidden = true;
+    pane._lastAbsTime = absTime; // this pane's own last known real position — what _alignPanes compares an about-to-connect sibling against
+    if (pane._alignResolve) pane._alignResolve(absTime); // reports this pane's actual landed position to _alignPanes, if a (re)connect is waiting on it
     // Keep the pane's --ar in sync with the decoded frame's real shape (tile.js does the same for live
     // view) — without this the canvas sizing CSS falls back to a fixed 16:9 guess, which is wrong for any
     // camera whose stream isn't 16:9 and produces the same "too much black" effect this was meant to fix.

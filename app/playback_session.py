@@ -151,6 +151,8 @@ class PlaybackReader:
         dp = h.Depacketizer(self.client.codec, aes)
         gate = h.StartGate(self.client.codec, self.client.sdp)
         near_utc = start_dt.timestamp()
+        target_utc = start_dt.timestamp()
+        anchor = None  # learned from this segment's first frame — see _anchor_correction's docstring
         au_buf = bytearray()
         for p in self.client.packets():
             if self._stop.is_set():
@@ -172,6 +174,8 @@ class PlaybackReader:
                     self.q.put(("error", f"Seek/speed change failed: {status}"))
                     return
                 near_utc = seek_dt.timestamp()
+                target_utc = seek_dt.timestamp()
+                anchor = None  # re-learn for the new segment — see _anchor_correction's docstring
                 dp = h.Depacketizer(self.client.codec, aes)
                 gate = h.StartGate(self.client.codec, self.client.sdp)
                 au_buf = bytearray()
@@ -192,8 +196,10 @@ class PlaybackReader:
                     is_key = (16 <= t <= 23) if self.client.codec == "hevc" else t == 5
                     abs_t = _abs_time(self.a_const, ts, near_utc)
                     near_utc = abs_t
+                    if anchor is None:
+                        anchor = _anchor_correction(target_utc, abs_t)
                     try:
-                        self.q.put((abs_t, is_key, bytes(au_buf)), timeout=2)
+                        self.q.put((abs_t + anchor, is_key, bytes(au_buf)), timeout=2)
                     except queue.Full:
                         pass  # slow consumer: drop rather than stall the DVR session
                     au_buf = bytearray()
@@ -212,6 +218,28 @@ def _abs_time(a_const, rtp_ts, near_utc):
     period = WRAP / RTP_HZ
     n = round((near_utc - t) / period)
     return t + n * period
+
+
+def _anchor_correction(target_utc, first_abs_t):
+    """How far a_const's own answer for this segment's first frame was from what was actually requested.
+    Even the closest available historical calibration (_a_const_for) is only ever a *measurement*, proven
+    accurate near when it was taken and not guaranteed beyond that (docs/SPEC.md section 2.4) — for a
+    channel with no calibration history predating this session's footage (any channel, until several days
+    of history have accumulated after this fix), or one whose clock drifted unusually between measurements,
+    a_const's own answer can still be off by anywhere from seconds to hours.
+
+    The DVR's own answer to "give me content at this clock= time" is far more trustworthy: an RTSP `clock=`
+    playback request is served starting at (or within one keyframe interval of — commonly a few seconds)
+    the exact requested instant, independent of anything this app computes. So this segment's every frame
+    is re-anchored to target_utc using this one correction learned from its first frame, rather than trusting
+    a_const's absolute answer for the rest of the session. RTP timestamps remain a reliable *relative* clock
+    within the segment (docs/SPEC.md's "shared 90kHz clock" finding) — this only replaces the absolute
+    anchor, not the relative spacing between frames. Bounds the remaining error, for every consumer of
+    PlaybackReader (live playback, thumbnails, export), to roughly one keyframe interval instead of
+    a_const's potentially much larger and less predictable drift — and, with multiple panes each anchored
+    to their own request this way, is what actually makes "seek every camera to the same instant" mean the
+    same recorded moment across all of them, which a_const's absolute accuracy alone can't guarantee."""
+    return target_utc - first_abs_t
 
 
 def calibration_for(channel):
