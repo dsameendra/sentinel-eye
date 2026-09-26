@@ -266,7 +266,12 @@ input.invalid { border-color: var(--danger); }
 .result.bad { border-color: var(--danger); background: var(--danger-soft); }
 .result b { font-weight: 600; }
 .tbl-scroll { overflow-x: auto; margin: 0 -1px; } /* scrolls the table itself on narrow screens instead of crushing its columns unreadably — see the mobile section at the end of this file */
-table.tbl { width: 100%; border-collapse: collapse; }
+/* min-width, not width: 100% — width:100% forced every column (including Name) to fit inside whatever
+   narrow space was available, which is exactly the "crushing its columns unreadably" the comment above says
+   this table avoids: found directly, a camera's Name field was rendering only its first two characters on
+   a phone. The fixed-width columns (num/fps/act) alone need ~470px; 640px gives Name a readable width too,
+   with .tbl-scroll above providing the horizontal scroll for whatever doesn't fit rather than squeezing it. */
+table.tbl { width: 100%; min-width: 640px; border-collapse: collapse; }
 .tbl th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 8px 8px; text-transform: uppercase; letter-spacing: .04em; }
 .tbl td { padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
 .tbl td.num { width: 74px; } .tbl td.fps { width: 96px; } .tbl td.act { width: 1%; white-space: nowrap; text-align: right; }
@@ -545,11 +550,29 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .pb-side { width: 180px; padding: 10px 8px; }
   .pb-side h3 { display: none; }
 }
+.pb-panel-toggle { display: none; }
+/* Below 760px there's no longer room to show the camera list and the calendar in-flow alongside the video
+   without crushing it — found directly, not assumed: stacking all three in a column left the video a thin
+   sliver with the transport controls overlapping it, and the calendar's own natural height (a full month
+   grid) pushed the timeline off-screen entirely, invisible and unreachable, on a phone-height viewport.
+   Below this width both side panels become the exact same off-canvas drawers .pb:fullscreen already uses
+   above — opened by the topline's two icon buttons (no hover on touch, so no edge-hover reveal here) and
+   dismissed via the scrim or the toggle again — so windowed mobile gets the video, transport and timeline
+   at full width by default, with cameras/date-jump one tap away instead of permanently competing for space. */
 @media (max-width: 760px) {
-  .pb-body { flex-direction: column; }
-  .pb-side { width: auto; flex-direction: row; flex-wrap: wrap; border: 0 !important; border-bottom: 1px solid var(--line) !important; max-height: 140px; }
-  .pb-side-right { flex-direction: column; max-height: none; }
-  .cam-list { flex-direction: row; flex-wrap: wrap; }
+  /* Scoped to .pb (Playback) specifically — Events reuses the same .pb-side/.cam-list classes for its own,
+     always-inline camera/filter panels (see its own comment), which have no show/hide toggle wired up and
+     would simply vanish off-screen if this matched them too (found directly: it did, before this scoping). */
+  .pb .pb-panel-toggle { display: inline-flex; }
+  .pb .pb-side { position: absolute; top: 0; bottom: 0; z-index: 25; width: 260px; max-width: 80vw; background: rgba(8, 11, 16, .97);
+    backdrop-filter: blur(8px); box-shadow: 0 0 28px var(--ov-scrim-strong); transition: transform .22s ease; overflow-y: auto;
+    flex-direction: column; flex-wrap: nowrap; max-height: none; border: 0 !important; }
+  .pb .pb-side h3 { display: block; } /* the 980px rule above hides it at the cramped inline width — plenty of room for it in a full drawer */
+  .pb .pb-side-left { left: 0; transform: translateX(-100%); }
+  .pb .pb-side-right { right: 0; transform: translateX(100%); }
+  .pb .pb-side.show { transform: translateX(0); }
+  .pb .cam-list { flex-direction: column; flex-wrap: nowrap; }
+  .pb-panel-scrim { position: absolute; inset: 0; z-index: 24; background: var(--scrim); }
 }
 
 /* events (search) — cameras on the left, results in the middle, filters on the right: the same .pb-side/
@@ -599,7 +622,21 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .evp-veil { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; text-align: center; padding: 16px; }
 .evp-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
 @media (max-width: 820px) {
-  .events-view { flex-direction: column; }
+  /* Stacking the camera picker, results and filters in DOM order (that order: picker, results, THEN the
+     filters that produced them) put the filters' "Apply filters" button below the fold with no way to
+     reach it — .events-view was `overflow: hidden` with no scroll of its own, so once the stacked content
+     (checkbox list + a full results page + the filter fields) exceeded the viewport height, everything past
+     that point was simply unreachable, not just off-screen (confirmed directly: its own scrollHeight ran
+     ~185px past clientHeight). Reordered visually (filters right after the camera picker, results last —
+     see, then apply, then browse) and given the view an actual scrollbar so nothing is ever cut off again. */
+  .events-view { flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+  /* Overrides the 980px rule's fixed 180px .pb-side width — that's sized for sitting *beside* the video in
+     Playback's inline tablet layout; stacked full-width here instead (a single column, not two side panels
+     either side of anything), 180px just wasted most of the screen for no reason. */
+  .events-view .pb-side { width: auto; max-width: none; }
+  .events-view .pb-side-left { order: 1; }
+  .events-view .pb-side-right { order: 2; }
+  .events-view .events-main { order: 3; flex: none; overflow: visible; }
   .events-custom { flex-direction: row; border-top: 0; }
   .ev-row { flex-wrap: wrap; }
 }

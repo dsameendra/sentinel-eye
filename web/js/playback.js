@@ -76,10 +76,12 @@ export class PlaybackView {
         </aside>
         <div class="pb-center">
           <div class="pb-topline">
+            <button class="btn icon pb-panel-toggle" data-a="togglecams" title="Cameras" aria-label="Cameras" aria-haspopup="true">${icon('video')}</button>
             <span class="pill pb-status"><span class="dot wait"></span><span class="txt">connecting…</span></span>
             <span class="pb-time"></span>
             <span class="spacer"></span>
             <span class="pill pb-pool" title="The recorder's shared playback-session budget"></span>
+            <button class="btn icon pb-panel-toggle" data-a="togglecal" title="Jump to date &amp; time" aria-label="Jump to date and time" aria-haspopup="true">${icon('calendar')}</button>
             <button class="btn icon" data-a="pbfs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
           </div>
           <div class="pb-stage">
@@ -124,6 +126,7 @@ export class PlaybackView {
         </aside>
         <div class="pb-edge pb-edge-left" aria-hidden="true"></div>
         <div class="pb-edge pb-edge-right" aria-hidden="true"></div>
+        <div class="pb-panel-scrim" hidden></div>
       </div>
       <div class="pb-timeline"></div>
     </main>`;
@@ -157,7 +160,7 @@ export class PlaybackView {
       // move an (often now off-screen and so invisible) playhead marker within whatever range it already
       // happened to be showing. Ordinary stepping/macros go through seekTo() directly and don't recenter,
       // so small in-view adjustments don't cause the timeline to jump/reload on every click.
-      onChange: (epoch) => { this.seekTo(epoch); this.timeline?.goTo(epoch); },
+      onChange: (epoch) => { this.seekTo(epoch); this.timeline?.goTo(epoch); this._closeMobilePanels(); },
     });
 
     this.root.querySelector('[data-a=playpause]').addEventListener('click', () => this.togglePlay());
@@ -173,6 +176,9 @@ export class PlaybackView {
       this.root.querySelector(`[data-a=fwd${s}]`).addEventListener('click', () => this.seekTo(this.currentEpoch + s));
     }
     this.root.querySelector('[data-a=pbfs]').addEventListener('click', () => this.toggleFullscreen());
+    this.root.querySelector('[data-a=togglecams]').addEventListener('click', () => this._toggleMobilePanel('.pb-side-left'));
+    this.root.querySelector('[data-a=togglecal]').addEventListener('click', () => this._toggleMobilePanel('.pb-side-right'));
+    this.root.querySelector('.pb-panel-scrim').addEventListener('click', () => this._closeMobilePanels());
 
     this._renderCamList();
     this._setSelection([first.id]); // sets this.playing before controls are bound, so the very first auto-hide countdown is correct
@@ -233,6 +239,7 @@ export class PlaybackView {
     };
     wire(edgeLeft, left);
     wire(edgeRight, right);
+    this._mobilePanels = { left, right, scrim: this.root.querySelector('.pb-panel-scrim') };
     // Fullscreen leaves no room below the video for .pb-timeline's normal in-flow spot (below .pb-body) —
     // it used to just be hidden there entirely ("scrub before or after"). Instead, move it to be the first
     // child of .pb-controls (and back to being the last child of .pb on exit): nested there it's part of
@@ -252,6 +259,26 @@ export class PlaybackView {
       }
     };
     document.addEventListener('fullscreenchange', this._onFsChange);
+  }
+
+  // ---------------------------------------------------------------- narrow-window side panels (tap to show)
+  // Same two off-canvas panels fullscreen already uses (.pb-side.show), opened here by the topline's icon
+  // buttons instead of a hover edge — there's no hover on a phone. CSS only makes those buttons visible,
+  // and the panels only slide rather than sit in-flow, below the narrow-window breakpoint, so this is a
+  // harmless no-op above it. A scrim behind the open panel makes tapping the video (rather than hunting for
+  // the toggle again) the obvious way to dismiss it too.
+  _toggleMobilePanel(sel) {
+    const { left, right, scrim } = this._mobilePanels;
+    const panel = this.root.querySelector(sel);
+    const wasOpen = panel.classList.contains('show');
+    this._closeMobilePanels();
+    if (!wasOpen) { panel.classList.add('show'); scrim.hidden = false; }
+  }
+
+  _closeMobilePanels() {
+    const { left, right, scrim } = this._mobilePanels || {};
+    left?.classList.remove('show'); right?.classList.remove('show');
+    if (scrim) scrim.hidden = true;
   }
 
   // ---------------------------------------------------------------- camera panel (multi-select, max 4)
