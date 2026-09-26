@@ -311,7 +311,12 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 /* AI frame enhancer (docs/enhance-ai-spec.md) — a large, near-fullscreen viewer, not the small dialog
    style above: the whole point is close visual inspection of the result. */
 .enh-scrim { padding: 0; background: rgba(0, 0, 0, .78); }
-.enh-viewer { width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+/* min-width: 0 overrides the grid item default of min-width: auto — without it, .scrim's grid layout let
+   this refuse to shrink below its own content's min-content width (the bottom toolbar's several buttons,
+   found directly: 666px on a 375px phone), pushing "Download enhanced" and others off the right edge of
+   the screen entirely with no way to reach them, rather than actually filling (and wrapping/scrolling
+   within) the real 100% width this rule already asked for. */
+.enh-viewer { width: 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
 .enh-viewer.is-fs { background: #000; }
 .enh-top { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .enh-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
@@ -350,8 +355,13 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 .enh-ocr-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; background: var(--panel); font-size: 13px; }
 .enh-ocr-text { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .enh-ocr-conf { flex: none; color: var(--muted); font-size: 11.5px; }
-.enh-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+/* Same fix as .pb-ctrl-center (playback's transport row): 4 buttons + a status hint is wider than a phone
+   screen at any reasonable touch size — found directly, "Download enhanced" (the primary action) was
+   rendering fully off-screen with no way to reach it at all. Horizontal scroll instead of hiding anything,
+   for the same reason as that row: every action here stays reachable rather than silently disappearing. */
+.enh-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
 .enh-bottom .spacer { flex: 1; }
+.enh-bottom .btn, .enh-bottom .enh-status { flex: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .chip { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--bg); }
 .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
