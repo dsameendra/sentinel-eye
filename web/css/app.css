@@ -298,7 +298,12 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 .toast { max-width: 380px; padding: 10px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow); display: flex; gap: 10px; align-items: flex-start; animation: rise .18s ease-out; }
 .toast.ok { border-left: 3px solid var(--accent); } .toast.bad { border-left: 3px solid var(--danger); }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
-.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: 16px; }
+/* overflow-y: auto matters whenever a dialog's own content (the export dialog's two full calendars, most
+   notably) is taller than a phone's viewport — without it the excess just spilled past the fixed/inset:0
+   edges with no way to scroll to it, permanently hiding whatever was below the fold, including the actual
+   submit button. Confirmed directly: the Export dialog's own "Export" button sat ~450px past the viewport,
+   unreachable, on a 375x667 screen. */
+.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
 .dialog { width: min(440px, 100%); padding: 20px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
 .dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 16px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
