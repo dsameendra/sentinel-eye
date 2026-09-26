@@ -140,8 +140,9 @@ brew install ffmpeg
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-`bin/go2rtc` (the [go2rtc](https://github.com/AlexxIT/go2rtc) media server) is already vendored in this
-repo for macOS; nothing else to install for it.
+That's it — `./run.sh` (below) fetches the right [go2rtc](https://github.com/AlexxIT/go2rtc) media-server
+binary for your Mac's CPU (Apple Silicon or Intel) into `bin/go2rtc` the first time it runs, since that
+binary is arch-specific and isn't committed to the repo.
 
 ### Configure
 
@@ -158,6 +159,21 @@ DVR_KEY=your-stream-encryption-verification-code   # only needed if Stream Encry
 `.env` is only read on that very first run — after that, everything (recorder address, login, encryption,
 channels, display options) is edited from the in-app **Settings** screen. `data/` holds your credentials
 (file mode 600) and is git-ignored; never commit it.
+
+### AI frame enhancer (optional)
+
+Everything above is all you need for live view, playback, export, and the real-time "wand" filters. The
+[AI frame enhancer](#ai-frame-enhancer) (Real-ESRGAN + GFPGAN, plus optional OCR) is a separate, heavier
+opt-in — it pulls in PyTorch and ~1.5 GB of model weights, and one of its dependencies
+([basicsr](https://github.com/XPixelGroup/BasicSR), effectively unmaintained since 2022) needs a couple of
+small local patches to install and run on current Python. All of that is scripted:
+
+```sh
+tools/install_enhance_deps.sh
+```
+
+Run it once, any time after the base install above. If you skip this, everything else works normally; only
+the frame-enhancer button will report it's unavailable.
 
 ### Run
 

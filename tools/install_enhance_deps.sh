@@ -4,13 +4,20 @@
 # facexlib's own detection/parsing models, the last two fetched lazily on first real use).
 #
 # basicsr==1.4.2 (a GFPGAN/Real-ESRGAN dependency, effectively unmaintained since ~2022) does not install
-# as-is on this project's Python version: its setup.py's get_version() relies on a function-local exec()
-# populating locals(), which CPython 3.13+ no longer guarantees (PEP 709-era optimizations), producing
-# `KeyError: '__version__'` at build time; separately, basicsr/data/degradations.py imports
-# torchvision.transforms.functional_tensor, removed in torchvision >= 0.17. Both are one-line fixes,
-# applied here to a local copy of the sdist rather than to the installed package, so they survive a clean
-# reinstall. Tracked upstream by the basicsr project as a known incompatibility, not something wrong with
-# this install.
+# or import as-is on this project's Python version:
+#  - its setup.py's get_version() relies on a function-local exec() populating locals(), which CPython
+#    3.13+ no longer guarantees (PEP 709-era optimizations), producing `KeyError: '__version__'` at build
+#    time;
+#  - basicsr/data/degradations.py imports torchvision.transforms.functional_tensor, removed in
+#    torchvision >= 0.17;
+#  - basicsr/archs/arch_util.py does `from distutils.version import LooseVersion` — distutils was removed
+#    from the stdlib entirely in Python 3.12 (PEP 632). setuptools ships a compatibility shim
+#    (distutils-precedence.pth), but it only activates if that .pth file isn't skipped, which macOS does
+#    for any file carrying the Finder "hidden" flag — so this can still break per-machine even when the
+#    shim is present. Patching the import out is more robust than depending on the shim.
+# All three are one-line fixes, applied here to a local copy of the sdist rather than to the installed
+# package, so they survive a clean reinstall. Tracked upstream by the basicsr project as a known
+# incompatibility, not something wrong with this install.
 set -e
 cd "$(dirname "$0")/.."
 PIP=.venv/bin/pip
@@ -41,11 +48,12 @@ assert old in s, "basicsr setup.py's get_version() has changed shape — re-chec
 open(p, 'w').write(s.replace(old, new))
 PY
 sed -i '' 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' "$src/basicsr/data/degradations.py"
+sed -i '' 's/from distutils.version import LooseVersion/from packaging.version import parse as LooseVersion/' "$src/basicsr/archs/arch_util.py"
 $PIP install "$src" --no-deps --no-build-isolation
 rm -rf "$work"
 
 echo "== the rest (no-deps: torch/torchvision/opencv above already satisfy their pins) =="
-$PIP install addict future lmdb pyyaml requests scikit-image scipy tqdm yapf tb-nightly facexlib gfpgan realesrgan filterpy numba --no-deps
+$PIP install addict future lmdb packaging pyyaml requests scikit-image scipy tqdm yapf tb-nightly facexlib gfpgan realesrgan filterpy numba --no-deps
 $PIP install urllib3 idna charset_normalizer certifi   # requests' own deps (installed --no-deps above)
 
 echo "== OCR (optional, separate from the AI pipeline — spec section 4a) =="
