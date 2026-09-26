@@ -125,8 +125,8 @@ def _run_export(job_id, channels, start_utc, end_utc, package, operator, connect
 def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
     conn = h.conn_of({"connection": connection_dict})
     path = h.playback_path(ch["channel"], ch.get("main_path", ""))
-    a_const = psess.calibration_for(ch["channel"])
-    cal = db.get_calibration(ch["channel"]) or {}
+    a_const = psess.calibration_for_time(ch["channel"], start_utc)
+    cal = db.get_calibration_near(ch["channel"], start_utc) or db.get_calibration(ch["channel"]) or {}
     if a_const is None:
         raise RuntimeError(f"Channel {ch['channel']} has no clock calibration yet — try again shortly")
     tz_offset = ch.get("_tz_offset_min", 330)

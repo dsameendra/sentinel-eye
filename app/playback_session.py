@@ -118,9 +118,19 @@ class PlaybackReader:
                 self.client.close()
             pool.release()
 
+    def _a_const_for(self, dt):
+        """The calibration valid when this moment was recorded, not necessarily the one this reader was
+        constructed with (which is only right for start_utc) — a channel's RTP clock drifts across
+        calibration cycles, so re-deriving on every seek is what keeps old-footage playback (and multi-pane
+        sync against other channels doing the same) accurate across the whole timeline, not just near
+        wherever playback happened to begin (docs/SPEC.md section 2.4)."""
+        r = db.get_calibration_near(self.channel, dt)
+        return r["a_const"] if r else self.a_const
+
     def _play_loop(self):
         start_dt = datetime.datetime.fromisoformat(self._seek_to or self.start_utc)
         self._seek_to = None
+        self.a_const = self._a_const_for(start_dt)
         # The DVR refuses PLAY for a time too close to "now" (still-open recording segment) — with 400 Bad
         # Request and no other signal. How close is inconsistent (not a fixed margin we can just default
         # past), so back off and retry rather than guess: verified this recovers cleanly.
@@ -151,6 +161,7 @@ class PlaybackReader:
                 speed = self._new_speed or self.speed
                 self._seek_to, self._new_speed = None, None
                 self.speed = speed
+                self.a_const = self._a_const_for(seek_dt)
                 for attempt in range(6):
                     seek_end = seek_dt + datetime.timedelta(hours=24)
                     status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
@@ -206,3 +217,13 @@ def _abs_time(a_const, rtp_ts, near_utc):
 def calibration_for(channel):
     r = db.get_calibration(channel)
     return r["a_const"] if r else None
+
+
+def calibration_for_time(channel, target_utc):
+    """Like calibration_for, but picks the calibration measurement closest to target_utc rather than always
+    the latest — see PlaybackReader._a_const_for for why. Falls back to calibration_for when there's no
+    history yet for this channel (e.g. it was only just calibrated for the first time)."""
+    r = db.get_calibration_near(channel, target_utc)
+    if r:
+        return r["a_const"]
+    return calibration_for(channel)

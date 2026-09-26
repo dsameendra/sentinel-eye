@@ -78,7 +78,7 @@ def _generate(event, connection_dict, main_path_override, tz_offset_min):
 
     conn = h.conn_of({"connection": connection_dict})
     ch = event["channel"]
-    a_const = psess.calibration_for(ch)
+    a_const = psess.calibration_for_time(ch, mid)
     if a_const is None:
         raise RuntimeError("This channel has no clock calibration yet")
     tz = datetime.timezone(datetime.timedelta(minutes=tz_offset_min))

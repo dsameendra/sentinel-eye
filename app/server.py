@@ -387,7 +387,7 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
     if ch is None:
         await ws.close(code=4404)
         return
-    a_const = psess.calibration_for(ch.channel)
+    a_const = psess.calibration_for_time(ch.channel, start)
     tz = state["playback"].tz
     if a_const is None or tz is None:
         await ws.close(code=4409)  # not calibrated yet — client should retry shortly

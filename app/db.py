@@ -52,6 +52,21 @@ CREATE TABLE IF NOT EXISTS calibration (
     discontinuity INTEGER DEFAULT 0
 );
 
+-- Every calibration measurement ever taken, per channel — never overwritten (unlike `calibration` above,
+-- which only ever holds the latest). A channel's RTP clock drifts across calibration cycles (re-measured
+-- every 6h), so the a_const that's accurate for footage playback is whichever one was valid *when that
+-- footage was recorded*, not necessarily today's (docs/SPEC.md section 2.4 — this is the fix for the
+-- multi-hour timestamp error, and multi-camera desync, seen on old footage).
+CREATE TABLE IF NOT EXISTS calibration_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel INTEGER NOT NULL,
+    a_const REAL NOT NULL,
+    measured_utc TEXT NOT NULL,
+    error_estimate REAL,
+    method TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_calibration_history_ch_time ON calibration_history(channel, measured_utc);
+
 CREATE TABLE IF NOT EXISTS bookmarks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channels_json TEXT NOT NULL,
@@ -181,7 +196,8 @@ def set_calibration(channel, a_const, error_estimate, method, now=None):
     if prev and abs(prev["a_const"] - a_const) > 2.0:
         discontinuity = 1
     with _lock:
-        _conn().execute(
+        c = _conn()
+        c.execute(
             """INSERT INTO calibration(channel, a_const, measured_utc, error_estimate, method, prev_a_const, discontinuity)
                VALUES (?,?,?,?,?,?,?)
                ON CONFLICT(channel) DO UPDATE SET a_const=excluded.a_const, measured_utc=excluded.measured_utc,
@@ -189,4 +205,27 @@ def set_calibration(channel, a_const, error_estimate, method, now=None):
                  prev_a_const=calibration.a_const, discontinuity=excluded.discontinuity""",
             (channel, a_const, now, error_estimate, method, prev["a_const"] if prev else None, discontinuity),
         )
+        c.execute(
+            "INSERT INTO calibration_history(channel, a_const, measured_utc, error_estimate, method) VALUES (?,?,?,?,?)",
+            (channel, a_const, now, error_estimate, method),
+        )
     return discontinuity
+
+
+def get_calibration_near(channel, target_utc):
+    """The historical calibration measurement closest to target_utc (an ISO 8601 string or datetime) — old
+    footage should use whichever a_const was valid when it was recorded, not necessarily the latest one
+    (docs/SPEC.md section 2.4). None if this channel has no calibration history at all yet."""
+    import datetime as _dt
+
+    def _epoch(v):
+        if isinstance(v, _dt.datetime):
+            return v.timestamp()
+        return _dt.datetime.fromisoformat(v).timestamp()
+
+    target = _epoch(target_utc)
+    rows = query("SELECT * FROM calibration_history WHERE channel=?", (channel,))
+    if not rows:
+        return None
+    best = min(rows, key=lambda r: abs(_epoch(r["measured_utc"]) - target))
+    return dict(best)
