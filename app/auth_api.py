@@ -461,13 +461,25 @@ def admin_devices():
     return auth.list_users("device")
 
 
+def _require_device(user_id: int) -> None:
+    # Both handlers below are thin wrappers around the person-account admin handlers, which have no
+    # kind check of their own — without this, PATCH/DELETE /admin/devices/{id} would happily operate on a
+    # person account (including granting role=admin) through the device-scoped route, blurring a boundary
+    # the two route namespaces are meant to keep separate.
+    u = auth.get_user(user_id)
+    if u is None or u["kind"] != "device":
+        raise auth.AuthError(404, "No such device")
+
+
 @router.patch("/admin/devices/{user_id}")
 def admin_update_device(user_id: int, req: UserPatch, request: Request):
+    _require_device(user_id)
     return admin_update_user(user_id, req, request)
 
 
 @router.delete("/admin/devices/{user_id}")
 def admin_delete_device(user_id: int, request: Request):
+    _require_device(user_id)
     return admin_delete_user(user_id, request)
 
 
