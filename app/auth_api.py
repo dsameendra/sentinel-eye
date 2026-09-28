@@ -406,9 +406,11 @@ def admin_users():
 async def admin_create_user(req: NewUserReq, request: Request):
     p = _p(request)
     ip = ip_of(request)
-    if not auth.enabled():
+    # bootstrap_admin() checks "sign-in is off" and creates the first account atomically (auth.py's _lock),
+    # so two concurrent first-setup requests can't both slip through and create two permanent admins.
+    user = await run_in_threadpool(auth.bootstrap_admin, req.username, req.password, actor="setup", ip=ip)
+    if user is not None:
         # Turning sign-in on: the first account is an admin, and this browser is signed in as it right away.
-        user = await run_in_threadpool(auth.create_user, req.username, req.password, "admin", actor="setup", ip=ip)
         auth.audit(user["username"], "auth.enable", "", ip)
         return _start_session(request, {**user}, True, ip)
     return await run_in_threadpool(auth.create_user, req.username, req.password, req.role, actor=p.username, ip=ip)
@@ -459,13 +461,25 @@ def admin_devices():
     return auth.list_users("device")
 
 
+def _require_device(user_id: int) -> None:
+    # Both handlers below are thin wrappers around the person-account admin handlers, which have no
+    # kind check of their own — without this, PATCH/DELETE /admin/devices/{id} would happily operate on a
+    # person account (including granting role=admin) through the device-scoped route, blurring a boundary
+    # the two route namespaces are meant to keep separate.
+    u = auth.get_user(user_id)
+    if u is None or u["kind"] != "device":
+        raise auth.AuthError(404, "No such device")
+
+
 @router.patch("/admin/devices/{user_id}")
 def admin_update_device(user_id: int, req: UserPatch, request: Request):
+    _require_device(user_id)
     return admin_update_user(user_id, req, request)
 
 
 @router.delete("/admin/devices/{user_id}")
 def admin_delete_device(user_id: int, request: Request):
+    _require_device(user_id)
     return admin_delete_user(user_id, request)
 
 

@@ -1,5 +1,5 @@
 """Sentinel Eye web server: UI, settings API, connection test, and a WebSocket proxy to go2rtc."""
-import asyncio, re
+import asyncio, re, threading
 from contextlib import asynccontextmanager
 from typing import Literal
 from urllib.parse import quote, urlparse
@@ -68,14 +68,18 @@ def auth_page(request: Request):
 
 # Open WebSockets per session, so revoking a session (sign-out elsewhere, a removed TV) cuts its streams now
 # rather than at the next reconnect. Revocation can happen on any thread; closing is scheduled on the
-# socket's own loop.
+# socket's own loop. _ws_track/_ws_untrack run on each socket's own event-loop thread, but _close_revoked
+# can fire from a FastAPI threadpool thread (sync routes like /logout and the admin user routes) — the dict
+# is shared across both, so it needs a real lock, not just goodwill.
 _ws_by_session: dict[str, set] = {}
+_ws_by_session_lock = threading.Lock()
 
 
 def _close_revoked(hashes: list[str]) -> None:
-    for h in hashes:
-        for loop, ws in list(_ws_by_session.get(h, ())):
-            loop.call_soon_threadsafe(lambda ws=ws: asyncio.ensure_future(_close_quietly(ws, 4401)))
+    with _ws_by_session_lock:
+        entries = [(loop, ws) for h in hashes for loop, ws in _ws_by_session.get(h, ())]
+    for loop, ws in entries:
+        loop.call_soon_threadsafe(lambda ws=ws: asyncio.ensure_future(_close_quietly(ws, 4401)))
 
 
 async def _close_quietly(ws: WebSocket, code: int) -> None:
@@ -104,16 +108,18 @@ def _ws_track(p, ws: WebSocket) -> tuple | None:
     if not p.session_hash:
         return None
     entry = (asyncio.get_running_loop(), ws)
-    _ws_by_session.setdefault(p.session_hash, set()).add(entry)
+    with _ws_by_session_lock:
+        _ws_by_session.setdefault(p.session_hash, set()).add(entry)
     return entry
 
 
 def _ws_untrack(p, entry) -> None:
     if entry:
-        peers = _ws_by_session.get(p.session_hash, set())
-        peers.discard(entry)
-        if not peers:
-            _ws_by_session.pop(p.session_hash, None)
+        with _ws_by_session_lock:
+            peers = _ws_by_session.get(p.session_hash, set())
+            peers.discard(entry)
+            if not peers:
+                _ws_by_session.pop(p.session_hash, None)
 
 
 class NoCacheStatic(StaticFiles):
@@ -428,6 +434,12 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
         lines = await run_in_threadpool(enhance_ai.ocr, job_id, req.which)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
+    except ModuleNotFoundError as e:
+        # Same reasoning as _run()'s own ModuleNotFoundError handling in enhance_ai.py: PIL/cv2/pytesseract
+        # aren't in the Docker image by design, and a raw "No module named 'X'" reads as a bug there.
+        raise HTTPException(503, f"Reading text isn't available on this server (missing: {e.name}). It's "
+                                  "not included in the Docker image by design — see the README's "
+                                  "\"AI frame enhancer\" section to install it on a native (non-Docker) run.")
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
     return {"lines": lines}
@@ -509,7 +521,13 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
                         if review or _within_replay_window(msg.get("t", "")):
                             reader.seek(msg["t"], msg.get("scale"))
                     elif msg.get("type") == "speed":
-                        reader.set_speed(msg["scale"])
+                        # Same gate as "seek": a viewer's session is only ever within the replay window at
+                        # connect time, and reader.set_speed() has no per-call window check of its own — an
+                        # ungated reverse speed would let a viewer scrub arbitrarily far into DVR history.
+                        # No legitimate viewer flow sends "speed" today (only playback.js's operator+ review
+                        # UI does), so this can't regress live view's instant replay.
+                        if review:
+                            reader.set_speed(msg["scale"])
 
         async def to_client():
             import struct

@@ -30,3 +30,19 @@ jobs:
 
       - name: JS syntax check (web/)
         run: find web -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  ws-route-allowlist:
+    name: WebSocket route allowlist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install runtime dependencies
+        run: pip install -q -r requirements.txt
+
+      - name: WebSocket routes match the audited allowlist
+        run: python tools/test_ws_routes.py

@@ -27,7 +27,11 @@ _GO2RTC = {"videotoolbox": "#hardware", "nvenc": "#hardware=cuda", "vaapi": "#ha
 
 def encoder_args(engine, device=None):
     """ffmpeg arguments for one engine: `pre` goes before -i, `vf` is appended to the filter chain, `codec` after."""
-    pre = ["-vaapi_device", device] if engine == "vaapi" else []
+    # device is None here only if SENTINEL_HWACCEL_RESOLVED was set externally to bare "vaapi" (this
+    # module's own detect()/export() cycle never produces that combination on its own) — degrade to no
+    # -vaapi_device argument instead of putting a None into the ffmpeg command line, which would raise a
+    # TypeError in subprocess.Popen (hikrelay.py) instead of a normal, loggable ffmpeg failure.
+    pre = ["-vaapi_device", device] if engine == "vaapi" and device else []
     vf = {"vaapi": ["format=nv12", "hwupload"], "v4l2m2m": ["format=yuv420p"]}.get(engine, [])
     return {"pre": pre, "vf": vf, "codec": list(_CODEC[engine])}
 

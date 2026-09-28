@@ -174,6 +174,15 @@ def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
 
         _set(job_id, state="done", progress="done", done=True, faces_found=faces_found,
              result_dims=[result.shape[1], result.shape[0]], source_dims=[fused.shape[1], fused.shape[0]])
+    except ModuleNotFoundError as e:
+        # PIL, torch, cv2, realesrgan and gfpgan are all imported lazily in this module specifically
+        # because they're optional (tools/install_enhance_deps.sh) and not part of the Docker image (see
+        # the Dockerfile's own comment) — a raw "ModuleNotFoundError: No module named 'X'" reads as a bug,
+        # not the documented, expected state of a Docker deployment, so name it plainly instead.
+        _set(job_id, state="error",
+             error=f"The AI frame enhancer isn't installed on this server (missing: {e.name}). It's not "
+                   "included in the Docker image by design — see the README's \"AI frame enhancer\" "
+                   "section to install it on a native (non-Docker) run instead.")
     except Exception as e:
         _set(job_id, state="error", error=f"{type(e).__name__}: {e}")
 

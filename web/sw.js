@@ -9,7 +9,7 @@
 // always be live), the playback/live WebSocket and WebRTC/MSE streams (the browser never routes these
 // through a service worker's fetch event in the first place — no special-casing needed), and anything
 // cross-origin.
-const CACHE_NAME = 'sentinel-eye-shell-v3';
+const CACHE_NAME = 'sentinel-eye-shell-v4'; // bumped: v3 could have cached a redirected /login body under a JS/CSS key
 const STATIC_RE = /\.(?:js|css|png|svg|json|ico|webmanifest)$/;
 
 self.addEventListener('install', () => {
@@ -48,7 +48,11 @@ async function staleWhileRevalidate(event, request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   const network = fetch(request).then((response) => {
-    if (response && response.ok) cache.put(request, response.clone());
+    // response.redirected excludes a followed redirect (e.g. an unauthenticated app-shell request bounced
+    // to /login by the server) from being cached under the original request's key — a 200 login-page body
+    // is a valid fetch() outcome (fetch follows redirects by default) but must never be served back later
+    // in place of the real js/css it was requested as.
+    if (response && response.ok && !response.redirected) cache.put(request, response.clone());
     return response;
   }).catch(() => null);
   if (cached) { event.waitUntil(network); return cached; }
