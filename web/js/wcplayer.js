@@ -12,6 +12,8 @@
 // window (~450 frames, ~30s at this DVR's ~15fps). Only stepping backward past the buffer's oldest frame
 // falls back to the slower one-shot DVR fetch — rare in a normal review session, not the common case.
 
+import { signInAgain } from './api.js';
+
 const wsUrl = (channel, startIso, speed) => {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}/api/playback/ws?channel=${encodeURIComponent(channel)}&start=${encodeURIComponent(startIso)}&speed=${encodeURIComponent(speed)}`;
@@ -19,6 +21,16 @@ const wsUrl = (channel, startIso, speed) => {
 
 const BUFFER_CAP = 450; // ~30s at ~15fps — generous for stepping, bounded so memory doesn't grow unbounded
 const clampInt = (v, a, b) => Math.min(b, Math.max(a, v));
+
+// Why WebCodecs is missing, for the user. Browsers only expose VideoDecoder in a secure context (HTTPS or
+// localhost), so plain http://<lan-ip> hides it even in a current Chrome/Edge/Safari.
+export function unsupportedReason() {
+  if (!window.isSecureContext) {
+    return `Playback needs HTTPS or localhost — the browser disables WebCodecs on plain http://${location.host}. ` +
+      'Open it through an HTTPS proxy/tunnel, or an SSH tunnel to http://localhost.';
+  }
+  return 'This browser lacks WebCodecs — Chrome, Edge or Safari 16.4+ is needed.';
+}
 
 export class WCPlayer {
   /** @param canvas target <canvas> @param opts {onFrame(absTime), onState(state), onError(msg)} */
@@ -55,7 +67,11 @@ export class WCPlayer {
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.addEventListener('message', (ev) => this._onMessage(ev));
-    ws.addEventListener('close', () => { if (this.ws === ws && !this._closed) this._setState('paused'); });
+    ws.addEventListener('close', (e) => {
+      if (e.code === 4401) { signInAgain(); return; }   // signed out: see player.js
+      if (e.code === 4403 && !this._closed) this.opts.onError?.("Your account can't review recordings");
+      if (this.ws === ws && !this._closed) this._setState('paused');
+    });
     ws.addEventListener('error', () => {});
   }
 

@@ -8,6 +8,7 @@
 // and jump-to-date, which only make sense against one camera's actual recording at a time.
 import { esc } from './ui.js';
 import { partsFromEpoch } from './dvrtime.js';
+import { getJSON } from './api.js';
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -104,8 +105,8 @@ export class Timeline {
     this._loadedRange = key;
     const evParams = chans.map((c) => `channel=${c.channel}`).join('&');
     const [cov, evs] = await Promise.all([
-      fetch(`/api/timeline/coverage?channel=${chans[0].channel}&from_day=${dayStr(from)}&to_day=${dayStr(to)}`).then((r) => r.json()),
-      fetch(`/api/timeline/events?${evParams}&start_utc=${from.toISOString()}&end_utc=${to.toISOString()}&limit=3000`).then((r) => r.json()),
+      getJSON(`/api/timeline/coverage?channel=${chans[0].channel}&from_day=${dayStr(from)}&to_day=${dayStr(to)}`),
+      getJSON(`/api/timeline/events?${evParams}&start_utc=${from.toISOString()}&end_utc=${to.toISOString()}&limit=3000`),
     ]);
     // A slower request that started before a since-superseded setChannels() call could still resolve after
     // it — apply the result only if it's still what's currently wanted, or a quick primary swap could

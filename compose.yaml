@@ -1,0 +1,35 @@
+# Sentinel Eye on a Linux host. See README "Run on a Linux VM with Docker".
+# Sign-in is off until the first account exists (Settings > Security, or SENTINEL_ADMIN_PASSWORD below):
+# until then anything that can reach SENTINEL_PORT controls the app, including the DVR password.
+services:
+  sentinel-eye:
+    build: .
+    image: sentinel-eye:local
+    restart: unless-stopped
+    # Host networking so go2rtc's WebRTC (8555 TCP/UDP) advertises the VM's own addresses on the LAN/VPN.
+    network_mode: host
+    # tini as PID 1 reaps go2rtc, hikrelay and ffmpeg children.
+    init: true
+    stop_grace_period: 15s
+    environment:
+      SENTINEL_HOST: ${SENTINEL_HOST:-0.0.0.0}
+      SENTINEL_PORT: ${SENTINEL_PORT:-8007}
+      TZ: ${TZ:-UTC}
+      # H.265 -> H.264 encoder: auto picks a working GPU (see ./run.sh, which passes the GPU in), else the CPU.
+      SENTINEL_HWACCEL: ${SENTINEL_HWACCEL:-auto}
+      # Sign-in: a non-empty password creates this admin at start-up, only while there are no accounts yet.
+      SENTINEL_ADMIN_USER: ${SENTINEL_ADMIN_USER:-admin}
+      SENTINEL_ADMIN_PASSWORD: ${SENTINEL_ADMIN_PASSWORD:-}
+    volumes:
+      # Must be owned by UID 1000 before first start: mkdir -p data && sudo chown -R 1000:1000 data
+      - ${SENTINEL_DATA_DIR:-./data}:/data
+      # First run only: seed data/settings.json from .env (DVR_HOST/DVR_USER/DVR_PASS/DVR_KEY),
+      # then remove this line again.
+      # - ./.env:/app/.env:ro
+    healthcheck:
+      # Healthy = the web server answers AND go2rtc is up. Calls the bind address when it's a specific IP.
+      test: ["CMD", "python", "-c", "import json,os,urllib.request as u; h=os.environ['SENTINEL_HOST']; h='127.0.0.1' if h in ('','0.0.0.0','::') else h; assert json.load(u.urlopen('http://%s:%s/api/status' % (h, os.environ['SENTINEL_PORT']), timeout=5))['go2rtc']"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 3

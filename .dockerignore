@@ -1,0 +1,11 @@
+.git/
+.venv/
+.env
+data/
+bin/
+.impeccable/
+docs/
+tools/
+**/__pycache__/
+*.pyc
+backups/

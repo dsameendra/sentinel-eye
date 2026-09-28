@@ -16,6 +16,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 
+import hwaccel
+
 MAX_ENC = 4096
 START = b"\x00\x00\x00\x01"
 
@@ -387,16 +389,15 @@ def ffmpeg_push_cmd(codec, fps, out, transcode=False):
     No -fflags nobuffer / -flags low_delay either: they make ffmpeg's raw H.265 parser output nothing."""
     f = fmt_fps(fps)
     cmd = ["ffmpeg", "-v", os.environ.get("HIKRELAY_FFLOG", "error")]
+    enc = hwaccel.encoder_args(*hwaccel.current()) if transcode else None
+    if enc:
+        cmd += enc["pre"]
     # software decode on purpose: VideoToolbox's H.265 decoder fails on this DVR's stream ("Decoding error"),
-    # which stalls the output until the next keyframe (~5 s). The hardware *encoder* is fine.
+    # which stalls the output until the next keyframe (~5 s). The hardware *encoder* is fine (app/hwaccel.py).
     cmd += ["-probesize", "32768", "-analyzeduration", "0", "-framerate", f, "-bsf:v", f"setts=ts=N/{f}/TB",
             "-f", codec, "-i", "-"]
     if transcode:   # H.265 -> H.264 for browsers that cannot play H.265
-        cmd += ["-vf", f"setpts=N/({f}*TB)", "-r", f]
-        if sys.platform == "darwin":
-            cmd += ["-c:v", "h264_videotoolbox", "-b:v", "5M", "-profile:v", "high", "-realtime", "1"]
-        else:
-            cmd += ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-b:v", "5M"]
+        cmd += ["-vf", ",".join([f"setpts=N/({f}*TB)"] + enc["vf"]), "-r", f] + enc["codec"]
         cmd += ["-g", str(max(int(fps) * 2, 1)), "-bf", "0", "-an"]
     else:
         cmd += ["-c", "copy"]

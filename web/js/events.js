@@ -6,7 +6,7 @@
 import { esc, icon, toast, confirmDialog } from './ui.js';
 import { fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
-import { api } from './api.js';
+import { api, getJSON } from './api.js';
 import { openEventPreview } from './eventPreview.js';
 
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
@@ -205,9 +205,7 @@ export class EventsView {
       for (const c of allCams) if (this.selectedCams.has(c.id)) params.append('channel', String(c.channel));
     }
     try {
-      const r = await fetch(`/api/timeline/events?${params}`);
-      if (!r.ok) throw new Error(`Search failed (${r.status})`);
-      const rows = await r.json();
+      const rows = await getJSON(`/api/timeline/events?${params}`);
       rows.sort((a, b) => b.start_utc.localeCompare(a.start_utc)); // newest first
       this.results = rows;
     } catch (e) {

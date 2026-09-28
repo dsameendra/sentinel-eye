@@ -937,3 +937,75 @@ html.tv-mode .nav-arrow { width: 56px; height: 56px; }
   opacity: 0 !important; pointer-events: none !important;
 }
 .liveview:fullscreen .tile .ov { transition: opacity .22s ease; }
+
+/* ---------- sign-in (login.html, pair.html) ---------- */
+/* body is overflow:hidden app-wide (the app scrolls inside its panes); these standalone pages scroll here. */
+.auth-page { height: 100%; overflow-y: auto; display: grid; place-items: center; padding: 24px 16px; }
+.auth-card { width: min(400px, 100%); padding: 28px 26px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.auth-card h1 { margin: 18px 0 6px; font-size: 20px; }
+.auth-card .cc-icon { margin: 18px 0 0; }
+.auth-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .01em; }
+.auth-lead { margin: 0 0 18px; color: var(--muted); }
+.auth-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.auth-check { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; }
+.auth-check input { width: 16px; height: 16px; margin: 0; }
+.auth-err { padding: 9px 12px; border-radius: 9px; border: 1px solid var(--danger); background: var(--danger-soft); font-size: 13px; }
+.auth-submit { height: 40px; width: 100%; }
+.auth-alt { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.auth-alt .hint { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; text-align: center; }
+.auth-pair { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 6px 0 4px; min-height: 60px; justify-content: center; }
+.auth-countdown { text-align: center; color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+.qr { width: 184px; padding: 0; border-radius: 10px; background: #fff; line-height: 0; }
+.qr svg { width: 100%; height: auto; display: block; }
+.pair-code { font: 700 30px/1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em; color: var(--text); }
+.pair-input { font-family: ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+/* A TV is read from across the room and driven with a remote: everything bigger, code most of all. */
+html.tv-mode .auth-card { width: min(640px, 100%); padding: 40px; }
+html.tv-mode .auth-card h1 { font-size: 30px; }
+html.tv-mode .auth-lead { font-size: 20px; }
+html.tv-mode .qr { width: 260px; }
+html.tv-mode .pair-code { font-size: 56px; }
+html.tv-mode .auth-card .btn { height: 48px; font-size: 18px; }
+html.tv-mode .auth-card input[type=text], html.tv-mode .auth-card input[type=password] { height: 48px; font-size: 18px; }
+
+/* ---------- account menu (topbar) ---------- */
+.who { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 13px; max-width: 220px; }
+.who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .role { color: var(--muted); font-size: 12px; }
+.who.lan { color: var(--muted); }
+.acct-menu { min-width: 200px; display: flex; flex-direction: column; }
+.acct-menu button, .acct-menu a { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-decoration: none; text-align: left; }
+.acct-menu button:hover, .acct-menu a:hover { background: var(--panel-2); }
+.acct-menu .head { padding: 6px 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; color: var(--muted); font-size: 12.5px; }
+.acct-menu .head b { display: block; color: var(--text); font-size: 13.5px; }
+.badge { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 99px; font-size: 11.5px; font-weight: 600; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.badge.ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.badge.warn { color: var(--warn); border-color: var(--warn); }
+
+/* ---------- account dialog + security tab ---------- */
+.dialog.wide { width: min(560px, 100%); }
+.dialog .form { grid-template-columns: 1fr; }
+.dialog section + section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.dialog h4 { margin: 0 0 4px; font-size: 14px; }
+.dialog .sub { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 14px; padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); font: 14px ui-monospace, monospace; }
+.enrol { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.enrol .qr { width: 150px; flex: none; }
+.secret { font: 13px ui-monospace, monospace; overflow-wrap: anywhere; color: var(--muted); }
+.row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.sess-list { display: flex; flex-direction: column; }
+.sess { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+.sess:first-child { border-top: 0; }
+.sess .grow { flex: 1; min-width: 0; }
+.sess .grow b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.sess .grow small { color: var(--muted); font-size: 12.5px; }
+table.tbl.sec-tbl { min-width: 560px; }
+.warnbox { margin-top: 12px; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--warn); font-size: 13px; }
+@media (max-width: 800px) { .who .role { display: none; } }
+/* A viewer (sign-in on, watch-only account) can't add bookmarks; the server refuses them anyway. */
+html.role-viewer [data-a=bookmark] { display: none !important; }
+a.btn { text-decoration: none; }
+a.btn:not(.primary) { color: var(--text); }
+a.btn.ghost { color: var(--muted); }
+.tbl td.act .row-actions { flex-wrap: nowrap; }
+.dialog h3 + section { margin-top: 14px; }

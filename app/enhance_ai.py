@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from settings import DATA
 
@@ -108,6 +107,9 @@ def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
     import base64
     job_dir = ENHANCE_DIR / job_id
     try:
+        # Imported here, not at module level: Pillow is an optional enhancer dependency
+        # (tools/install_enhance_deps.sh), and server.py imports this module unconditionally.
+        from PIL import Image
         job_dir.mkdir(parents=True, exist_ok=True)
         _set(job_id, state="running", progress="Decoding frames…")
         # wcplayer.js's grabFrames() sends canvas.toDataURL() output straight through — a full

@@ -9,7 +9,7 @@
 // always be live), the playback/live WebSocket and WebRTC/MSE streams (the browser never routes these
 // through a service worker's fetch event in the first place — no special-casing needed), and anything
 // cross-origin.
-const CACHE_NAME = 'sentinel-eye-shell-v2';
+const CACHE_NAME = 'sentinel-eye-shell-v3';
 const STATIC_RE = /\.(?:js|css|png|svg|json|ico|webmanifest)$/;
 
 self.addEventListener('install', () => {
@@ -30,6 +30,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
+  // Sign-in pages always come from the server: a cached one could show a stale form or skip a redirect.
+  if (/^\/(login|pair)(\.html)?$|^\/js\/(login|pair)\.js$/.test(url.pathname)) return;
   const isShell = url.pathname === '/' || url.pathname === '/index.html' || STATIC_RE.test(url.pathname);
   if (!isShell) return;
   event.respondWith(staleWhileRevalidate(event, req));

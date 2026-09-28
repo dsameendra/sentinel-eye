@@ -29,9 +29,26 @@ class PlaybackService:
 
     def start(self):
         db.init()
-        api = self._api()
-        self.tz = self._tz()
-        self.subscriber = events.AlertStreamSubscriber(api, self.tz)
+        # Everything past here needs the DVR. Don't block server startup on it: with no host configured yet
+        # (fresh install) or the DVR offline, the UI still has to come up so the operator can fix Settings.
+        self._spawn(self._bootstrap)
+
+    def _bootstrap(self):
+        delay = 5
+        while not self._stop.is_set():
+            if self.get_settings().connection.host:
+                try:
+                    self.tz = self._tz()
+                    break
+                except Exception as e:
+                    self.status["dvr_error"] = f"{type(e).__name__}: {e}"
+            if self._stop.wait(delay):
+                return
+            delay = min(delay * 2, 60)
+        if self._stop.is_set():
+            return
+        self.status.pop("dvr_error", None)
+        self.subscriber = events.AlertStreamSubscriber(self._api(), self.tz)
         self.subscriber.start()
         self._spawn(self._calibrate_all)
         self._spawn(self._backfill_loop)
@@ -78,7 +95,7 @@ class PlaybackService:
 
     def _backfill_loop(self):
         api = self._api()
-        tz = self._tz()
+        tz = self.tz
         while not self._stop.is_set():
             self.status["backfill"]["running"] = True
             for major in ("Alarm", "Exception"):
@@ -98,7 +115,7 @@ class PlaybackService:
 
     def _coverage_loop(self):
         api = self._api()
-        tz = self._tz()
+        tz = self.tz
         chans = self._channels()
         earliest = min((coverage.earliest_recorded_day(api, ch, tz) for ch in chans), default=None,
                         key=lambda d: d or datetime.date.max)

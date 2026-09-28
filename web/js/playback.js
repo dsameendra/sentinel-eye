@@ -3,10 +3,10 @@
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
-import { WCPlayer } from './wcplayer.js';
+import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
-import { api } from './api.js';
+import { api, getJSON } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
 import { ZoomPan } from './zoom.js';
@@ -170,7 +170,7 @@ export class PlaybackView {
     this.panesEl = this.root.querySelector('.pb-panes');
 
     if (!('VideoDecoder' in window)) {
-      this.stage.innerHTML = `<div class="pb-veil" style="position:static;height:100%"><div class="msg"><b>This browser can't play DVR recordings.</b><br>Chrome, Edge or Safari 16.4+ is needed (WebCodecs).</div></div>`;
+      this.stage.innerHTML = `<div class="pb-veil" style="position:static;height:100%"><div class="msg"><b>Can't play DVR recordings here.</b><br>${esc(unsupportedReason())}</div></div>`;
       return;
     }
 
@@ -792,7 +792,7 @@ export class PlaybackView {
     if (this._poolTimer) return;
     const tick = async () => {
       try {
-        const r = await fetch('/api/playback/pool').then((x) => x.json());
+        const r = await getJSON('/api/playback/pool');
         // "recorder sessions" in its own span, CSS-hidden below the width it stops fitting — same
         // shorten-instead-of-wrap treatment as .nav/.brand's own secondary text, and the direct fix for a
         // real bug: this .pill has no min-width, so at exactly the widths where the topline is tightest

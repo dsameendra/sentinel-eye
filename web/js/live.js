@@ -2,8 +2,8 @@
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
 import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
-import { WCPlayer } from './wcplayer.js';
-import { api } from './api.js';
+import { WCPlayer, unsupportedReason } from './wcplayer.js';
+import { api, getJSON } from './api.js';
 import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
 
 // The recorder's channel-zero overview stream (Settings > Connection) — a synthetic "camera" that isn't a
@@ -95,10 +95,10 @@ export class LiveView {
   build() {
     this.disposeTiles();
     const s = this.s;
-    if (!s.connection.host) {
+    if (!s.connection.host && !s.connection.configured) {   // configured: the redacted form non-admins get
       this.root.innerHTML = `<main class="liveview"><div class="center-card"><div class="cc-icon">${icon('plug')}</div>
-        <h2>Connect your recorder</h2><p>Enter the IP address and login of your DVR or camera to see the live video.</p>
-        <a class="btn primary" href="#/settings/connection">Open settings</a></div></main>`;
+        ${this.ctx.can('admin') ? `<h2>Connect your recorder</h2><p>Enter the IP address and login of your DVR or camera to see the live video.</p>
+        <a class="btn primary" href="#/settings/connection">Open settings</a>` : '<h2>No recorder yet</h2><p>An admin needs to connect the recorder before the cameras show up here.</p>'}</div></main>`;
       return;
     }
     if (!this.cams().length) {
@@ -598,9 +598,8 @@ export class LiveView {
   async pollEvents() {
     try {
       const since = new Date(Date.now() - 20000).toISOString();
-      const r = await fetch(`/api/timeline/events?start_utc=${encodeURIComponent(since)}&limit=200`);
-      if (!r.ok) return;
-      const rows = await r.json();
+      if (!this.ctx.can('operator')) return;   // the event index is review data: operator and up
+      const rows = await getJSON(`/api/timeline/events?start_utc=${encodeURIComponent(since)}&limit=200`);
       const byChannel = new Map();
       for (const row of rows) {
         if (!byChannel.has(row.channel)) byChannel.set(row.channel, new Set());
@@ -612,6 +611,7 @@ export class LiveView {
 
   // ---------------------------------------------------------------- bookmarks (spec section 9/11.6)
   async bookmarkNow(cam) {
+    if (!this.ctx.can('operator')) { toast("Your account can't add bookmarks", 'bad'); return; }
     const r = await bookmarkDialog({ subtitle: `${cam.name || 'Camera ' + cam.channel} · right now` });
     if (!r) return;
     try {
@@ -627,6 +627,7 @@ export class LiveView {
    * already takes a `channels` array; this is just all of them). The closest honest equivalent to
    * bookmarking the whole property at this moment, rather than a channel that has no timeline to find it on. */
   async bookmarkAllCams() {
+    if (!this.ctx.can('operator')) { toast("Your account can't add bookmarks", 'bad'); return; }
     const real = this.s.channels.filter((c) => c.enabled);
     if (!real.length) return;
     const r = await bookmarkDialog({ subtitle: `All ${real.length} cameras · right now` });
@@ -679,7 +680,7 @@ export class LiveView {
       onState: (s) => { pill.textContent = s === 'playing' ? 'replaying' : s === 'queued' ? 'waiting for a recorder session…' : s; },
       onError: (msg) => { pill.textContent = 'error'; toast(`Instant replay: ${msg}`, 'bad', 6000); },
     });
-    if (!player.supported) { toast('This browser does not support instant replay (WebCodecs unavailable).', 'bad'); r.remove(); return; }
+    if (!player.supported) { toast(`Instant replay unavailable: ${unsupportedReason()}`, 'bad', 8000); r.remove(); return; }
     const startIso = new Date(Date.now() - seconds * 1000).toISOString();
     player.connect(cam.id, startIso, '1');
     this.replay = { el: r, player, cam };

@@ -623,9 +623,12 @@ background scan job (the fallback the spec always named), not a DVR-side smart q
 split into pieces shipped separately, not one commit:** bookmarks (done); clipper + export options ①②
 (done, including the multi-cut batch UI — option ③ is not built; exports run at the DVR's 16x
 playback speed, verified frame-identical at that speed); **accounts + HTTPS + audit log + live sync
-declined by you** — this is a local-network, single-operator deployment, so this piece of M4 is not being
-built, by decision, not oversight. `author`/`operator` on bookmarks and exports stays a fixed placeholder
-("Operator") permanently as a result, not pending something still to come. **M6's ML-enhancement half is
+declined by you** — this is a local-network, single-operator deployment, so this piece of M4 was not built
+as specified. **Later, accounts and an audit log were added as an opt-in feature that is off by default**
+(`docs/superpowers/specs/2026-09-28-authentication-design.md`, README "Sign-in"): with no accounts the app
+behaves exactly as the single-operator deployment above, and bookmarks/exports keep the "Operator"
+placeholder; once sign-in is on they carry the signed-in user's name. HTTPS stays the job of a reverse
+proxy in front, and live sync is still not built. **M6's ML-enhancement half is
 now also built, out of the original order** (section 7.8 — Real-ESRGAN + GFPGAN, optional multi-frame
 align/fuse, optional on-demand OCR, launched from a paused Playback frame): every output is watermarked
 "ENHANCED" both in the UI and on disk and always ships with its unenhanced source frame, matching this

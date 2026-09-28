@@ -5,6 +5,7 @@
 // don't have anywhere to show which days actually have recordings.
 import { icon } from './ui.js';
 import { partsFromEpoch, epochFromParts } from './dvrtime.js';
+import { getJSON } from './api.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -122,7 +123,7 @@ export class DateTimePicker {
     const first = new Date(Date.UTC(y, mo, 1)), last = new Date(Date.UTC(y, mo + 1, 0));
     const iso = (d) => d.toISOString().slice(0, 10);
     try {
-      const cov = await fetch(`/api/timeline/coverage?channel=${this.opts.coverageChannel}&from_day=${iso(first)}&to_day=${iso(last)}`).then((r) => r.json());
+      const cov = await getJSON(`/api/timeline/coverage?channel=${this.opts.coverageChannel}&from_day=${iso(first)}&to_day=${iso(last)}`);
       this.coverageDays = new Map(Object.entries(cov).map(([d, spans]) => [d, spans.length > 0]));
     } catch { this.coverageDays = new Map(); }
     this._renderCalendar();

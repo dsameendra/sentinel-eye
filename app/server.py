@@ -5,17 +5,20 @@ from typing import Literal
 from urllib.parse import quote, urlparse
 
 import websockets
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+import auth
+import auth_api
 import coverage
 import db
 import enhance_ai
 import export as exportmod
 import hikrelay
+import hwaccel
 import playback_session as psess
 import settings as cfg
 import thumbnails
@@ -24,6 +27,10 @@ from go2rtc import API_PORT, Go2rtc, desired_streams
 from playback_service import PlaybackService
 
 state = {"settings": cfg.load(), "go2rtc": None, "playback": None}
+try:
+    auth.bootstrap_from_env()   # SENTINEL_ADMIN_PASSWORD: first admin, only while there are no accounts
+except auth.AuthError as e:
+    raise SystemExit(f"SENTINEL_ADMIN_PASSWORD / SENTINEL_ADMIN_USER: {e}")
 
 
 def current() -> cfg.Settings:
@@ -32,6 +39,8 @@ def current() -> cfg.Settings:
 
 @asynccontextmanager
 async def lifespan(app):
+    engine, device = await run_in_threadpool(hwaccel.current)   # before go2rtc: its config and relays use it
+    print(f"hwaccel: H.264 encoder = {engine}" + (f" ({device})" if device else ""), flush=True)
     g = Go2rtc(current)
     state["go2rtc"] = g
     await run_in_threadpool(g.start)
@@ -46,6 +55,65 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Sentinel Eye", lifespan=lifespan)
+app.middleware("http")(auth_api.gate)
+app.add_exception_handler(auth.AuthError, auth_api.auth_error)
+app.include_router(auth_api.router)
+
+
+@app.get("/login")
+@app.get("/pair")
+def auth_page(request: Request):
+    return FileResponse(cfg.ROOT / "web" / f"{request.url.path.strip('/')}.html", headers={"Cache-Control": "no-cache"})
+
+
+# Open WebSockets per session, so revoking a session (sign-out elsewhere, a removed TV) cuts its streams now
+# rather than at the next reconnect. Revocation can happen on any thread; closing is scheduled on the
+# socket's own loop.
+_ws_by_session: dict[str, set] = {}
+
+
+def _close_revoked(hashes: list[str]) -> None:
+    for h in hashes:
+        for loop, ws in list(_ws_by_session.get(h, ())):
+            loop.call_soon_threadsafe(lambda ws=ws: asyncio.ensure_future(_close_quietly(ws, 4401)))
+
+
+async def _close_quietly(ws: WebSocket, code: int) -> None:
+    try:
+        await ws.close(code=code)
+    except Exception:
+        pass
+
+
+auth.on_revoke(_close_revoked)
+
+
+async def _ws_admit(ws: WebSocket, role: str):
+    """Principal for a WebSocket, or None after closing it. Closes after accepting, so the browser actually
+    sees 4401 (sign in) / 4403 (not allowed) instead of a bare failed handshake."""
+    p = auth_api.principal_for(ws)
+    code = 4401 if p.via == "anon" else 4403 if (p.limited or not p.can(role)) else None
+    if code:
+        await ws.accept()
+        await ws.close(code=code)
+        return None
+    return p
+
+
+def _ws_track(p, ws: WebSocket) -> tuple | None:
+    if not p.session_hash:
+        return None
+    entry = (asyncio.get_running_loop(), ws)
+    _ws_by_session.setdefault(p.session_hash, set()).add(entry)
+    return entry
+
+
+def _ws_untrack(p, entry) -> None:
+    if entry:
+        peers = _ws_by_session.get(p.session_hash, set())
+        peers.discard(entry)
+        if not peers:
+            _ws_by_session.pop(p.session_hash, None)
 
 
 class NoCacheStatic(StaticFiles):
@@ -58,8 +126,12 @@ class NoCacheStatic(StaticFiles):
 # ------------------------------------------------------------------ settings
 
 @app.get("/api/settings")
-def get_settings():
-    return cfg.public(current())
+def get_settings(request: Request):
+    d = cfg.public(current())
+    if not request.state.principal.can("admin"):
+        # What the live grid needs, and nothing about the recorder itself.
+        d["connection"] = {"channel_zero": d["connection"]["channel_zero"], "configured": bool(current().connection.host)}
+    return d
 
 
 @app.put("/api/settings")
@@ -121,11 +193,14 @@ async def discover(req: TestRequest):
 
 
 @app.get("/api/status")
-async def status():
+async def status(request: Request):
     g = state["go2rtc"]
+    if request.state.principal.via == "anon":   # the Docker healthcheck: up or not, nothing else
+        return {"go2rtc": await run_in_threadpool(g.up)}
     streams = await run_in_threadpool(g.status)
     p = state["playback"]
     return {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams,
+            "hwaccel": hwaccel.current()[0],
             "playback": {**p.status, "alertstream_connected": p.subscriber.connected if p.subscriber else False,
                          "last_live_event_utc": p.subscriber.last_event_utc if p.subscriber else None}}
 
@@ -211,15 +286,15 @@ class BookmarkRequest(BaseModel):
 
 
 @app.post("/api/bookmarks")
-async def create_bookmark(req: BookmarkRequest):
-    """Bookmark = (time, channels[], title, note, severity, author, created) — spec section 9. No accounts yet
-    (that's the rest of M4), so `author` is a placeholder until real sessions exist. Mirrored into the events
-    table per channel (kind='bookmark') so it shows up on the timeline and in search for free."""
+async def create_bookmark(req: BookmarkRequest, request: Request):
+    """Bookmark = (time, channels[], title, note, severity, author, created) — spec section 9. `author` is the
+    signed-in user ("Operator" while sign-in is off). Mirrored into the events table per channel
+    (kind='bookmark') so it shows up on the timeline and in search for free."""
     s = current()
     chan_nums = [c.channel for c in s.channels if c.id in req.channels]
     if not chan_nums:
         raise HTTPException(422, "No valid channel")
-    author = "Operator"
+    author = request.state.principal.author
     bid = await run_in_threadpool(db.create_bookmark, chan_nums, req.time_utc, req.title, req.note, req.severity, author)
     for ch in chan_nums:
         await run_in_threadpool(db.upsert_event, "manual", ch, "bookmark", req.time_utc, req.time_utc,
@@ -246,7 +321,7 @@ class ExportRequest(BaseModel):
 
 
 @app.post("/api/export")
-async def create_export(req: ExportRequest):
+async def create_export(req: ExportRequest, request: Request):
     """Starts a background export job (spec section 10). Each channel is exported through a real
     PlaybackReader — the DVR's 4-session playback budget applies to exports exactly like a playback pane,
     and shows up in /api/playback/pool while running."""
@@ -269,7 +344,7 @@ async def create_export(req: ExportRequest):
     channel_dicts = [{**c.model_dump(), "_tz_offset_min": tz_offset} for c in chans]
     job_id = _secrets.token_hex(8)
     exportmod.start_export(job_id, channel_dicts, req.start_utc, req.end_utc, req.package,
-                            "Operator", s.connection.model_dump())
+                            request.state.principal.author, s.connection.model_dump())
     return {"job_id": job_id}
 
 
@@ -376,8 +451,27 @@ async def timeline_tz():
 #   bytes 9+    : Annex-B NAL bytes (start code included), fed straight into WebCodecs VideoDecoder
 # Control messages from the browser are JSON text: {"type":"seek","t":"<iso>"} or {"type":"speed","scale":"2"}.
 
+REPLAY_WINDOW_S = 120   # a viewer may play back this far: the live view's instant replay (last 10 s), not review
+
+
+def _within_replay_window(t: str) -> bool:
+    import datetime
+    try:
+        at = datetime.datetime.fromisoformat(t.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return False
+    if at.tzinfo is None:
+        return False
+    age = (datetime.datetime.now(datetime.timezone.utc) - at).total_seconds()
+    return -30 <= age <= REPLAY_WINDOW_S
+
+
 @app.websocket("/api/playback/ws")
 async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1"):
+    p = await _ws_admit(ws, "viewer" if _within_replay_window(start) else "operator")
+    if p is None:
+        return
+    review = p.can("operator")
     origin = ws.headers.get("origin")
     if origin and urlparse(origin).netloc != ws.headers.get("host"):
         await ws.close(code=1008)
@@ -395,6 +489,7 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
     conn = hikrelay.conn_of({"connection": s.connection.model_dump()})
     path = hikrelay.playback_path(ch.channel, ch.main_path)
     await ws.accept()
+    tracked = _ws_track(p, ws)
     reader = psess.PlaybackReader(conn, ch.channel, path, a_const, start, tz, speed)
     reader.start()
     try:
@@ -411,7 +506,8 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
                     except ValueError:
                         continue
                     if msg.get("type") == "seek":
-                        reader.seek(msg["t"], msg.get("scale"))
+                        if review or _within_replay_window(msg.get("t", "")):
+                            reader.seek(msg["t"], msg.get("scale"))
                     elif msg.get("type") == "speed":
                         reader.set_speed(msg["scale"])
 
@@ -440,6 +536,7 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
         recv_task.cancel()
         send_task.cancel()
     finally:
+        _ws_untrack(p, tracked)
         reader.stop()
         try:
             await ws.close()
@@ -451,6 +548,9 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
 
 @app.websocket("/ws")
 async def ws_proxy(ws: WebSocket, src: str):
+    p = await _ws_admit(ws, "viewer")
+    if p is None:
+        return
     origin = ws.headers.get("origin")
     if origin and urlparse(origin).netloc != ws.headers.get("host"):
         await ws.close(code=1008)  # cross-site page trying to watch the cameras
@@ -459,6 +559,7 @@ async def ws_proxy(ws: WebSocket, src: str):
         await ws.close(code=1008)
         return
     await ws.accept()
+    tracked = _ws_track(p, ws)
     try:
         async with websockets.connect(f"ws://127.0.0.1:{API_PORT}/api/ws?src={quote(src)}", max_size=None) as up:
             async def c2u():
@@ -485,6 +586,7 @@ async def ws_proxy(ws: WebSocket, src: str):
     except Exception:
         pass
     finally:
+        _ws_untrack(p, tracked)
         try:
             await ws.close()
         except Exception:

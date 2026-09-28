@@ -1,6 +1,7 @@
-// Settings: Connection, Channels, Display, Enhancement, Status. Edits a draft copy; nothing is applied
-// until Save.
+// Settings: Connection, Channels, Display, Enhancement, Status (edit a draft copy; nothing is applied until
+// Save) and Security (security.js, saves as it goes). Non-admins only get "This device".
 import { api } from './api.js';
+import { SecurityPanel } from './security.js';
 import { LAYOUTS, layoutIds, layoutIcon } from './layouts.js';
 import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { confirmDialog, esc, icon, toast } from './ui.js';
@@ -11,7 +12,10 @@ const TABS = [
   ['display', 'Display', 'monitor'],
   ['enhancement', 'Enhancement', 'wand'],
   ['status', 'Status', 'activity'],
+  ['security', 'Security', 'shield'],
 ];
+// Without admin rights (sign-in on, viewer/operator/device): only what belongs to this browser.
+const DEVICE_TABS = [['device', 'This device', 'monitor']];
 const ENHANCE_MODES = [['auto', 'Auto'], ['face', 'Face priority'], ['plate', 'Plate & text'], ['general', 'General']];
 const HOST_RE = /^[A-Za-z0-9._-]+$/;
 const DEFAULT_CHANNEL_ZERO_PATH = '/Streaming/Channels/1';   // mirrors app/settings.py's DEFAULT_CHANNEL_ZERO_PATH
@@ -23,7 +27,8 @@ export class SettingsView {
   constructor(root, ctx, tab) {
     this.root = root;
     this.ctx = ctx;
-    this.tab = TABS.some((t) => t[0] === tab) ? tab : 'connection';
+    this.tabs = ctx.can('admin') ? TABS : DEVICE_TABS;
+    this.tab = this.tabs.some((t) => t[0] === tab) ? tab : this.tabs[0][0];
     this.base = clone(ctx.settings());
     this.draft = clone(this.base);
     this.tests = {};          // per-channel probe results
@@ -35,10 +40,11 @@ export class SettingsView {
 
   get dirty() { return JSON.stringify(this.draft) !== JSON.stringify(this.base) || !!this.draft.connection.password || !!this.draft.connection.key; }
 
-  setTab(tab) { if (TABS.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); } }
+  setTab(tab) { if (this.tabs.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); } }
 
   // ------------------------------------------------------------- validation
   errors() {
+    if (!this.ctx.can('admin')) return {};   // "This device" has nothing to validate (and no connection data)
     const e = {}, c = this.draft.connection;
     if (!c.host.trim()) e['connection.host'] = 'Enter the IP address of the recorder or camera.';
     else if (!HOST_RE.test(c.host.trim())) e['connection.host'] = 'Use just an address like 192.0.2.10 (no http://, port or path).';
@@ -67,7 +73,7 @@ export class SettingsView {
   // ------------------------------------------------------------- rendering
   build() {
     this.root.innerHTML = `<div class="settings">
-      <nav class="side" aria-label="Settings sections">${TABS.map(([id, label, ic]) =>
+      <nav class="side" aria-label="Settings sections">${this.tabs.map(([id, label, ic]) =>
         `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}${label}</a>`).join('')}</nav>
       <main class="pane"><div class="pane-inner"></div></main></div><div class="savebar" hidden></div>`;
     this.pane = this.root.querySelector('.pane-inner');
@@ -77,8 +83,9 @@ export class SettingsView {
 
   render() {
     clearInterval(this.statusTimer);
-    const fn = { connection: () => this.connectionTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab() }[this.tab];
+    const fn = { connection: () => this.connectionTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', device: () => this.deviceTab() }[this.tab];
     this.pane.innerHTML = fn();
+    if (this.tab === 'security') { this.bar.hidden = true; new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
     this.wire();
     this.refresh();
     if (this.tab === 'status') this.startStatus();
@@ -217,6 +224,17 @@ export class SettingsView {
       <div class="range-row"><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" data-b="${bindPath}" data-t="float" value="${value}">
         <span class="range-val" data-unit="${unit}">${Number(value).toFixed(step < 1 ? 2 : 0)}${unit}</span></div>
       ${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
+  }
+
+  /** What a non-admin can change: this browser's own options. */
+  deviceTab() {
+    return `<h1>This device</h1><p class="lead">Options for this browser only. Cameras, layout and the rest are set by an admin.</p>
+    <section class="card"><h3>TV mode</h3><p class="sub">A bigger, couch-distance layout with arrow-key camera selection — for a TV's browser, or just a bigger screen. SD by default; applies to this browser only.</p>
+      <div class="toggle-row"><label class="switch"><input type="checkbox" id="f-tv" ${this.ctx.tvMode() ? 'checked' : ''} aria-label="TV mode"><span></span></label>
+        <span><b>${this.ctx.tvMode() ? 'On' : 'Off'}</b></span></div></section>
+    <section class="card"><h3>Keyboard shortcuts</h3><dl class="kv">
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next page, or camera in the large view</dd><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open that camera on the page</dd>
+      <dt><kbd>F</kbd></dt><dd>Full screen</dd><dt><kbd>H</kbd> / <kbd>S</kbd></dt><dd>Large view: toggle HD / save snapshot</dd><dt><kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></dt><dd>Large view: zoom in / out / reset</dd><dt><kbd>Esc</kbd></dt><dd>Reset zoom, then close the large view</dd></dl></section>`;
   }
 
   enhancementTab() {
@@ -365,7 +383,7 @@ export class SettingsView {
     // for as long as the dialog stayed open, since that text only updates on the render() calls below.
     const label = this.pane.querySelector('#f-tv')?.closest('.toggle-row')?.querySelector('b');
     if (label) label.textContent = 'On';
-    const needsChannelZero = !this.base.connection.channel_zero;
+    const needsChannelZero = !this.base.connection.channel_zero && this.ctx.can('admin');   // only an admin can turn it on
     const go = await confirmDialog({
       title: 'Switch to TV mode?',
       body: needsChannelZero

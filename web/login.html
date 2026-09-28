@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in · Sentinel Eye</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0e13">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sentinel Eye">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<script>try { if (localStorage.getItem('sentinel-eye-tv-mode') === '1') document.documentElement.classList.add('tv-mode'); } catch (e) { /* private mode */ }</script>
+</head>
+<body>
+<main class="auth-page"><div class="auth-card" id="card" aria-live="polite"></div></main>
+<div id="toasts" role="status" aria-live="polite"></div>
+<script type="module" src="js/login.js"></script>
+</body>
+</html>

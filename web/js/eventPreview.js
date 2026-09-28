@@ -2,7 +2,7 @@
 // Playback — for "what actually happened here", not full review (scrubbing, export, enhancement all still
 // go through Playback). Reuses the same WebCodecs player Playback and Live's instant replay already use.
 import { esc, icon, toast } from './ui.js';
-import { WCPlayer } from './wcplayer.js';
+import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api } from './api.js';
 
 const EXPORT_SCALE = 16; // must match app/export.py's EXPORT_SCALE — same constant playback.js's own export polling uses
@@ -118,7 +118,7 @@ export function openEventPreview(opts) {
     }
   });
 
-  if (!player.supported) veilMsg.textContent = "This browser can't play recordings (WebCodecs unavailable).";
+  if (!player.supported) veilMsg.textContent = unsupportedReason();
   else if (!cam) veilMsg.textContent = 'This camera is not enabled.';
   else start();
 }

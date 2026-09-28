@@ -1,13 +1,18 @@
 // App shell: top bar, hash router (#/live[/id], #/settings/<tab>), theme, clock.
-import { api } from './api.js';
+import { api, authApi, authHooks, signInAgain } from './api.js';
+import { openAccount } from './account.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
 import { SettingsView } from './settings.js';
-import { esc, icon, toast } from './ui.js';
+import { closePopover, esc, icon, openPopover, toast } from './ui.js';
 import { layoutIds } from './layouts.js';
 
-const state = { settings: null, view: null, kind: null, hash: '#/live' };
+const state = { settings: null, me: null, view: null, kind: null, hash: '#/live' };
+const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
+const can = (role) => (ROLE_RANK[state.me?.role] ?? -1) >= ROLE_RANK[role];
+// Sections that need more than watching live (enforced by the server; this only hides what would 403).
+const SECTION_ROLE = { playback: 'operator', events: 'operator', search: 'operator' };
 const app = document.getElementById('app');
 
 // Matches --bg in app.css exactly (dark/light) — kept as its own small map rather than reading the CSS
@@ -73,6 +78,9 @@ function setChan0Visible(v) { try { localStorage.setItem(CHAN0_VISIBLE_KEY, v ? 
 
 const ctx = {
   settings: () => state.settings,
+  me: () => state.me,
+  can,
+  async refreshMe() { state.me = await authApi.me(); paintWho(); return state.me; },
   applyTheme,
   tvMode: getTvMode,
   setTvMode,
@@ -101,9 +109,9 @@ const ctx = {
 function shell() {
   app.innerHTML = `<header class="topbar">
       <div class="brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>
-      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a><a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/events" data-n="events">${icon('search')}<span>Events</span></a><a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
+      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a>${can('operator') ? `<a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/events" data-n="events">${icon('search')}<span>Events</span></a>` : ''}<a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
       <div class="spacer"></div>
-      <div class="tools"><span class="clock" id="clock"></span></div></header>
+      <div class="tools"><span class="clock" id="clock"></span><span id="who"></span></div></header>
     <div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>`;
   const tick = () => {
     const c = document.getElementById('clock');
@@ -116,9 +124,43 @@ function shell() {
   tick(); setInterval(tick, 1000);
 }
 
+/** Topbar account chip: who you are and the account menu, when sign-in is on. */
+function paintWho() {
+  const el = document.getElementById('who');
+  const me = state.me;
+  if (!el || !me?.auth_enabled) { if (el) el.innerHTML = ''; return; }
+  if (me.via === 'bypass') {
+    el.innerHTML = `<a class="who lan" href="/login?next=${encodeURIComponent(location.pathname + location.hash)}" title="Opened without signing in because you're on a trusted network">${icon('user')}<span>Local network</span><span class="role">· Sign in</span></a>`;
+    return;
+  }
+  if (me.via !== 'session') { el.innerHTML = ''; return; }
+  const u = me.user;
+  const name = u.kind === 'device' ? (u.label || 'This device') : u.username;
+  el.innerHTML = `<button class="who" aria-haspopup="menu">${icon(u.kind === 'device' ? 'monitor' : 'user')}<span>${esc(name)}</span><span class="role">${esc(u.role)}</span></button>`;
+  el.querySelector('button').addEventListener('click', (e) => {
+    const person = u.kind === 'person';
+    const menu = openPopover(e.currentTarget, `<div class="acct-menu" role="menu">
+      <div class="head"><b>${esc(name)}</b>${esc(u.role)}${person && u.has_totp ? ' · 2FA on' : ''}</div>
+      ${person ? `<button data-m="account" role="menuitem">${icon('user')} Your account</button>` : ''}
+      ${person && u.role === 'admin' ? `<a href="/pair" role="menuitem">${icon('monitor')} Pair a TV or screen</a><a href="#/settings/security" role="menuitem">${icon('shield')} Users &amp; security</a>` : ''}
+      <button data-m="logout" role="menuitem">${icon('logout')} Sign out${person ? '' : ' this device'}</button></div>`, { className: 'acct-pop' });
+    menu?.querySelector('[data-m=account]')?.addEventListener('click', () => { closePopover(); openAccount(ctx); });
+    menu?.querySelectorAll('a').forEach((a) => a.addEventListener('click', closePopover));
+    menu?.querySelector('[data-m=logout]').addEventListener('click', async () => {
+      closePopover();
+      try { await authApi.logout(); } finally { location.assign('/login'); }
+    });
+  });
+}
+
 async function route() {
   const hash = location.hash || '#/live';
   const [, section = 'live', arg, arg2] = hash.split('/');
+  if (SECTION_ROLE[section] && !can(SECTION_ROLE[section])) {
+    toast("Your account can watch live only; ask an admin for more access", 'bad');
+    history.replaceState(null, '', '#/live');
+    return route();
+  }
   // leaving settings with unsaved edits?
   if (state.kind === 'settings' && section !== 'settings' && state.view?.beforeLeave && !(await state.view.beforeLeave())) {
     history.replaceState(null, '', state.hash);
@@ -160,7 +202,14 @@ async function route() {
 }
 
 async function boot() {
+  // Who's asking decides what the shell shows, so this comes first. Sign-in off = an admin, as always.
+  try { state.me = await authApi.me(); } catch { state.me = { auth_enabled: false, via: 'none', role: 'admin', user: null }; }
+  if (state.me.auth_enabled && state.me.via === 'anon') { signInAgain(); return; }   // e.g. a cached shell from the service worker
+  authHooks.needs2fa = () => { if (!document.querySelector('#modal-root .dialog')) openAccount(ctx, { force2fa: true }); };
+  document.documentElement.classList.toggle('role-viewer', !can('operator'));   // hides review-only buttons (app.css)
   shell();
+  paintWho();
+  if (state.me.limited) { openAccount(ctx, { force2fa: true }); return; }
   // Registered from the app shell (not inline in index.html) so it only ever runs after the real app has
   // loaded — irrelevant to whether the settings fetch below succeeds, so it doesn't block or gate on it.
   if ('serviceWorker' in navigator) {

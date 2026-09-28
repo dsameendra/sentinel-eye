@@ -2,6 +2,7 @@
 import json, os, subprocess, sys, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 
+import hwaccel
 from settings import DATA, ROOT, SETTINGS_FILE, Settings, channel_zero_channel
 
 API_PORT = int(os.environ.get("SENTINEL_API_PORT", 1984))
@@ -27,7 +28,7 @@ def source_for(s: Settings, ch, kind: str, transcode: bool = False) -> str:
         f"/Streaming/Channels/{ch.channel}{'01' if kind == 'main' else '02'}"
     cred = f"{urllib.parse.quote(c.username, safe='')}:{urllib.parse.quote(c.password, safe='')}@" if c.username else ""
     url = f"rtsp://{cred}{c.host}:{c.rtsp_port}{path}"
-    return f"ffmpeg:{url}#video=h264#hardware" if transcode else url
+    return f"ffmpeg:{url}#video=h264{hwaccel.go2rtc_hardware(hwaccel.current()[0])}" if transcode else url
 
 
 def desired_streams(s: Settings) -> dict:

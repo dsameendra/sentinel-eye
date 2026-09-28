@@ -1,5 +1,6 @@
 // <cam-player>: go2rtc's VideoRTC without native controls (a click must never pause a live camera).
 import { VideoRTC } from '../vendor/video-rtc.js';
+import { signInAgain } from './api.js';
 
 class CamPlayer extends VideoRTC {
   constructor() {
@@ -26,6 +27,13 @@ class CamPlayer extends VideoRTC {
     v.addEventListener('contextmenu', (e) => e.preventDefault());
     // A live feed is never "paused" by the user: if the browser pauses it (autoplay policy, tab switch), resume.
     v.addEventListener('pause', () => { if (!this.disposed && !v.ended && v.isConnected) setTimeout(() => this.play(), 50); });
+  }
+
+  onconnect() {
+    const started = super.onconnect();
+    // 4401 = signed out (session revoked or expired): sign in again instead of reconnecting forever.
+    this.ws?.addEventListener('close', (e) => { if (e.code === 4401 && !this.disposed) signInAgain(); });
+    return started;
   }
 
   onopen() {
