@@ -434,6 +434,12 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
         lines = await run_in_threadpool(enhance_ai.ocr, job_id, req.which)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
+    except ModuleNotFoundError as e:
+        # Same reasoning as _run()'s own ModuleNotFoundError handling in enhance_ai.py: PIL/cv2/pytesseract
+        # aren't in the Docker image by design, and a raw "No module named 'X'" reads as a bug there.
+        raise HTTPException(503, f"Reading text isn't available on this server (missing: {e.name}). It's "
+                                  "not included in the Docker image by design — see the README's "
+                                  "\"AI frame enhancer\" section to install it on a native (non-Docker) run.")
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
     return {"lines": lines}
