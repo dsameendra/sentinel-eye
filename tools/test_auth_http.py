@@ -300,6 +300,11 @@ def admin_api(clients):
     r = c.patch(f"/api/auth/admin/users/{boss['id']}", json={"role": "viewer"})
     check("last admin can't demote self -> 409", r.status_code == 409, r.text)
     auth.update_user(ada["id"], role="admin")
+    # ada's own demotion at line 296 correctly revoked her session too (role changes revoke now, not just
+    # disabling) — sign back in to get a live admin session for the checks below, rather than reusing the
+    # now-dead cookie from before she lost (and just regained) admin.
+    admin = client()
+    login(admin, "ada")
     r = admin.put("/api/auth/admin/config", json={"bypass_cidrs": ["127.0.0.0/8"]})
     check("loopback bypass warns", r.status_code == 200 and r.json()["warnings"], r.text)
     admin.put("/api/auth/admin/config", json={"bypass_cidrs": []})

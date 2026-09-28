@@ -262,6 +262,7 @@ def update_user(user_id: int, *, role: str | None = None, disabled: bool | None 
     loses_admin = (role is not None and role != "admin") or bool(disabled)
     if is_admin_now and loses_admin and _other_admins(user_id) == 0:
         raise AuthError(409, "That's the last admin: add another admin first")
+    role_changed = role is not None and role != r["role"]
     sets, params = [], []
     if role is not None:
         sets.append("role=?"); params.append(role)
@@ -272,7 +273,10 @@ def update_user(user_id: int, *, role: str | None = None, disabled: bool | None 
     if sets:
         _w(f"UPDATE users SET {', '.join(sets)}, updated_ts=? WHERE id=?", (*params, _now(), user_id))
         audit(actor, "user.update", r["username"], ip, role=role, disabled=disabled, label=label)
-    if disabled:
+    # A role change also revokes: an already-open session (or a WebSocket that cached its role at connect
+    # time — see server.py's playback socket) must not keep acting on the old, possibly higher, privilege
+    # level until it happens to reconnect. Disabling already revoked; a role-only change needs the same.
+    if disabled or role_changed:
         revoke_user_sessions(user_id, actor=actor)
     return get_user(user_id)
 
