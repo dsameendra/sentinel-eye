@@ -2,7 +2,7 @@
 
 # Sentinel Eye
 
-A self-hosted web dashboard for Hikvision recorders and cameras — live viewing, DVR playback and review,
+A self-hosted web dashboard for Hikvision recorders and cameras — live viewing, DVR/NVR playback and review,
 event search, exports, and real-time AI-assisted enhancement, all running on your own machine.
 
 <br clear="left">
@@ -72,7 +72,7 @@ involved.
 ### Export
 - Every export is a stream copy of the original footage — no re-encoding, no quality loss.
 - **Signed evidence package** (recommended): the clip, a `manifest.json` covering every file's SHA-256 hash,
-  the exact camera and DVR time range, and an Ed25519 signature over that manifest, plus an offline
+  the exact camera and DVR/NVR time range, and an Ed25519 signature over that manifest, plus an offline
   `verify.html` that checks it all in a browser with nothing installed and no server involved.
 - **Plain MP4/MKV**: just the clip, for a quick look.
 
@@ -123,7 +123,7 @@ Live view (large/focus view) and Playback:
 
 ```mermaid
 flowchart LR
-    DVR["Hikvision DVR / cameras"] -- "RTSP" --> Relay["hikrelay.py<br/>(decrypt, measure fps)"]
+    DVR["Hikvision DVR/NVR / cameras"] -- "RTSP" --> Relay["hikrelay.py<br/>(decrypt, measure fps)"]
     DVR -- "RTSP (unencrypted)" --> Go2rtc
     Relay -- "ffmpeg" --> Go2rtc["go2rtc"]
     Go2rtc -- "WebRTC / MSE" --> Browser["Browser (web/)"]
@@ -140,7 +140,7 @@ each camera directly. A few key files:
 | `app/server.py` | FastAPI app: settings API, connection test, WebSocket proxy, static UI |
 | `app/hikrelay.py` | The decrypting relay (`tools/NOTES.md` documents the reverse-engineered scheme) |
 | `app/go2rtc.py` | Generates go2rtc's config from current settings and restarts it on change |
-| `app/playback_session.py`, `app/timebase.py` | DVR playback sessions and the RTP-to-UTC clock calibration that makes multi-camera playback frame-locked |
+| `app/playback_session.py`, `app/timebase.py` | DVR/NVR playback sessions and the RTP-to-UTC clock calibration that makes multi-camera playback frame-locked |
 | `app/export.py` | Stream-copy export, manifest generation, Ed25519 signing |
 | `app/enhance_ai.py` | The local Real-ESRGAN/GFPGAN frame enhancer |
 | `app/auth.py`, `app/auth_api.py` | Optional sign-in: accounts, roles, TOTP, sessions, TV pairing, and the per-route role checks |
@@ -183,7 +183,7 @@ for your OS and CPU into `bin/go2rtc`; `./run.sh --native run` runs it in the fo
 logging to the terminal instead of `data/sentinel.log`. `stop`, `status` and `logs` pick native on their own
 when a native instance is running. Only one of the two can run at a time, since they share ports.
 
-`backup` archives contain the DVR password; `backups/` is git-ignored and created with owner-only access.
+`backup` archives contain the DVR/NVR password; `backups/` is git-ignored and created with owner-only access.
 
 ### Configure
 
@@ -253,7 +253,7 @@ test encode on each candidate, and uses the first one that works:
   and the CPU (libx264) when none works.
 
 Only encoding moves to the GPU; decoding stays on the CPU on purpose (a hardware H.265 decoder has already
-choked on this DVR's stream once). `./run.sh status` and `/api/status` show the choice (`encoder:` /
+choked on this NVR's stream once). `./run.sh status` and `/api/status` show the choice (`encoder:` /
 `"hwaccel"`), and the server log says which one it picked at startup. Force one with
 `SENTINEL_HWACCEL=nvenc|vaapi|v4l2m2m|videotoolbox|cpu`; if the forced one fails its test encode, it falls
 back to the CPU and logs why.
@@ -420,11 +420,11 @@ anything on it. Sign-in has its own suites, no recorder needed:
 
 ## Project status
 
-Live viewing, multi-camera DVR playback with frame-locked timing, event search, signed-package export, the
-real-time enhancement filters, and the local AI frame enhancer are all built and in day-to-day use, along
+Live viewing, multi-camera DVR/NVR playback with frame-locked timing, event search, signed-package export,
+the real-time enhancement filters, and the local AI frame enhancer are all built and in day-to-day use, along
 with a Docker deployment for Linux hosts (with GPU transcoding when available) and optional sign-in. The
 detailed specification and its build status live in `docs/SPEC.md` — including the parts
-deliberately not built (a native-DVR-file export option, and a standalone offline player), and one open
+deliberately not built (a native-DVR/NVR-file export option, and a standalone offline player), and one open
 investigation into a rare timing edge case on footage recorded many hours before the most recent per-channel
 clock calibration.
 
@@ -443,7 +443,7 @@ above already admits are untested or missing:
 - **Features.** `docs/SPEC.md` documents what's built, what was deliberately left out, and why — a good
   starting point for seeing what's already been considered and what's genuinely open.
 
-If you're picking up one of the bigger items (a new DVR brand, a new OS), consider opening an issue first to
+If you're picking up one of the bigger items (a new DVR/NVR brand, a new OS), consider opening an issue first to
 compare notes before sinking a lot of time in — this project's own conventions (no build step for the
 frontend, the settings/RTSP path assumptions baked into `app/hikrelay.py` and `app/go2rtc.py`) are worth
 knowing going in.
