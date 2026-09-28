@@ -240,6 +240,19 @@ def create_user(username: str, password: str, role: str, *, actor: str = "", ip:
     return get_user(cur.lastrowid)
 
 
+def bootstrap_admin(username: str, password: str, *, actor: str = "", ip: str = "") -> dict | None:
+    """Atomically: if no account exists yet, create the first one as admin. Returns None if one already
+    exists — the caller should fall back to the normal, role-restricted create_user() path in that case.
+    _lock is reentrant, so create_user()'s own _w() call under it is safe. Without this, two concurrent
+    first-setup requests (a retry, a double-click, or a race during that brief pre-setup window) can both
+    observe enabled()==False before either INSERT commits, leaving two permanent bootstrap admins instead
+    of the intended one."""
+    with _lock:
+        if enabled():
+            return None
+        return create_user(username, password, "admin", actor=actor, ip=ip)
+
+
 def _other_admins(user_id: int) -> int:
     return _one("SELECT COUNT(*) FROM users WHERE kind='person' AND role='admin' AND disabled=0 AND id<>?",
                 (user_id,))[0]

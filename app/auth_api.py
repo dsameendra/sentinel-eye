@@ -406,9 +406,11 @@ def admin_users():
 async def admin_create_user(req: NewUserReq, request: Request):
     p = _p(request)
     ip = ip_of(request)
-    if not auth.enabled():
+    # bootstrap_admin() checks "sign-in is off" and creates the first account atomically (auth.py's _lock),
+    # so two concurrent first-setup requests can't both slip through and create two permanent admins.
+    user = await run_in_threadpool(auth.bootstrap_admin, req.username, req.password, actor="setup", ip=ip)
+    if user is not None:
         # Turning sign-in on: the first account is an admin, and this browser is signed in as it right away.
-        user = await run_in_threadpool(auth.create_user, req.username, req.password, "admin", actor="setup", ip=ip)
         auth.audit(user["username"], "auth.enable", "", ip)
         return _start_session(request, {**user}, True, ip)
     return await run_in_threadpool(auth.create_user, req.username, req.password, req.role, actor=p.username, ip=ip)
