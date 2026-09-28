@@ -24,7 +24,7 @@ DEVICE_TTL = 365 * 86400
 CHALLENGE_TTL = 300
 TOTP_PENDING_TTL = 600
 AUDIT_DAYS = 90
-PROXY_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip", "cf-connecting-ip")
+PROXY_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip", "cf-connecting-ip", "true-client-ip", "x-client-ip")
 CONFIG_DEFAULTS = {"require_2fa_admin": False, "bypass_cidrs": [], "bypass_role": "viewer",
                    "trusted_proxies": [], "session_hours": 12, "remember_days": 30}
 _SCRYPT = {"n": 2 ** 15, "r": 8, "p": 1}
