@@ -302,6 +302,20 @@ native_start() {
   fi
 }
 
+# Stragglers, and instances started by the old foreground run.sh. Only our own user's processes, so a
+# container's (UID 1000) on a host-networked Linux box isn't touched unless that's also this user. Split
+# out so `stop` can always run this, regardless of which mode got auto-detected (see the CMD dispatcher):
+# if uvicorn already died on its own but go2rtc/hikrelay/ffmpeg are still holding camera connections,
+# native_running() reports false, mode auto-detects to docker, and docker_stop() would die() on a
+# Docker-less native host before ever reaching this sweep — leaving those orphaned.
+kill_stragglers() {
+  local u; u=$(id -u)
+  pkill -u "$u" -f "[u]vicorn --app-dir app" || true
+  pkill -u "$u" -f "[b]in/go2rtc" || true
+  pkill -u "$u" -f "[a]pp/hikrelay.py" || true
+  pkill -u "$u" -f "[f]fmpeg.*-f rtsp" || true
+}
+
 native_stop() {
   say "Stopping"
   if native_running; then
@@ -312,13 +326,7 @@ native_stop() {
     kill -9 "$pid" 2>/dev/null || true
   fi
   rm -f "$PIDFILE"
-  # Stragglers, and instances started by the old foreground run.sh. Only our own user's processes, so a
-  # container's (UID 1000) on a host-networked Linux box isn't touched unless that's also this user.
-  local u; u=$(id -u)
-  pkill -u "$u" -f "[u]vicorn --app-dir app" || true
-  pkill -u "$u" -f "[b]in/go2rtc" || true
-  pkill -u "$u" -f "[a]pp/hikrelay.py" || true
-  pkill -u "$u" -f "[f]fmpeg.*-f rtsp" || true
+  kill_stragglers
 }
 
 native_status() {
@@ -375,9 +383,13 @@ update() {
 }
 
 case "$CMD" in
-  setup|start|stop|status|logs|backup|shell|clean) "${MODE}_$CMD" ;;
+  setup|start|status|logs|backup|shell|clean) "${MODE}_$CMD" ;;
+  # kill_stragglers first and unconditionally: if uvicorn already died, MODE auto-detects to docker, and
+  # docker_stop would die() on a Docker-less native host before any cleanup ran (see kill_stragglers' own
+  # comment) — running it before the mode-specific stop means real orphans are swept either way.
+  stop)    kill_stragglers; "${MODE}_stop" ;;
   run)     [[ "$MODE" == native ]] || die "'run' is native-only (docker: ./run.sh start, then ./run.sh logs)"; native_run ;;
-  restart) "${MODE}_stop"; "${MODE}_start" ;;
+  restart) kill_stragglers; "${MODE}_stop"; "${MODE}_start" ;;
   update)  update ;;
   help)    usage ;;
   *)       usage >&2; exit 2 ;;
