@@ -98,18 +98,26 @@ class PlaybackService:
         tz = self.tz
         while not self._stop.is_set():
             self.status["backfill"]["running"] = True
-            for major in ("Alarm", "Exception"):
-                if db.get_watermark(major) is None:
-                    earliest = None
-                    for ch in self._channels():
-                        d = coverage.earliest_recorded_day(api, ch, tz)
-                        if d and (earliest is None or d < earliest):
-                            earliest = d
-                    since = earliest or (datetime.datetime.now(tz).date() - datetime.timedelta(days=1))
-                    db.write("INSERT OR IGNORE INTO backfill_watermark(log_type, last_completed_day, updated_utc) VALUES (?,?,?)",
-                             (major, (since - datetime.timedelta(days=1)).isoformat(), datetime.datetime.now(datetime.timezone.utc).isoformat()))
-                r = events.backfill_major(api, major, tz, stop_event=self._stop)
-                self.status["backfill"][major] = r
+            try:
+                for major in ("Alarm", "Exception"):
+                    if db.get_watermark(major) is None:
+                        earliest = None
+                        for ch in self._channels():
+                            d = coverage.earliest_recorded_day(api, ch, tz)
+                            if d and (earliest is None or d < earliest):
+                                earliest = d
+                        since = earliest or (datetime.datetime.now(tz).date() - datetime.timedelta(days=1))
+                        db.write("INSERT OR IGNORE INTO backfill_watermark(log_type, last_completed_day, updated_utc) VALUES (?,?,?)",
+                                 (major, (since - datetime.timedelta(days=1)).isoformat(), datetime.datetime.now(datetime.timezone.utc).isoformat()))
+                    r = events.backfill_major(api, major, tz, stop_event=self._stop)
+                    self.status["backfill"][major] = r
+                self.status["backfill"].pop("last_error", None)
+            except Exception as e:
+                # A transient ISAPI failure (the DVR briefly refusing a request under load — confirmed
+                # directly: several background loops and live streams all hit ISAPI within the same few
+                # seconds on a real container's cold start) must not permanently kill this thread. Without
+                # this, one bad call stops backfill forever until the process restarts, silently.
+                self.status["backfill"]["last_error"] = f"{type(e).__name__}: {e}"
             self.status["backfill"]["running"] = False
             time.sleep(3600)  # re-check for new days once an hour; watermark makes this cheap after the first pass
 
@@ -117,19 +125,32 @@ class PlaybackService:
         api = self._api()
         tz = self.tz
         chans = self._channels()
-        earliest = min((coverage.earliest_recorded_day(api, ch, tz) for ch in chans), default=None,
-                        key=lambda d: d or datetime.date.max)
         today = datetime.datetime.now(tz).date()
-        if earliest:
-            self.status["coverage"]["running"] = True
-            n = coverage.refresh_all(api, chans, tz, earliest, today, stop_event=self._stop)
-            self.status["coverage"] = {"running": False, "days_x_channels_indexed": n, "earliest": earliest.isoformat()}
+        try:
+            earliest = min((coverage.earliest_recorded_day(api, ch, tz) for ch in chans), default=None,
+                            key=lambda d: d or datetime.date.max)
+            if earliest:
+                self.status["coverage"]["running"] = True
+                n = coverage.refresh_all(api, chans, tz, earliest, today, stop_event=self._stop)
+                self.status["coverage"] = {"running": False, "days_x_channels_indexed": n, "earliest": earliest.isoformat()}
+        except Exception as e:
+            # Same reasoning as _backfill_loop: a transient ISAPI failure here must not permanently kill the
+            # periodic re-index below — this exact call is what died on a real container's cold start,
+            # confirmed directly, taking the whole thread down before it ever reached the retry loop.
+            self.status["coverage"]["running"] = False
+            self.status["coverage"]["last_error"] = f"{type(e).__name__}: {e}"
         while not self._stop.is_set():
             time.sleep(1800)
             if self._stop.is_set():
                 break
-            coverage.refresh_all(api, chans, tz, today - datetime.timedelta(days=1), datetime.datetime.now(tz).date())
-            today = datetime.datetime.now(tz).date()
+            try:
+                coverage.refresh_all(api, chans, tz, today - datetime.timedelta(days=1), datetime.datetime.now(tz).date())
+                today = datetime.datetime.now(tz).date()
+                self.status["coverage"].pop("last_error", None)
+            except Exception as e:
+                # today is deliberately left unadvanced on failure, so the next pass retries the same
+                # range instead of silently skipping whatever day just failed to index.
+                self.status["coverage"]["last_error"] = f"{type(e).__name__}: {e}"
 
 
 def _relay_conn(settings):
