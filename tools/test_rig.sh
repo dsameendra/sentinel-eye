@@ -1,10 +1,11 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # Isolated test rig: a fake UNENCRYPTED camera (go2rtc test pattern) + a second Sentinel Eye instance
 # with its own settings/ports, so UI tests can edit settings without touching the real recorder.
 #   tools/test_rig.sh start   -> app on http://127.0.0.1:8081 (3 fake channels)
 #   tools/test_rig.sh stop
 cd "$(dirname "$0")/.."
-export PATH="/opt/homebrew/bin:$PATH"
+# ffmpeg is invoked by go2rtc for the fake camera; Homebrew's bin dir isn't always on a GUI shell's PATH.
+if [ "$(uname -s)" = "Darwin" ]; then export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; fi
 RIG=/tmp/sentinel-rig
 case "$1" in
 start)

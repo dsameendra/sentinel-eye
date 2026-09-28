@@ -1,0 +1,45 @@
+# Sample system-wide systemd unit for Sentinel Eye (Linux).
+#
+# Install, substituting the install directory and the user to run as:
+#   sed -e "s|__DIR__|$PWD|g" -e "s|__USER__|$USER|g" tools/systemd/sentinel-eye.service \
+#     | sudo tee /etc/systemd/system/sentinel-eye.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now sentinel-eye
+#
+# Logs: journalctl -u sentinel-eye -f
+#
+# There is no login of its own, so this binds SENTINEL_HOST to 127.0.0.1 (loopback only) — put a reverse
+# proxy in front of it, or set SENTINEL_HOST=0.0.0.0 to reach it from the LAN, accepting that anything on
+# that network then sees your camera feeds. Do not expose it to the public internet.
+#
+# For a rootless alternative see sentinel-eye.user.service alongside this file.
+
+[Unit]
+Description=Sentinel Eye — Hikvision camera dashboard (live view, playback, export)
+Documentation=https://github.com/dsameendra/sentinel-eye
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__DIR__
+# ffmpeg/ffprobe are invoked by name, so PATH has to include wherever they are installed.
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment=SENTINEL_HOST=127.0.0.1
+Environment=SENTINEL_PORT=8007
+# run.sh is the documented entry point: it fetches bin/go2rtc on first run, then execs uvicorn, so the main
+# PID is the server itself and signals reach it without a shell in the way.
+ExecStart=__DIR__/run.sh
+Restart=always
+RestartSec=5
+# The app spawns go2rtc and a per-stream ffmpeg as children. A control-group kill takes the whole tree down
+# with it rather than leaving orphans holding go2rtc's ports (1984/8554/8555).
+KillMode=control-group
+TimeoutStopSec=20
+# uvicorn exits 143 when systemd stops it with SIGTERM; that is a clean stop, not a failure.
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target

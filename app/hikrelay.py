@@ -535,8 +535,25 @@ def probe(conn, path, seconds=8):
 
 
 def isapi_channels(conn, timeout=5):
-    """Camera names from a Hikvision recorder's ISAPI (HTTP, digest auth): {channel_number: name}. {} if unavailable."""
-    url = f"http://{conn['host']}:{conn.get('http_port', 80)}/ISAPI/System/Video/inputs/channels"
+    """Camera names from a Hikvision recorder's ISAPI (HTTP, digest auth): {channel_number: name}. {} if unavailable.
+
+    A recorder exposes its channels through one of two different tables depending on what it is. A DVR
+    with analog inputs lists them under System/Video/inputs/channels; an NVR carrying IP cameras rejects
+    that endpoint outright (ISAPI statusCode 4, "notSupport") and lists the same channels under
+    ContentMgmt/InputProxy/channels instead. Ask for the analog table first, then fall back — without the
+    fallback every name comes back empty on an NVR, and Discover can only fill in channel numbers.
+    """
+    for path, tag in (("/ISAPI/System/Video/inputs/channels", "VideoInputChannel"),
+                      ("/ISAPI/ContentMgmt/InputProxy/channels", "InputProxyChannel")):
+        names = _isapi_channel_names(conn, path, tag, timeout)
+        if names:
+            return names
+    return {}
+
+
+def _isapi_channel_names(conn, path, tag, timeout=5):
+    """One ISAPI channel table -> {channel_number: name}. {} if unsupported, unreachable or empty."""
+    url = f"http://{conn['host']}:{conn.get('http_port', 80)}{path}"
     mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
     mgr.add_password(None, url, conn["user"], conn["pw"])
     opener = urllib.request.build_opener(urllib.request.HTTPDigestAuthHandler(mgr))
@@ -546,7 +563,7 @@ def isapi_channels(conn, timeout=5):
         return {}
     out = {}
     for ch in root.iter():
-        if ch.tag.endswith("VideoInputChannel"):
+        if ch.tag.endswith(tag):
             kid = {c.tag.split("}")[-1]: (c.text or "").strip() for c in ch}
             if kid.get("id", "").isdigit() and kid.get("videoInputEnabled", "true") != "false":
                 out[int(kid["id"])] = kid.get("name", "")

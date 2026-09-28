@@ -25,10 +25,23 @@ class PlaybackService:
         return isapi.Isapi(c.host, c.username, c.password, c.http_port)
 
     def _tz(self):
-        return events.tz_local(self._api())
+        try:
+            return events.tz_local(self._api())
+        except Exception:
+            # A configured-but-unreachable recorder must not stop startup either; fall back to UTC (the
+            # same default tz_local() itself uses when the recorder's reply can't be parsed) and let the
+            # background loops keep retrying.
+            return datetime.timezone.utc
 
     def start(self):
         db.init()
+        if not self.get_settings().connection.host:
+            # Nothing configured yet — a fresh clone whose Settings screen hasn't been filled in (there's
+            # no .env, or it was ignored because data/settings.json already existed). Everything below
+            # talks to the recorder, so come up unconfigured instead of failing application startup: the
+            # Settings screen is how you point it at a recorder, and it can't be reached if the server
+            # refuses to boot. A later settings save syncs the streams and starts these loops.
+            return
         api = self._api()
         self.tz = self._tz()
         self.subscriber = events.AlertStreamSubscriber(api, self.tz)

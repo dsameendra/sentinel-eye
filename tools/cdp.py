@@ -1,8 +1,38 @@
 """Tiny Chrome DevTools driver for end-to-end checks (headless Chrome, real time)."""
-import asyncio, base64, json, subprocess, tempfile, time, urllib.request
+import asyncio, base64, json, os, shutil, subprocess, tempfile, time, urllib.request
 import websockets
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+def find_chrome() -> str:
+    """Locate a Chrome/Chromium binary. Override with $CHROME when it lives somewhere unusual."""
+    override = os.environ.get("CHROME")
+    if override:
+        return override
+    candidates = [
+        # macOS
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        # Linux — PATH lookups cover Debian, Fedora and the snap/flatpak shims, then fall back to paths
+        shutil.which("google-chrome"),
+        shutil.which("google-chrome-stable"),
+        shutil.which("chromium"),
+        shutil.which("chromium-browser"),
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        # Windows
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    raise RuntimeError(
+        "No Chrome/Chromium found — install it, or set $CHROME to the browser binary."
+    )
+
+
+CHROME = find_chrome()
 
 
 class Browser:
@@ -15,7 +45,15 @@ class Browser:
         self.logs = []
 
     async def __aenter__(self):
-        self.proc = subprocess.Popen([CHROME] + ([] if self.headed else ["--headless=new"]) + [f"--remote-debugging-port={self.port}",
+        args = [CHROME] + ([] if self.headed else ["--headless=new"]) + [f"--remote-debugging-port={self.port}",
+            f"--user-data-dir={tempfile.mkdtemp()}", "--autoplay-policy=no-user-gesture-required", "--no-first-run",
+            f"--window-size={self.w},{self.h}", "about:blank"]
+        if os.geteuid() == 0 or os.environ.get("CHROME_NO_SANDBOX"):
+            # In a container or as root, Chrome's sandbox cannot start without --no-sandbox.
+            args.insert(1, "--no-sandbox")
+        self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        tabs = None
+        for _ in range(60):
             f"--user-data-dir={tempfile.mkdtemp()}", "--autoplay-policy=no-user-gesture-required", "--no-first-run",
             f"--window-size={self.w},{self.h}", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(60):

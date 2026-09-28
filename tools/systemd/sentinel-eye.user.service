@@ -1,0 +1,40 @@
+# Sample per-user systemd unit for Sentinel Eye (Linux) — no root needed.
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   sed -e "s|__DIR__|$PWD|g" tools/systemd/sentinel-eye.user.service \
+#     > ~/.config/systemd/user/sentinel-eye.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sentinel-eye
+#
+# A user unit normally stops when your last session ends. To keep Sentinel Eye running while you are logged
+# out — and to start it at boot — enable lingering once:
+#   sudo loginctl enable-linger "$USER"
+#
+# Logs: journalctl --user -u sentinel-eye -f
+#
+# Same loopback-only note as the system unit: SENTINEL_HOST=0.0.0.0 makes the dashboard reachable from your
+# LAN, and there is no login of its own.
+
+[Unit]
+Description=Sentinel Eye — Hikvision camera dashboard (live view, playback, export)
+Documentation=https://github.com/dsameendra/sentinel-eye
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__DIR__
+# ffmpeg/ffprobe are invoked by name, so PATH has to include wherever they are installed.
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment=SENTINEL_HOST=127.0.0.1
+Environment=SENTINEL_PORT=8007
+ExecStart=__DIR__/run.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+SuccessExitStatus=143
+
+[Install]
+WantedBy=default.target

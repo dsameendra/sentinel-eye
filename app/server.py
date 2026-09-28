@@ -13,8 +13,18 @@ from starlette.concurrency import run_in_threadpool
 
 import coverage
 import db
-import enhance_ai
 import export as exportmod
+
+# The AI frame enhancer is an *optional* install: its dependencies live in the commented-out section at the
+# end of requirements.txt and are added by tools/install_enhance_deps.sh, not by the base install the
+# README documents. A base install must still run everything else — only the frame-enhancer button is
+# supposed to report itself unavailable — so a missing enhancer dependency has to degrade here rather than
+# take the whole server down at import time (PIL, for one, ships only with the enhancer's dependencies).
+try:
+    import enhance_ai
+except ImportError:
+    enhance_ai = None
+
 import hikrelay
 import playback_session as psess
 import settings as cfg
@@ -30,6 +40,14 @@ def current() -> cfg.Settings:
     return state["settings"]
 
 
+def _enhance():
+    """The enhancer module, or a clear 503 when its optional dependencies aren't installed."""
+    if enhance_ai is None:
+        raise HTTPException(
+            503, "The AI frame enhancer isn't installed — run tools/install_enhance_deps.sh, then restart.")
+    return enhance_ai
+
+
 @asynccontextmanager
 async def lifespan(app):
     g = Go2rtc(current)
@@ -39,7 +57,9 @@ async def lifespan(app):
     state["playback"] = p
     await run_in_threadpool(p.start)
     await run_in_threadpool(exportmod._sweep_old_jobs)  # exports are downloads, not an archive — sweep stale ones on boot too
-    await run_in_threadpool(enhance_ai._sweep_old_jobs)  # same reasoning, same TTL pattern, separate job kind
+    if enhance_ai is not None:
+        # same reasoning, same TTL pattern, separate job kind
+        await run_in_threadpool(enhance_ai._sweep_old_jobs)
     yield
     g.stop()
     p.stop()
@@ -313,13 +333,14 @@ async def create_enhance(req: EnhanceRequest):
     if not 0.0 <= req.weight <= 1.0:
         raise HTTPException(422, "weight must be between 0 and 1")
     job_id = _secrets.token_hex(8)
-    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc, req.roi, req.weight)
+    enhance_ai_mod = _enhance()
+    enhance_ai_mod.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc, req.roi, req.weight)
     return {"job_id": job_id}
 
 
 @app.get("/api/enhance/{job_id}")
 async def enhance_status(job_id: str):
-    job = await run_in_threadpool(enhance_ai.get_job, job_id)
+    job = await run_in_threadpool(_enhance().get_job, job_id)
     if job is None:
         raise HTTPException(404, "Unknown enhance job")
     return job
@@ -327,7 +348,7 @@ async def enhance_status(job_id: str):
 
 @app.get("/api/enhance/{job_id}/result")
 async def enhance_result(job_id: str):
-    path = await run_in_threadpool(enhance_ai.result_path, job_id)
+    path = await run_in_threadpool(_enhance().result_path, job_id)
     if not path:
         raise HTTPException(404, "That enhancement isn't ready")
     return FileResponse(path, media_type="image/png", filename=f"frame_{job_id}_ENHANCED.png")
@@ -335,7 +356,7 @@ async def enhance_result(job_id: str):
 
 @app.get("/api/enhance/{job_id}/source")
 async def enhance_source(job_id: str):
-    path = await run_in_threadpool(enhance_ai.source_path, job_id)
+    path = await run_in_threadpool(_enhance().source_path, job_id)
     if not path:
         raise HTTPException(404, "That enhancement isn't ready")
     return FileResponse(path, media_type="image/png", filename=f"frame_{job_id}_source.png")
@@ -350,7 +371,7 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
     """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job.
     Synchronous: sub-second for a single image, no job/poll needed."""
     try:
-        lines = await run_in_threadpool(enhance_ai.ocr, job_id, req.which)
+        lines = await run_in_threadpool(_enhance().ocr, job_id, req.which)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except Exception as e:

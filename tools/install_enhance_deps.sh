@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # One-time setup for the AI frame enhancer (docs/SPEC.md section 7.8). Not run automatically — the feature
 # is optional, and this downloads real weight files (~1.5 GB total across PyTorch, Real-ESRGAN, GFPGAN and
 # facexlib's own detection/parsing models, the last two fetched lazily on first real use).
@@ -22,6 +22,11 @@ set -e
 cd "$(dirname "$0")/.."
 PIP=.venv/bin/pip
 PY=.venv/bin/python3
+
+# BSD sed (macOS) requires an explicit empty argument to -i; GNU sed (Linux) rejects that as a filename.
+sedi() {
+  if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi
+}
 
 echo "== torch / torchvision / opencv =="
 $PIP install torch torchvision opencv-python-headless pillow numpy --upgrade
@@ -47,8 +52,8 @@ new = """def get_version():
 assert old in s, "basicsr setup.py's get_version() has changed shape — re-check the patch"
 open(p, 'w').write(s.replace(old, new))
 PY
-sed -i '' 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' "$src/basicsr/data/degradations.py"
-sed -i '' 's/from distutils.version import LooseVersion/from packaging.version import parse as LooseVersion/' "$src/basicsr/archs/arch_util.py"
+sedi 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' "$src/basicsr/data/degradations.py"
+sedi 's/from distutils.version import LooseVersion/from packaging.version import parse as LooseVersion/' "$src/basicsr/archs/arch_util.py"
 $PIP install "$src" --no-deps --no-build-isolation
 rm -rf "$work"
 
@@ -59,8 +64,12 @@ $PIP install urllib3 idna charset_normalizer certifi   # requests' own deps (ins
 echo "== OCR (optional, separate from the AI pipeline — spec section 4a) =="
 $PIP install pytesseract
 if ! command -v tesseract >/dev/null; then
-  echo "Installing tesseract via Homebrew (needed by pytesseract)…"
-  brew install tesseract
+  case "$(uname -s)" in
+    Darwin) echo "Installing tesseract via Homebrew (needed by pytesseract)…"; brew install tesseract ;;
+    Linux)  echo "Installing tesseract via apt (needed by pytesseract)…"
+            sudo apt-get update && sudo apt-get install -y tesseract-ocr ;;
+    *)      echo "Install the 'tesseract' binary for your OS manually (needed by pytesseract)." >&2 ;;
+  esac
 fi
 
 echo "== done — first real enhance request will still download Real-ESRGAN/GFPGAN/facexlib weights (~700MB) =="

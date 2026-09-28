@@ -1,4 +1,5 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # Stop the server, go2rtc and any relay/ffmpeg it started.
+# pkill exists on macOS and Linux; the bracket trick keeps each pattern from matching this script itself.
 pkill -f "[u]vicorn --app-dir app"; pkill -f "[b]in/go2rtc"; pkill -f "[a]pp/hikrelay.py"; pkill -f "[f]fmpeg.*-f rtsp"
 exit 0

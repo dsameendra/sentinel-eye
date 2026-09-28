@@ -27,7 +27,16 @@ def source_for(s: Settings, ch, kind: str, transcode: bool = False) -> str:
         f"/Streaming/Channels/{ch.channel}{'01' if kind == 'main' else '02'}"
     cred = f"{urllib.parse.quote(c.username, safe='')}:{urllib.parse.quote(c.password, safe='')}@" if c.username else ""
     url = f"rtsp://{cred}{c.host}:{c.rtsp_port}{path}"
-    return f"ffmpeg:{url}#video=h264#hardware" if transcode else url
+    if not transcode:
+        return url
+    # go2rtc's #hardware is a hint, not a guarantee: it uses a hardware encoder where it can find one
+    # and silently falls back to software (libx264) where it can't. Observed on Linux with a working
+    # h264_nvenc present, go2rtc still chose libx264 — so on some hosts "hardware" means CPU encoding at
+    # full resolution, which is worth knowing before expecting GPU transcoding. SENTINEL_TRANSCODE_HW=0
+    # drops the flag entirely, which is the escape hatch for a host whose hardware encoder is detected
+    # but produces a broken stream.
+    hw = os.environ.get("SENTINEL_TRANSCODE_HW", "1") != "0"
+    return f"ffmpeg:{url}#video=h264" + ("#hardware" if hw else "")
 
 
 def desired_streams(s: Settings) -> dict:
