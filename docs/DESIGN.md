@@ -2,9 +2,16 @@
 name: Sentinel Eye
 description: A dark, calm operations dashboard for watching and reviewing your own Hikvision cameras — one accent color reserved for "this is live."
 colors:
-  sentinel-green: "#34d399"
-  sentinel-green-ink: "#052e22"
-  sentinel-green-soft: "rgba(52, 211, 153, 0.14)"
+  accent-blue: "#0074e8"
+  accent-blue-ink: "#ffffff"
+  accent-blue-soft: "rgba(0, 116, 232, 0.16)"
+  live-red: "#ff453a"
+  live-red-soft: "rgba(255, 69, 58, 0.16)"
+  armed-green: "#34d399"
+  armed-green-ink: "#052e22"
+  armed-green-soft: "rgba(52, 211, 153, 0.14)"
+  tamper-purple: "#bf5af2"
+  tamper-purple-soft: "rgba(191, 90, 242, 0.16)"
   gunmetal-bg: "#0b0e13"
   gunmetal-panel: "#131820"
   gunmetal-panel-2: "#1a2029"
@@ -16,13 +23,14 @@ colors:
   warn-amber: "#fbbf24"
   danger-red: "#f87171"
   danger-red-soft: "rgba(248, 113, 113, 0.14)"
-  info-blue: "#60a5fa"
+  info-teal: "#2dd4bf"
   video-tile: "#05070a"
   scrim: "rgba(0, 0, 0, 0.55)"
   ov-scrim-soft: "rgba(0, 0, 0, 0.4)"
   ov-scrim: "rgba(0, 0, 0, 0.5)"
   ov-scrim-strong: "rgba(0, 0, 0, 0.55)"
   ov-ink: "#fff"
+  ov-ink-dark: "#052e22"
   ov-roi: "rgba(59, 130, 246, 0.12)"
   ov-btn-bg: "rgba(255, 255, 255, 0.08)"
   ov-btn-bg-hover: "rgba(255, 255, 255, 0.16)"
@@ -35,31 +43,31 @@ colors:
   cam-4: "#fb923c"
 typography:
   title:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "20px"
     fontWeight: 600
     lineHeight: 1.3
     letterSpacing: "normal"
   body:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.45
     letterSpacing: "normal"
   label:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "12px"
     fontWeight: 700
     lineHeight: 1.2
     letterSpacing: "0.04em"
   small:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.4
     letterSpacing: "normal"
   micro:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "11px"
     fontWeight: 600
     lineHeight: 1.2
@@ -81,8 +89,8 @@ spacing:
   xl: "28px"
 components:
   button-primary:
-    backgroundColor: "{colors.sentinel-green}"
-    textColor: "{colors.sentinel-green-ink}"
+    backgroundColor: "{colors.accent-blue}"
+    textColor: "{colors.accent-blue-ink}"
     rounded: "{rounded.sm}"
     height: "34px"
     padding: "0 13px"
@@ -114,25 +122,30 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Watch Room"**
+**Creative North Star: "The Watch Room, Redesigned"**
 
-Sentinel Eye reads like the inside of a quiet, dark operations room: everything stays low-contrast and still at rest, built to be stared at for long unattended sessions without wearing on the eyes. Nothing is decorative. Spacing is tight, controls are compact (28–36px), numbers are tabular so they don't jitter, and the interface gets out of the way of the footage it exists to show. The one deliberate exception is color: a single accent green means "this is live, this is on, this is selected" everywhere in the app, and it is used sparingly enough that its appearance is always meaningful, never ambient. Amber and red are reserved the same way — warning and danger, never decoration. The whole system is engineered so that when something actually needs attention, it is the only colored thing on the screen.
+Redesign v2 (see `ROADMAP.md`) keeps the Watch Room's calm, low-contrast, stare-at-it-for-hours character but moves from one color carrying three meanings to four colors each carrying exactly one: a system blue for everything interactive (selected, primary, focus, in progress), red for "this is live right now," green for "this succeeded / is healthy," and amber/purple for the two event categories that need their own identity (motion, tamper). Nothing is decorative — every one of those four still only appears when it's specifically meaningful, never ambient — but status and selection no longer compete for the same pixel the way a single accent forced them to. Spacing stays tight, controls stay compact (28–36px), numbers stay tabular, and the interface still gets out of the way of the footage it exists to show.
 
-The controls themselves lean refined rather than purely mechanical: hover and pressed states get real (if subtle) treatment — brightness shifts, soft accent washes, ring outlines — so the density reads as considered, not thrown together.
+The controls themselves lean refined rather than purely mechanical: hover and pressed states get real (if subtle) treatment — brightness shifts, soft accent washes, ring outlines, a couple of places real spring motion — so the density reads as considered, not thrown together.
 
 **Key Characteristics:**
 - Dark by default (`color-scheme: dark`), with a fully-specified light theme as a first-class alternate, not an afterthought.
-- One accent color, used for state (live/selected/primary), never for branding flourish.
+- Four semantic colors, each with exactly one job: blue = interactive, red = live, green = success/healthy, amber/purple = event category. Never mixed, never decorative.
 - Flat surfaces at rest; shadow appears only on things that float above the normal layout.
 - Small, functional type scale — no hero/display type anywhere; this is an instrument panel, not a marketing page.
 - Tabular numerals on every timestamp, clock, duration, zoom percentage, and count.
 
 ## Colors
 
-A near-monochrome gunmetal-dark UI with exactly one accent hue. Every other color (amber, red, blue) is semantic, not decorative, and appears only for its specific meaning.
+A near-monochrome gunmetal-dark UI with four semantic hues, each scoped to exactly one meaning — never decorative, never doubled up.
 
-### Primary
-- **Sentinel Green** (`#34d399` dark theme / `#048059` light theme): live status, primary buttons, selected/active nav and tabs, focus rings, selection state, "HD" tag, zoom badge. Text-on-accent uses **Sentinel Green Ink** (`#052e22` dark / `#fff` light). A low-opacity wash, **Sentinel Green Soft** (`rgba(52,211,153,.14)` dark / `rgba(4,128,89,.12)` light), marks the "currently selected/active" background for nav items, pressed buttons, and cards. Light theme's value is deliberately darker than dark theme's — audited directly (WCAG relative-luminance formula, not eyeballed): the original `#059669` cleared only 3.77:1 as white button text and 3.45:1 as text-on-background, both under the 4.5:1 AA floor for normal text; `#048059` is the minimum darkening (same hue/saturation) that clears 4.5:1 in both roles.
+### Primary — interactive
+- **Accent Blue** (`#0074e8` dark theme / `#0072ef` light theme): primary buttons, selected/active nav and tabs, focus rings, selection state, the layout/quality picker's pressed state, drag-target highlight, zoom badge — anything that is interactive, selected, or the primary action in its group. Text-on-accent is white (**Accent Blue Ink**, `#ffffff`) in both themes. A low-opacity wash, **Accent Blue Soft** (`rgba(0,116,232,.16)` dark / `rgba(0,114,239,.12)` light), marks the "currently selected/active" background for nav items, pressed buttons, and cards. Both theme values are the minimum darkening (same hue/saturation, WCAG relative-luminance formula, not eyeballed) off Apple's own system blue that clears 4.5:1 as white button text: dark theme's `#0A84FF` only cleared 3.65:1 on its own; light theme's `#007AFF` only cleared 4.02:1.
+
+### Status — one meaning each
+- **Live Red** (`#ff453a` dark / `#ff3b30` light): the one and only "this is live right now" signal — the live dot, nothing else. Matches the near-universal recording-indicator convention (camcorder tally lights, video-call recording dots) and, now that blue carries "selected," can never be confused with it the way a shared accent could. A pulsing dot has no text-contrast requirement to audit; the value is Apple's own dark/light system red, used as-is.
+- **Armed Green** (`#34d399` dark / `#048059` light): "this succeeded, this is healthy, this is connected" — a passed connection test, an "ok" status badge, a success toast. This is the exact value the single accent used to carry pre-redesign (already WCAG-AA audited: the original `#059669` cleared only 3.77:1 as white button text and 3.45:1 as text-on-background, both under the 4.5:1 AA floor; `#048059` is the minimum darkening that clears 4.5:1 in both roles) — narrowed to this one meaning now that it no longer also means "selected" or "live." Text-on-fill uses **Armed Green Ink** (`#052e22` dark / `#fff` light); the wash is **Armed Green Soft** (`rgba(52,211,153,.14)` dark / `rgba(4,128,89,.12)` light).
+- **Tamper Purple** (`#bf5af2` dark / `#af52de` light): tamper events specifically, where they get their own themed treatment (distinct from the On-Video family's fixed `--ov-danger` used for tamper/video-loss badges painted on footage — see below). Previously tamper reused Danger Red directly; purple keeps "a camera was physically tampered with" visually distinct from both "a destructive action" and "this is live."
 
 ### Neutral — "Gunmetal Night"
 Cool, dark blue-black grays that carry almost the entire UI; the light theme swaps in an equivalent light gray-blue family at the same structural roles.
@@ -148,12 +161,12 @@ Cool, dark blue-black grays that carry almost the entire UI; the light theme swa
 ### Semantic
 - **Warn Amber** (`#fbbf24` dark / `#b45309` light): warning states only (e.g. a pending/waiting connection dot, storage-pool warnings).
 - **Danger Red** (`#f87171` dark / `#da2323` light) + **Danger Red Soft** wash: destructive actions, offline/error states, form validation errors. Light theme's value was audited and darkened from `#dc2626` (4.42:1 against the light background, just under the 4.5:1 AA floor) to `#da2323` (4.53:1).
-- **Info Blue** (`#60a5fa` dark / `#2563eb` light): reserved, low-frequency informational accent (kept distinct from Sentinel Green so it never reads as "live").
+- **Info Teal** (`#2dd4bf` dark / `#0d9488` light): reserved, low-frequency informational accent — not actually used anywhere in the UI yet. Shifted off its original blue (`#60a5fa`/`#2563eb`) in redesign v2 specifically because that blue now collides with Accent Blue; teal keeps it genuinely distinct whenever something does reach for it.
 
 ### On-Video Overlay (theme-invariant)
 Chrome painted directly over live camera footage — tile/focus overlays, event badges, ROI boxes, playback's floating transport buttons. The video underneath never re-themes, so this whole family is fixed across light and dark rather than switching with the rest of the UI — switching would read as broken, not adaptive. Consolidated here (audited, not assumed) from what were several slightly-different ad-hoc opacities scattered through the stylesheet; every value is unchanged, only centralized and named.
 - **Ov Scrim Soft / Ov Scrim / Ov Scrim Strong** (`rgba(0,0,0,.4)` / `.5` / `.55`): gradient washes and dark overlays behind on-video text and controls (tile name bar, event veils, ROI dimming).
-- **Ov Ink** (`#fff`): text/icon color on the dark chips and badges above (tile action buttons, event badges, nav arrows, pane labels). Not used for the toggle switch's knob, which is a separate, non-video, always-white UI element.
+- **Ov Ink / Ov Ink Dark** (`#fff` / `#052e22`): text/icon color on the dark chips and badges above (tile action buttons, event badges, nav arrows, pane labels) — Ov Ink Dark is the rare exception for a *bright* on-video badge (the motion event badge, `--ev-motion` gold) where white text fails contrast outright (1.92:1); it's its own theme-invariant token rather than reusing a themed ink color, since those flip to white in light theme and would fail the exact same way there too. Ov Ink is not used for the toggle switch's knob, which is a separate, non-video, always-white UI element.
 - **Ov Btn Bg / Ov Btn Bg Hover** (`rgba(255,255,255,.08)` / `.16`): translucent white button fills for controls floating on video (playback's transport bar, `.tag`).
 - **Ov Roi** (`rgba(59,130,246,.12)`): the draggable region-of-interest box fill (frame enhancer, Playback).
 - **Ov Danger** (`#dc2626`): tamper/video-loss event badges specifically — fixed rather than reusing Danger Red, since a badge over a clip shouldn't shift color when the operator's app theme does, and this predates (and no longer numerically matches) either theme's Danger Red.
@@ -169,11 +182,11 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 
 ### Named Rules
 **The On-Video Invariance Rule.** Anything painted directly over live footage (badges, overlays, ROI boxes, floating transport controls) stays fixed across light/dark theme — the video itself never re-themes, so its chrome shouldn't either. Everything else in this document does adapt per theme; this is the one deliberate exception.
-**The Single Accent Rule.** Sentinel Green is the only color used for emphasis, selection, or primary action. If a control isn't live, active, selected, or the primary action in its group, it does not get colored — it stays gunmetal/muted.
+**The One-Job-Per-Color Rule.** Accent Blue is the only color used for emphasis, selection, or primary action — if a control isn't active, selected, or the primary action in its group, it does not get colored, it stays gunmetal/muted. Live Red, Armed Green and Tamper Purple are each scoped the same way to their own single status meaning; none of the four ever stands in for another, and none is used decoratively.
 
 ## Typography
 
-**Body/UI Font:** Inter (with `ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`)
+**Body/UI Font:** the system font (`-apple-system`/San Francisco on macOS and iOS, Segoe UI on Windows, Roboto on Android/ChromeOS), falling back to Inter on anything with none of those — redesign v2, was Inter alone.
 
 **Character:** One typeface for everything — no serif, no display face, no mono except for the odd `<kbd>` hint. The hierarchy is carried entirely by size, weight, and color (muted vs. primary text), not by a second font.
 
@@ -225,15 +238,15 @@ Controls stay compact and restrained: real but understated hover/pressed feedbac
 
 ### Buttons
 - **Shape:** 8px radius, 34px height (28px in the `.sm` variant), icon-only variants are square (34px/28px).
-- **Primary:** Sentinel Green background, Sentinel Green Ink text, 600 weight — the one emphasized action in a group.
+- **Primary:** Accent Blue background, Accent Blue Ink (white) text, 600 weight — the one emphasized action in a group.
 - **Secondary (default `.btn`):** Gunmetal Panel-2 background, 1px Gunmetal Line-2 border, primary text color.
 - **Ghost:** transparent background and border, muted text; fills to Panel-2 + primary text on hover.
-- **Hover / Pressed:** primary brightens (`filter: brightness(1.08)`); secondary/ghost border or background shifts toward Line/Panel-2; a toggled/pressed button (`aria-pressed="true"`) takes the Sentinel Green Soft wash with a Sentinel Green border and text.
+- **Hover / Pressed:** primary brightens (`filter: brightness(1.08)`); secondary/ghost border or background shifts toward Line/Panel-2; a toggled/pressed button (`aria-pressed="true"`) takes the Accent Blue Soft wash with an Accent Blue border and text.
 
 ### Pills, Tags & Badges
 - **Pill (status chip):** Panel-2 background, 1px Line border, full radius, muted text, 24px tall — used for connection status, quality/HD tags on tiles, and filter-active indicators.
-- **Event Badge:** solid, slightly translucent dark chip (`rgba(15,20,28,.82)` + blur) that floats over video — Sentinel Green for motion, red for tamper/video-loss, amber-orange for line-crossing. White text always, since it sits on live footage.
-- **Toggle Switch:** 38×22px full-round track, Line-2 when off, Sentinel Green when on, white knob — the only binary control style in the system (no separate checkbox skin for on/off settings).
+- **Event Badge:** solid, slightly translucent dark chip (`rgba(15,20,28,.82)` + blur) that floats over video — Ev Motion gold (with dark Ov Ink Dark text, the one badge that needs it) for motion, Ov Danger red for tamper/video-loss, amber-orange for line-crossing. White text otherwise, since it sits on live footage.
+- **Toggle Switch:** 38×22px full-round track, Line-2 when off, Accent Blue when on, white knob — the only binary control style in the system (no separate checkbox skin for on/off settings).
 
 ### Cards / Containers
 - **Corner Style:** 12px radius.
@@ -244,26 +257,26 @@ Controls stay compact and restrained: real but understated hover/pressed feedbac
 
 ### Inputs / Fields
 - **Style:** Gunmetal Bg background, 1px Line-2 border, 8px radius, 36px height.
-- **Focus:** system focus ring (2px Sentinel Green outline, 2px offset) via `:focus-visible`.
+- **Focus:** system focus ring (2px Accent Blue outline, 2px offset) via `:focus-visible`.
 - **Hover:** border brightens to Faint.
 - **Error / Disabled:** invalid inputs get a Danger Red border; disabled inputs drop to 50% opacity with a Panel-2 fill.
 
 ### Navigation
-- **Style:** flat icon+label links, 8px radius, muted text at rest, Sentinel Green Soft background + Sentinel Green text when the current page (`aria-current="page"`) — same active-state language used across topbar nav, settings side rail, and segmented view controls.
+- **Style:** flat icon+label links, 8px radius, muted text at rest, Accent Blue Soft background + Accent Blue text when the current page (`aria-current="page"`) — same active-state language used across topbar nav, settings side rail, and segmented view controls.
 
 ### Signature Component — The Eye Mark
-A 26×26px dark square (Gunmetal `#111827`, 8px radius) containing a ring-and-dot iris drawn entirely in Sentinel Green (2.5px ring, solid center dot) — the product's mark, reused unchanged as the browser favicon. It's the only place the accent is used purely as identity rather than state, and it should stay that way: a single green iris on a dark square, nothing more.
+A 26×26px dark square (Gunmetal `#111827`, 8px radius) containing a ring-and-dot iris drawn entirely in Accent Blue (2.5px ring, solid center dot) — the product's mark, reused unchanged as the browser favicon. It's the only place the accent is used purely as identity rather than state, and it should stay that way: a single blue iris on a dark square, nothing more.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** treat Sentinel Green as a state signal first — reach for it when something is live, selected, primary, or on; not as a general brand color to sprinkle around.
+- **Do** treat each of the four semantic colors as a state signal first — reach for Accent Blue when something is selected, primary, or on; Live Red only for live status; Armed Green only for success/healthy; never as general brand color to sprinkle around.
 - **Do** keep numeric displays (clocks, timestamps, durations, percentages, counts) on tabular numerals.
 - **Do** keep containers flat with a 1px border; reserve the Float shadow strictly for popovers, dialogs, toasts, and the save bar.
 - **Do** use full-round shape only for status/selection chips and toggles, never for content containers.
 
 ### Don't:
-- **Don't** introduce a second accent hue for "brand" purposes — amber/red/blue are semantic-only and Sentinel Green already carries all positive/selected/live meaning.
+- **Don't** introduce a fifth semantic hue for "brand" purposes — warn-amber, danger-red and info-teal stay semantic-only, and the four redesign-v2 colors already cover interactive/live/success/event-category meaning between them.
 - **Don't** add shadow to any surface that's part of the normal page flow (cards, tiles, panels, topbar) — that's reserved for floating layers only.
 - **Don't** add a display/hero type size anywhere; this is an Operate-mode instrument panel, not a marketing surface, and the type scale stays functional.
 - **Don't** widen the touch/click targets or padding much past the current compact scale (28–36px control heights) — density is a deliberate trait of a screen meant for long monitoring sessions, not a gap to close.

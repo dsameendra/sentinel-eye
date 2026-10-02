@@ -2,10 +2,40 @@
   color-scheme: dark;
   --bg: #0b0e13; --panel: #131820; --panel-2: #1a2029; --line: #262e3a; --line-2: #313b4a;
   --text: #e7ebf1; --muted: #8b97a8; --faint: #5c6878;
-  --accent: #34d399; --accent-ink: #052e22; --accent-soft: rgba(52, 211, 153, .14);
-  --warn: #fbbf24; --danger: #f87171; --danger-soft: rgba(248, 113, 113, .14); --info: #60a5fa;
+  /* Accent switched from Sentinel Green to a system blue (redesign v2) — darkened from the iOS dark-mode
+   * system blue #0A84FF to #0074E8, the minimum darkening (same hue/saturation, WCAG relative-luminance
+   * formula) that clears 4.5:1 for white text, exactly the same method DESIGN.md's green audit used (#0A84FF
+   * itself only cleared 3.65:1). Blue now means "interactive: selected, primary action, focus, in progress" —
+   * a narrower, purely-interactive meaning. The three meanings it used to carry alongside that (recording/
+   * live, success/healthy, motion event) each get their own token below instead of sharing one color three
+   * different ways. */
+  --accent: #0074e8; --accent-ink: #ffffff; --accent-soft: rgba(0, 116, 232, .16);
+  /* Recording/live status specifically — was Sentinel Green before this redesign. Red matches the near-
+   * universal recording-indicator convention (camcorder/broadcast tally lights, Zoom/Meet/Teams' own
+   * recording dot) and, now that blue carries "selected," keeps live status from being confused with it.
+   * Apple's dark-mode system red, used as-is (a pulsing dot has no text-contrast requirement to audit). */
+  --live: #ff453a; --live-soft: rgba(255, 69, 58, .16);
+  /* Success/healthy/armed — the old Sentinel Green value, carried over unchanged (still fully WCAG-AA
+   * audited, see DESIGN.md's original note) but now scoped to exactly that meaning: a test that passed, a
+   * connection that's healthy, an "ok" badge — not live status and not the interactive accent. */
+  --armed: #34d399; --armed-ink: #052e22; --armed-soft: rgba(52, 211, 153, .14);
+  /* Tamper events specifically (Events/timeline) — previously folded into --danger red; purple keeps it
+   * visually distinct from both "destructive action" and "live" red at a glance, matching the dedicated
+   * category operators actually filter on. Apple's system purple. */
+  --tamper: #bf5af2; --tamper-soft: rgba(191, 90, 242, .16);
+  --warn: #fbbf24; --danger: #f87171; --danger-soft: rgba(248, 113, 113, .14); --info: #2dd4bf; /* teal — shifted off its old blue (#60a5fa) in redesign v2, now that --accent is blue too; still unused anywhere, kept reserved and merely non-colliding */
   --tile: #05070a; --shadow: 0 10px 30px rgba(0, 0, 0, .45);
   --r: 10px; --bar: 52px;
+  /* Formal radius scale (redesign v2) — DESIGN.md already specified these exact pixel values per component;
+   * this just gives them names so new/changed rules can reference the scale instead of a bare number.
+   * Existing rules using a literal 5/7/8/9/10/12/14px radius are unchanged (same value either way) and can
+   * migrate to these opportunistically, not as a required rename. */
+  --r-xs: 5px; --r-sm-tight: 7px; --r-sm: 8px; --r-sm-wide: 9px; --r-md: 10px; --r-lg: 12px; --r-xl: 14px; --r-full: 999px;
+  /* Motion curves (redesign v2) — formalizes the .15s/.2s/.22s durations already used throughout this file
+   * under one scale, plus two new easings for places gesture-driven or confirming motion genuinely benefits
+   * from them (drag release, a toggled confirmation) — see MOTION.md for which curve goes where and why. */
+  --dur-fast: .15s; --dur-base: .2s; --dur-slow: .22s;
+  --ease-out-expo: cubic-bezier(.16, 1, .3, 1); --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
   /* Timeline (timeline.js): event-kind and per-camera-lane colours. Qualitative/categorical, not semantic
    * state, so they intentionally don't get separate light-theme values (their job is telling lanes/kinds
    * apart, not matching light/dark mood) — defined once here, read via getComputedStyle at draw time so
@@ -20,7 +50,7 @@
    * file (audited, not assumed — the previous values are unchanged, this only names and centralizes the
    * ones that were exact duplicates in three or more places). See DESIGN.md's Colors section. */
   --ov-scrim-soft: rgba(0, 0, 0, .4); --ov-scrim: rgba(0, 0, 0, .5); --ov-scrim-strong: rgba(0, 0, 0, .55);
-  --ov-ink: #fff; --ov-roi: rgba(59, 130, 246, .12);
+  --ov-ink: #fff; --ov-ink-dark: #052e22; --ov-roi: rgba(59, 130, 246, .12);
   --ov-btn-bg: rgba(255, 255, 255, .08); --ov-btn-bg-hover: rgba(255, 255, 255, .16);
   --ov-danger: #dc2626; /* on-video tamper/video-loss badges — fixed, not --danger: badges over the same
    * clip shouldn't change colour when the operator's app theme does, and this predates and no longer
@@ -29,25 +59,39 @@
    * above even though it happens to share .55's exact opacity today; kept as its own token rather than
    * folded into --ov-scrim-strong so the two can diverge later without one accidentally dragging the other. */
   --scrim: rgba(0, 0, 0, .55);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* System font stack (redesign v2, was Inter alone) — reads as native on macOS/iOS/iPadOS first, falls
+   * through to each other platform's own UI font (Segoe UI on Windows, Roboto on Android/ChromeOS), with
+   * Inter kept as the last resort for any platform with none of those. */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Inter, ui-sans-serif, system-ui, sans-serif;
 }
 /* Light theme values below are the darkest each hue can go while keeping its identity (same hue/
    saturation, only lightness reduced), tuned to the minimum shift that clears WCAG AA — verified directly
-   against every real usage (button-fill text, text-on-bg, text-on-panel), not eyeballed: accent #059669 ->
-   #048059 (was 3.77:1 as white button text, 3.45:1 as text-on-bg; now 4.96/4.54), faint #8f9bab -> #808ea0
-   (was 2.58:1, below even the 3:1 UI-component floor; now 3.05), danger #dc2626 -> #da2323 (was 4.42:1
-   text-on-bg, just under AA; now 4.53). Dark theme (the default) already cleared AA on every pair checked. */
+   against every real usage (button-fill text, text-on-bg, text-on-panel), not eyeballed: accent (blue,
+   redesign v2) #007AFF -> #0072EF (was 4.02:1 as white button text; now 4.51), armed (was the dark-theme
+   default accent) #059669 -> #048059 (was 3.77:1 as white button text, 3.45:1 as text-on-bg; now 4.96/4.54),
+   faint #8f9bab -> #808ea0 (was 2.58:1, below even the 3:1 UI-component floor; now 3.05), danger #dc2626 ->
+   #da2323 (was 4.42:1 text-on-bg, just under AA; now 4.53). Dark theme (the default) already cleared AA on
+   every pair checked — including the new blue accent and red live/purple tamper added in redesign v2. */
 :root[data-theme="light"] { color-scheme: light; --bg: #f3f5f8; --panel: #fff; --panel-2: #f0f3f7; --line: #dfe4ec; --line-2: #c9d1dd;
-  --text: #16202e; --muted: #5d6b7e; --faint: #808ea0; --accent: #048059; --accent-ink: #fff; --accent-soft: rgba(4, 128, 89, .12);
-  --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #2563eb; --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
+  --text: #16202e; --muted: #5d6b7e; --faint: #808ea0;
+  --accent: #0072ef; --accent-ink: #fff; --accent-soft: rgba(0, 114, 239, .12);
+  --live: #ff3b30; --live-soft: rgba(255, 59, 48, .12);
+  --armed: #048059; --armed-ink: #fff; --armed-soft: rgba(4, 128, 89, .12);
+  --tamper: #af52de; --tamper-soft: rgba(175, 82, 222, .14);
+  --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) { color-scheme: light; --bg: #f3f5f8; --panel: #fff; --panel-2: #f0f3f7; --line: #dfe4ec; --line-2: #c9d1dd;
-    --text: #16202e; --muted: #5d6b7e; --faint: #808ea0; --accent: #048059; --accent-ink: #fff; --accent-soft: rgba(4, 128, 89, .12);
-    --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #2563eb; --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
+    --text: #16202e; --muted: #5d6b7e; --faint: #808ea0;
+    --accent: #0072ef; --accent-ink: #fff; --accent-soft: rgba(0, 114, 239, .12);
+    --live: #ff3b30; --live-soft: rgba(255, 59, 48, .12);
+    --armed: #048059; --armed-ink: #fff; --armed-soft: rgba(4, 128, 89, .12);
+    --tamper: #af52de; --tamper-soft: rgba(175, 82, 222, .14);
+    --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
 }
+@media (prefers-reduced-motion: reduce) { :root { --dur-fast: 0s; --dur-base: 0s; --dur-slow: 0s; } }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; accent-color: var(--accent); } /* browser-default form controls (range sliders, radios) otherwise render in the browser's own blue, not Sentinel Green — checkboxes already set this per-element (kept, redundant but harmless), sliders never did */
+body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; accent-color: var(--accent); } /* browser-default form controls (range sliders, radios) otherwise render in the browser's own default blue, which happened to roughly match pre-redesign too — now it's this app's own accent blue, not a coincidence; checkboxes already set this per-element (kept, redundant but harmless), sliders never did */
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -95,7 +139,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    pill just staying narrow, which is what actually happens to everything else in a flex row by default. */
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
-.dot.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dot.live { background: var(--live); box-shadow: 0 0 0 3px var(--live-soft); animation: pulse-live 1.8s ease-in-out infinite; }
+@keyframes pulse-live { 50% { opacity: .55; } }
 .dot.wait { background: var(--warn); animation: pulse 1.2s infinite; }
 .dot.off { background: var(--danger); }
 @keyframes pulse { 50% { opacity: .35; } }
@@ -187,7 +232,9 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .ov .name { font-weight: 600; text-shadow: 0 1px 2px #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ov .grow { flex: 1; }
 .tag { padding: 1px 6px; border-radius: 5px; background: var(--ov-btn-bg-hover); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
-.tag.hd { background: var(--accent); color: var(--accent-ink); }
+/* HD used to get the accent color here, which is now purely interactive-selection blue — a resolution tag
+ * isn't a selection, so it drops to the same neutral chip as SD instead of competing with real status/
+ * selection color for attention. */
 /* Small "a live filter is active here" indicator — same pill style as HD/SD so it reads as part of the
    same family of at-a-glance badges, icon-only + accent-colored so it's distinct at this size. */
 .tag.fx { display: inline-flex; align-items: center; padding: 2px 5px; color: var(--accent); }
@@ -236,7 +283,12 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .grip { display: none; align-items: center; justify-content: center; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; gap: 4px; }
 .ev-badges { position: absolute; left: 8px; top: 34px; z-index: 5; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; pointer-events: none; }
 .ev-badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: #fff; background: rgba(15, 20, 28, .82); backdrop-filter: blur(6px); box-shadow: 0 2px 8px var(--ov-scrim-soft); }
-.ev-badge.motion { background: var(--accent); color: var(--accent-ink); }
+/* --ev-motion against white (the base .ev-badge text color) measures 1.92:1 — badly fails — so this is the
+ * one ev-badge that also overrides text color, to --ov-ink-dark (7.71:1 here). Theme-invariant like the rest
+ * of the --ov-* family, not --armed-ink, since that flips to white in light theme and would fail the same
+ * way. Matches the timeline's own motion-span color exactly, now that --accent no longer doubles as
+ * "motion" the way it briefly did pre-redesign. */
+.ev-badge.motion { background: var(--ev-motion); color: var(--ov-ink-dark); }
 .ev-badge.tamper, .ev-badge.videoloss { background: var(--ov-danger); }
 .ev-badge.line { background: #d97706; }
 
@@ -315,7 +367,7 @@ input.invalid { border-color: var(--danger); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .toggle-row { display: flex; align-items: center; gap: 12px; }
 .result { margin-top: 12px; padding: 11px 13px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; display: flex; gap: 10px; align-items: flex-start; }
-.result.ok { border-color: var(--accent); background: var(--accent-soft); }
+.result.ok { border-color: var(--armed); background: var(--armed-soft); }
 .result.bad { border-color: var(--danger); background: var(--danger-soft); }
 .result b { font-weight: 600; }
 .tbl-scroll { overflow-x: auto; margin: 0 -1px; } /* scrolls the table itself on narrow screens instead of crushing its columns unreadably — see the mobile section at the end of this file */
@@ -349,7 +401,7 @@ kbd { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); bac
 /* ---------- toasts & modal ---------- */
 #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toast { max-width: 380px; padding: 10px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow); display: flex; gap: 10px; align-items: flex-start; animation: rise .18s ease-out; }
-.toast.ok { border-left: 3px solid var(--accent); } .toast.bad { border-left: 3px solid var(--danger); }
+.toast.ok { border-left: 3px solid var(--armed); } .toast.bad { border-left: 3px solid var(--danger); }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 /* overflow-y: auto matters whenever a dialog's own content (the export dialog's two full calendars, most
    notably) is taller than a phone's viewport — without it the excess just spilled past the fixed/inset:0
@@ -979,7 +1031,7 @@ html.tv-mode .auth-card input[type=text], html.tv-mode .auth-card input[type=pas
 .acct-menu .head { padding: 6px 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; color: var(--muted); font-size: 12.5px; }
 .acct-menu .head b { display: block; color: var(--text); font-size: 13.5px; }
 .badge { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 99px; font-size: 11.5px; font-weight: 600; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
-.badge.ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.badge.ok { color: var(--armed); border-color: var(--armed); background: var(--armed-soft); }
 .badge.warn { color: var(--warn); border-color: var(--warn); }
 
 /* ---------- account dialog + security tab ---------- */
