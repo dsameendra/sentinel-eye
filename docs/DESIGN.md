@@ -208,13 +208,14 @@ Spacing is tight and functional rather than airy: card padding is 18–20px, pan
 
 ## Elevation & Depth
 
-Flat by default. Panels, cards, tiles, and the topbar sit at the same visual depth as their background — a single 1px border (`Gunmetal Line`) is the only separation, no shadow. Depth is reserved entirely for layers that float above the normal document flow: popover menus, modal dialogs, toasts, and the settings save bar all get the same shadow token.
+Flat at rest. Panels, cards, tiles, and the topbar sit at the same visual depth as their background — a single 1px border (`Gunmetal Line`) is the only separation, no shadow. Depth is otherwise reserved for layers that float above the normal document flow (popover menus, modal dialogs, toasts, the settings save bar) and, since redesign v2, for the one in-flow element that lifts in direct response to a pointer: a hovered live-grid tile.
 
 ### Shadow Vocabulary
-- **Float** (`box-shadow: 0 10px 30px rgba(0,0,0,.45)` dark / `0 10px 30px rgba(16,24,40,.14)` light): the one shadow in the system. Used on `.menu`, `.dialog`, `.toast`, the settings `.savebar`, and small floating pills (zoom tag, jump-to-playhead) that need to read above video content.
+- **Float** (`box-shadow: 0 10px 30px rgba(0,0,0,.45)` dark / `0 10px 30px rgba(16,24,40,.14)` light): the floating-chrome shadow. Used on `.menu`, `.dialog`, `.toast`, the settings `.savebar`, and small floating pills (zoom tag, jump-to-playhead) that need to read above video content.
+- **Hover-Lift** (`--shadow-float`; `box-shadow: 0 14px 32px -6px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.4)` dark / `0 14px 32px -6px rgba(16,24,40,.22), 0 2px 10px rgba(16,24,40,.14)` light, paired with `transform: translateY(-2px)`): a live-grid tile under a real pointer (`.tile:hover`, gated on `(hover: hover)` so it never half-triggers on touch). Distinct from Float — this is in-flow content responding to attention, not chrome floating above the layout — hence its own token rather than reuse of Float.
 
 ### Named Rules
-**The Floating-Only Shadow Rule.** If it's part of the normal page layout, it's flat with a border. If it floats above the layout (menu, dialog, toast, save bar), it gets the Float shadow. Nothing in between.
+**The Floating-Only Shadow Rule.** If it's part of the normal page layout at rest, it's flat with a border. A layer floats above the page (menu, dialog, toast, save bar) → Float. A live-grid tile has the pointer directly on it → Hover-Lift, and only while the pointer stays there. Nothing else gets a shadow.
 
 ## Shapes
 

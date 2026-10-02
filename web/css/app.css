@@ -25,6 +25,11 @@
   --tamper: #bf5af2; --tamper-soft: rgba(191, 90, 242, .16);
   --warn: #fbbf24; --danger: #f87171; --danger-soft: rgba(248, 113, 113, .14); --info: #2dd4bf; /* teal — shifted off its old blue (#60a5fa) in redesign v2, now that --accent is blue too; still unused anywhere, kept reserved and merely non-colliding */
   --tile: #05070a; --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  /* Hover-lift shadow (redesign v2) — the one new elevation case approved alongside the blue accent: a tile
+   * or card that's actively being hovered (about to be acted on) lifts 2px and casts this, distinct from
+   * --shadow's menu/toast/dialog "floating above everything" role. Tuned darker than the mockup's value for
+   * this app's near-black --tile background, where the mockup's lighter rgba(0,0,0,.5) nearly disappeared. */
+  --shadow-float: 0 14px 32px -6px rgba(0, 0, 0, .55), 0 2px 10px rgba(0, 0, 0, .4);
   --r: 10px; --bar: 52px;
   /* Formal radius scale (redesign v2) — DESIGN.md already specified these exact pixel values per component;
    * this just gives them names so new/changed rules can reference the scale instead of a bare number.
@@ -78,7 +83,8 @@
   --live: #ff3b30; --live-soft: rgba(255, 59, 48, .12);
   --armed: #048059; --armed-ink: #fff; --armed-soft: rgba(4, 128, 89, .12);
   --tamper: #af52de; --tamper-soft: rgba(175, 82, 222, .14);
-  --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
+  --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14);
+  --shadow-float: 0 14px 32px -6px rgba(16, 24, 40, .22), 0 2px 10px rgba(16, 24, 40, .14); }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) { color-scheme: light; --bg: #f3f5f8; --panel: #fff; --panel-2: #f0f3f7; --line: #dfe4ec; --line-2: #c9d1dd;
     --text: #16202e; --muted: #5d6b7e; --faint: #808ea0;
@@ -86,7 +92,8 @@
     --live: #ff3b30; --live-soft: rgba(255, 59, 48, .12);
     --armed: #048059; --armed-ink: #fff; --armed-soft: rgba(4, 128, 89, .12);
     --tamper: #af52de; --tamper-soft: rgba(175, 82, 222, .14);
-    --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14); }
+    --warn: #b45309; --danger: #da2323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14);
+    --shadow-float: 0 14px 32px -6px rgba(16, 24, 40, .22), 0 2px 10px rgba(16, 24, 40, .14); }
 }
 @media (prefers-reduced-motion: reduce) { :root { --dur-fast: 0s; --dur-base: 0s; --dur-slow: 0s; } }
 * { box-sizing: border-box; }
@@ -113,7 +120,13 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; min-width: 190px; text-align: right; white-space: nowrap; }
 
 /* ---------- buttons & controls ---------- */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); font-weight: 500; white-space: nowrap; }
+/* Height 36px (was 34, redesign v2) — the one sizing change approved alongside the blue accent and
+   hover-lift shadow: a touch away from the mockup's own 36px .btn-icon, still well clear of .topbar's 52px
+   and every sidebar/pane that was already sized around 34px (2px of slack was already there everywhere
+   checked). .btn.sm (28px, dense contexts: segmented controls, toolbars already tight on width) is
+   unchanged on purpose — this is about the primary/default button size reading a little more generous, not
+   a blanket scale-up. */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 13px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); font-weight: 500; white-space: nowrap; }
 .btn:hover { border-color: var(--faint); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -126,7 +139,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .btn.danger { color: var(--danger); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--panel-2); color: var(--text); }
-.btn.icon { width: 34px; padding: 0; }
+.btn.icon { width: 36px; padding: 0; }
 .btn.sm { height: 28px; padding: 0 9px; font-size: 13px; }
 .btn.sm.icon { width: 28px; padding: 0; }
 .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
@@ -189,7 +202,13 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .pager .dots button { width: 8px; height: 8px; padding: 0; border-radius: 50%; border: 0; background: var(--line-2); }
 .pager .dots button[aria-current="true"] { background: var(--accent); }
 .wall { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; }
-.tile { position: relative; min-width: 0; min-height: 0; background: var(--tile); border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.tile { position: relative; min-width: 0; min-height: 0; background: var(--tile); border-radius: 8px; overflow: hidden; border: 1px solid var(--line); transition: transform var(--dur-base) var(--ease-out-expo), box-shadow var(--dur-base) var(--ease-out-expo); }
+/* Hover-lift (redesign v2) — the grid's one departure from the Flat-By-Default Rule. Scoped to :hover (a
+ * real pointer resting on a specific tile), not :focus-within or touch's always-on equivalent, since a lift
+ * that can't settle back down mid-interaction would read as broken rather than responsive — see the
+ * hover-reveal media query right below, which this intentionally does NOT join. */
+.editing .tile:hover, .tile.in-focus:hover { transform: none; box-shadow: none; }
+@media (hover: hover) { .tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-float); z-index: 2; } }
 .tile.empty { display: grid; place-items: center; color: var(--faint); border-style: dashed; background: transparent; }
 /* a grid tile on loan to the large view: its own chrome (click-to-focus hitzone, name bar, buttons) is
    replaced by the focus view's — the tile itself (and its live connection) keeps running underneath */
@@ -247,9 +266,9 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    laid-out position regardless of who ends up visually clipping it — the fix is giving the layout itself a
    real ceiling, not just hoping overflow catches it). justify-content keeps the toggle pinned to the right
    edge whether collapsed or expanded, same as before. */
-.tile-actions { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 4px; opacity: 0; pointer-events: none; transition: opacity .15s; }   /* hidden buttons must not swallow clicks */
-.tile:hover .tile-actions, .tile:focus-within .tile-actions { opacity: 1; pointer-events: auto; }
-@media (hover: none) { .tile-actions { opacity: 1; pointer-events: auto; } }
+.tile-actions { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 4px; opacity: 0; transform: translateY(-3px); pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out-expo), transform var(--dur-fast) var(--ease-out-expo); }   /* hidden buttons must not swallow clicks */
+.tile:hover .tile-actions, .tile:focus-within .tile-actions { opacity: 1; transform: translateY(0); pointer-events: auto; }
+@media (hover: none) { .tile-actions { opacity: 1; transform: none; pointer-events: auto; } }
 .tile-actions button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; border: 0; background: rgba(15, 20, 28, .82); color: #fff; backdrop-filter: blur(6px); flex: none; }
 .tile-actions button:hover { background: var(--accent); color: var(--accent-ink); }
 .tile-actions button.txt { width: auto; padding: 0 8px; font-size: 11.5px; font-weight: 700; }
