@@ -264,8 +264,12 @@ export class LiveView {
   _healthHTML() {
     const total = this.tiles.length, n = this.liveCount ?? 0;
     const all = total > 0 && n === total;
-    const label = all ? `${total} camera${total === 1 ? '' : 's'}` : total ? `${n}/${total} live` : 'Connecting…';
-    return `<span class="pill health${all ? '' : ' degraded'}" title="${all ? 'Every camera on this page is streaming' : 'Some cameras are still connecting or reconnecting'}"><span class="dot wait"${all ? ' hidden' : ''}></span><span class="livecount">${label}</span></span>`;
+    // States board's three: connected, reconnecting, unreachable. "Unreachable" only once nothing has
+    // come up for a while, so a normal cold start reads as connecting, not as an alarm.
+    const down = total > 0 && n === 0 && Date.now() - (this.wallSince || 0) > 20000 && this.tiles.every((t) => t.state !== 'live');
+    const label = all ? `${total} camera${total === 1 ? '' : 's'}<span class="all-note"> · all connected</span>` : down ? 'Recorder unreachable' : total && n ? `${n}/${total} live` : 'Connecting…';
+    const tip = all ? 'Every camera on this page is streaming' : down ? "No camera has connected — check the recorder's power and network" : 'Some cameras are still connecting or reconnecting';
+    return `<span class="pill health${all ? '' : ' degraded'}${down ? ' down' : ''}" title="${tip}"><span class="dot ${down ? 'off' : 'wait'}"${all ? ' hidden' : ''}></span><span class="livecount">${label}</span></span>`;
   }
 
   /** Page control under the wall (the Live board's 1×1 pager: ‹ 1 / 8 ›), only when there's more than one page. */
@@ -385,7 +389,7 @@ export class LiveView {
       el.style.gridRow = `${cell.r} / span ${cell.h}`;
       w.append(el);
     });
-    this.liveCount = 0;
+    this.liveCount = 0; this.wallSince = Date.now();
     if (this.tvMode) {
       this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, this.tvIndex));
       this.tiles[this.tvIndex]?.el.querySelector('.hit')?.focus({ preventScroll: true });
@@ -426,7 +430,7 @@ export class LiveView {
       ${this.ctx.can('operator') ? `<button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button>` : ''}</div>`);
     t.el.querySelector('[data-a=bookmark-all]')?.addEventListener('click', (e) => { e.stopPropagation(); this.bookmarkAllCams(); });
     w.append(t.el);
-    this.liveCount = 0;
+    this.liveCount = 0; this.wallSince = Date.now();
     if (this._autoFs) {
       this._autoFs = false;
       // Only ever fires once, right after the confirm-dialog flow in settings.js (ctx.armTvFullscreen) —
@@ -438,11 +442,11 @@ export class LiveView {
   }
 
   countLive() {
-    const n = this.tiles.filter((t) => t.state === 'live').length;
-    if (n === this.liveCount) return;
-    this.liveCount = n;
+    this.liveCount = this.tiles.filter((t) => t.state === 'live').length;
     const pill = this.bar?.querySelector('.health');
-    if (pill) pill.outerHTML = this._healthHTML();
+    if (!pill) return;
+    const html = this._healthHTML();
+    if (pill.outerHTML !== html) pill.outerHTML = html;
   }
 
   disposeTiles() { this.tiles.forEach((t) => t.dispose()); this.tiles = []; }
@@ -717,6 +721,7 @@ export class LiveView {
   // alertStream subscriber — see app/events.py AlertStreamSubscriber) for anything active or that
   // just ended, and paints small badges onto each grid tile for its channel.
   async pollEvents() {
+    this.countLive();   // also lets "Recorder unreachable" appear once its grace period passes
     try {
       const since = new Date(Date.now() - 20000).toISOString();
       if (!this.ctx.can('operator')) return;   // the event index is review data: operator and up
@@ -728,9 +733,30 @@ export class LiveView {
         byChannel.get(row.channel).add(row.kind);
       }
       for (const t of this.tiles) t.setBadges(byChannel.get(t.cam.channel));
+      this._toastNewEvents(rows);
       this._lastEventRows = rows;
       markBell(this.bar, rows);
     } catch { /* transient network hiccup — next poll retries */ }
+  }
+
+  /** States board: a new event pops a top-centre toast ("Motion at Driveway, just now") that opens that
+   * camera in Focus when tapped. Only events that start after Live opened; one toast per camera a minute
+   * and one every 15 s overall, so a busy motion afternoon reads as a few nudges, not a stream. */
+  _toastNewEvents(rows) {
+    const now = Date.now();
+    this._evSeen ||= new Set(rows.map((r) => r.id));   // first poll: what's already happening isn't news
+    this._evCamAt ||= new Map();
+    const LABEL = { motion: 'Motion', line: 'Line crossed', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video lost' };
+    const DOT = { motion: 'var(--ev-motion)', line: 'var(--ev-line)', intrusion: 'var(--ev-line)', tamper: 'var(--tamper)', videoloss: 'var(--ev-videoloss)' };
+    for (const r of rows) {
+      if (this._evSeen.has(r.id)) continue;
+      this._evSeen.add(r.id);
+      if (!LABEL[r.kind] || this.focus || document.hidden) continue;
+      const cam = this.cams().find((c) => c.channel === r.channel);
+      if (!cam || now - (this._evCamAt.get(cam.id) || 0) < 60000 || now - (this._evToastAt || 0) < 15000) continue;
+      this._evCamAt.set(cam.id, now); this._evToastAt = now;
+      toast(`${LABEL[r.kind]} at ${cam.name || 'Camera ' + cam.channel}, just now`, 'ok', 4000, { dot: DOT[r.kind], onClick: () => this.ctx.go(`#/live/${cam.id}`) });
+    }
   }
 
   // ---------------------------------------------------------------- bookmarks (spec section 9/11.6)

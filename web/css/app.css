@@ -30,12 +30,12 @@
    * connection that's healthy, an "ok" badge — not live status and not the interactive accent. Already clears
    * 4.5:1 as text on armed-soft (6.2-7.1:1 checked), so --armed-text is just an alias here — the light theme
    * below needs a real, separately-darkened value for the same role. */
-  --armed: #34d399; --armed-ink: #052e22; --armed-soft: rgba(52, 211, 153, .14); --armed-text: #34d399;
+  --armed: #30d158; --armed-ink: #06220f; --armed-soft: rgba(48, 209, 88, .14); --armed-text: #30d158;
   /* Tamper events specifically (Events/timeline) — previously folded into --danger red; purple keeps it
    * visually distinct from both "destructive action" and "live" red at a glance, matching the dedicated
    * category operators actually filter on. Apple's system purple. */
   --tamper: #bf5af2; --tamper-soft: rgba(191, 90, 242, .16);
-  --warn: #fbbf24; --danger: #f87171; --danger-soft: rgba(248, 113, 113, .14); --info: #2dd4bf; /* teal — shifted off its old blue (#60a5fa) in redesign v2, now that --accent is blue too; still unused anywhere, kept reserved and merely non-colliding */
+  --warn: #ffd60a; --danger: #f87171; --danger-soft: rgba(248, 113, 113, .14); --info: #2dd4bf; /* teal — shifted off its old blue (#60a5fa) in redesign v2, now that --accent is blue too; still unused anywhere, kept reserved and merely non-colliding */
   --tile: #060608; --shadow: 0 10px 30px rgba(0, 0, 0, .45);
   /* Hover-lift shadow (redesign v2) — the one new elevation case approved alongside the blue accent: a tile
    * or card that's actively being hovered (about to be acted on) lifts 2px and casts this, distinct from
@@ -208,6 +208,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 /* Phone tab bar (Mobile board): glass, bottom, four tabs. Only ≤640px — desktop/iPad navigate from Live's bar. */
 .tabbar { display: none; }
 .live-hint { display: none; }
+.pill.health .all-note { display: none; }
+.pill.health.down { color: var(--danger); }
 
 /* ---------- buttons & controls ---------- */
 /* Height 36px (was 34, redesign v2) — the one sizing change approved alongside the blue accent and
@@ -346,7 +348,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .tile.is-off .stage { filter: grayscale(1); opacity: .35; }
 .tile.is-off .veil { background: rgba(6, 6, 8, .72); }
 .tile.is-off .ov .name { color: var(--muted); text-shadow: none; }
-.tile.is-off .ov .tag.kind, .tile.is-off .pill.tile-status { display: none; }
+.tile.is-off .ov .tag.kind, .tile.is-off .pill.tile-status, .tile.is-off .loadhd { display: none !important; }
 .offline-label { display: none; font-size: 12.5px; color: var(--faint); }
 .tile.is-off .offline-label { display: inline; }
 .veil-ico { color: var(--faint); }
@@ -664,6 +666,8 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 9px; max-width: min(520px, calc(100vw - 32px)); min-height: 40px; padding: 9px 18px 9px 14px; border-radius: var(--r-full); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); font-size: 13.5px; font-weight: 500; animation: toast-in var(--dur-chrome-in, .28s) var(--ease-out-expo, ease-out); }
 .toast .i { width: 17px; height: 17px; flex: none; }
 .toast.ok .i { color: var(--armed); } .toast.bad .i { color: var(--danger); }
+.toast-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin: 0 2px; }
+.toast.tappable { cursor: pointer; }
 .toast.out { animation: toast-out var(--dur-chrome-out, .3s) ease-in forwards; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-14px) scale(.97); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-10px) scale(.97); } }
@@ -1568,6 +1572,7 @@ a.btn.ghost { color: var(--muted); }
   .topbar.live .bar-brand, .topbar.live > .spacer { display: none; }
   .topbar.live .bar-title { grid-area: title; }
   .topbar.live .bar-title h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .topbar.live .pill.health .all-note { display: inline; }
   .topbar.live .pill.health { grid-area: health; justify-self: start; height: auto; padding: 0; background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 400; }
   .topbar.live .bar-ctx { grid-area: ctx; }
   .topbar.live .bar-actions { grid-area: actions; }

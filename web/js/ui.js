@@ -84,17 +84,19 @@ const P = {
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
-export function toast(msg, kind = 'ok', ms = 4200) {
+/** @param opts.dot a colour for an event dot instead of the icon; opts.onClick makes the pill a button. */
+export function toast(msg, kind = 'ok', ms = 4200, opts = {}) {
   const host = document.getElementById('toasts');
   if (!host) return;
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
-  t.innerHTML = `${icon(kind === 'ok' ? 'checkcircle' : 'alert')}<div>${esc(msg)}</div>`;
+  t.innerHTML = `${opts.dot ? `<span class="toast-dot" style="background:${opts.dot}"></span>` : icon(kind === 'ok' ? 'checkcircle' : 'alert')}<div>${esc(msg)}</div>`;
   host.prepend(t);   // newest on top, nearest the edge it drops from
   while (host.children.length > 3) host.lastElementChild.remove();
   const leave = () => { t.classList.add('out'); setTimeout(() => t.remove(), 320); };
   setTimeout(leave, ms);
-  t.addEventListener('click', leave);
+  t.addEventListener('click', () => { leave(); opts.onClick?.(); });
+  if (opts.onClick) t.classList.add('tappable');
 }
 
 /** Keeps Tab/Shift+Tab cycling within an open dialog instead of walking onto whatever's behind the scrim
