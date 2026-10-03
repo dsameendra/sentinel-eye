@@ -3,6 +3,7 @@
 // watches for stalls and reconnects, and reports stats.
 import { createPlayer } from './player.js';
 import { ZoomPan } from './zoom.js';
+import { ZoomHud } from './zoomhud.js';
 import { esc, icon, openPopover } from './ui.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
@@ -63,7 +64,6 @@ export class Tile {
       ${opts.chrome ? `<div class="hit"></div>
       <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="pill tile-status"><span class="dot wait"></span></span><span class="ev-badges"></span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span></div>
       <div class="ov bottom"><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="stat"></span><span class="grow"></span><span class="tag kind">SD</span><span class="offline-label">Offline</span></div>
-      <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="tile-actions">
         <div class="tile-actions-group">
           <div class="tile-actions-row">
@@ -139,10 +139,11 @@ export class Tile {
         const open = actionsEl.classList.toggle('expanded');
         toggleBtn.setAttribute('aria-expanded', String(open));
       });
+      // Zoomed in, the tile shows the same minimap and − / % / + as Focus (replacing the old Reset pill).
+      this.hud = new ZoomHud(this.el, () => this.zoom, { compact: true });
       this.enableZoom(this.el.querySelector('.hit'), { dbl: false });   // a click opens the large view, so no double-click zoom here
       this.el.querySelector('[data-a=zin]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1.6); });
       this.el.querySelector('[data-a=zout]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1 / 1.6); });
-      this.el.querySelector('.zoomtag').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.reset(); });
     }
     // Always start with the SD stream (it is already flowing, so the picture is instant) and swap to HD when it is ready.
     this.cur = this._spawn('sub', false);
@@ -166,8 +167,7 @@ export class Tile {
   _paintZoom() {
     const z = this.zoom;
     if (!z) return;
-    const tag = this.el.querySelector('.zoomtag');
-    if (tag) { tag.hidden = !z.zoomed; tag.textContent = `${z.s.toFixed(1)}× · Reset`; }
+    this.hud?.update();
     const zin = this.el.querySelector('[data-a=zin]'), zout = this.el.querySelector('[data-a=zout]');
     if (zin) zin.disabled = z.atMax;
     if (zout) zout.disabled = !z.zoomed;
@@ -440,6 +440,7 @@ export class Tile {
   dispose() {
     clearInterval(this.timer);
     this.zoom?.destroy();
+    this.hud?.destroy();
     this.enhancer?.destroy();
     this.cur?.player.dispose();
     this.pend?.player.dispose();

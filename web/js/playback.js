@@ -11,6 +11,7 @@ import { api, getJSON } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
 import { ZoomPan } from './zoom.js';
+import { ZoomHud } from './zoomhud.js';
 import { openEnhancePopup } from './enhancePopup.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
@@ -407,7 +408,7 @@ export class PlaybackView {
     // confirmed directly (a 4th pane stalled indefinitely while three others kept reconnecting in a loop).
     const cams = this.cams();
     const keep = new Map(this.panes.map((p) => [p.cam.id, p]));
-    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); pane.zoom?.destroy(); pane._roiResizeObs?.disconnect(); keep.delete(id); }
+    for (const [id, pane] of keep) if (!ids.includes(id)) { pane.player.destroy(); pane.enhancer?.destroy(); pane.zoom?.destroy(); pane.hud?.destroy(); pane._roiResizeObs?.disconnect(); keep.delete(id); }
     this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
     this._layoutPanes();
     this._renderCamList();
@@ -448,7 +449,6 @@ export class PlaybackView {
       </div>
       <div class="hitzone"></div>
       <div class="pb-roi-layer"><div class="pb-roi-box" hidden></div></div>
-      <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div>`;
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
@@ -462,12 +462,11 @@ export class PlaybackView {
     });
     this._applyEnhance(pane);
     // Zoom/pan, same component the live view uses: wheel/pinch/drag, double-click/tap to toggle.
-    const zoomtag = el.querySelector('.zoomtag');
+    pane.hud = new ZoomHud(el, () => pane.zoom);
     pane.zoom = new ZoomPan(el, el.querySelector('.hitzone'), {
       dbl: true,
-      onChange: (st) => { zoomtag.hidden = st.s <= 1.001; zoomtag.textContent = `${Math.round(st.s * 100)}%`; this._updateRoiBox(pane); },
+      onChange: () => { pane.hud.update(); this._updateRoiBox(pane); },
     });
-    zoomtag.addEventListener('click', () => pane.zoom.reset());
     pane._roiResizeObs = new ResizeObserver(() => this._updateRoiBox(pane));
     pane._roiResizeObs.observe(el);
     this._wireRoiAndFlashlight(pane);
@@ -475,7 +474,7 @@ export class PlaybackView {
   }
 
   _teardownPanes() {
-    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); p.zoom?.destroy(); p._roiResizeObs?.disconnect(); }
+    for (const p of this.panes) { p.player.destroy(); p.enhancer?.destroy(); p.zoom?.destroy(); p.hud?.destroy(); p._roiResizeObs?.disconnect(); }
     this.panes = [];
   }
 

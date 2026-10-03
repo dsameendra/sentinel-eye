@@ -1,6 +1,7 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
+import { ZoomHud } from './zoomhud.js';
 import { bookmarkDialog, closePopover, esc, icon, notify, toast, openPopover, shortcutsDialog } from './ui.js';
 import { barHTML, globalActionsHTML, markBell, wireGlobal } from './bar.js';
 import { onboardingDialog } from './onboarding.js';
@@ -574,9 +575,6 @@ export class LiveView {
         <button class="btn icon ghost" data-a="bookmark" title="${c0 ? 'Bookmark this moment on every camera (B)' : 'Bookmark this moment (B)'}" aria-label="Bookmark this moment">${icon('bookmark')}</button>
         <button class="btn icon ghost" data-a="more" title="More" aria-label="More options" aria-haspopup="true">${icon('more')}</button>
       </div>
-      <div class="zoom-nav" hidden><div class="zoom-view"></div></div>
-      <div class="zoomctl focus-zoom" role="group" aria-label="Zoom" hidden><button class="btn icon ghost" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
-        <button class="btn ghost pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon ghost" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
       <div class="focus-bottom">
         ${c0 ? '<span></span>' : `<button class="btn replay-pill" data-a="replay" title="Instant replay">${icon('back2')}<b>Instant replay</b><span>· last 10s</span></button>`}
         <span class="spacer"></span>
@@ -596,7 +594,7 @@ export class LiveView {
     f.querySelector('.stage-host').append(hit);
     tile.enableZoom(hit, { dbl: true });   // single click does nothing (never pauses); double click/tap toggles zoom
     this.live.append(f);
-    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid };
+    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
     // Carry fullscreen across the swap (see the wasFullscreen comment above) — the old element's removal
     // above already dropped the browser out of fullscreen, so this is a fresh request, not a toggle.
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
@@ -611,9 +609,6 @@ export class LiveView {
     f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
     f.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleFocusEnhanceMenu(tile));
     f.querySelector('[data-a=more]').addEventListener('click', (e) => this._openFocusMore(e.currentTarget, tile));
-    f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
-    f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
-    f.querySelector('[data-a=zreset]').addEventListener('click', () => tile.zoom.reset());
     f.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => tile.setKind(b.dataset.k)));
     f.querySelector('.prev')?.addEventListener('click', () => this.stepFocus(-1));
     f.querySelector('.next')?.addEventListener('click', () => this.stepFocus(1));
@@ -629,7 +624,8 @@ export class LiveView {
   _bindFocusAutoHide(f) {
     const chrome = f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow, .focus-zoom');
     let hideTimer;
-    const hide = () => { if (f.querySelector('.focus-bar:hover, .focus-bottom:hover')) { hideTimer = setTimeout(hide, 2600); return; } chrome.forEach((a) => a.classList.remove('show')); };
+    // Stays up while the pointer is over the bars or the zoom HUD, or a remote has focus in them.
+    const hide = () => { if (f.querySelector('.focus-bar:hover, .focus-bottom:hover, .focus-zoom:hover, .focus-bar :focus-visible, .focus-bottom :focus-visible, .focus-zoom :focus-visible')) { hideTimer = setTimeout(hide, 2600); return; } chrome.forEach((a) => a.classList.remove('show')); };
     const show = () => {
       chrome.forEach((a) => a.classList.add('show'));
       clearTimeout(hideTimer);
@@ -638,6 +634,8 @@ export class LiveView {
     f.addEventListener('mousemove', show);
     f.addEventListener('mouseenter', show);
     f.addEventListener('touchstart', show, { passive: true });
+    f.addEventListener('focusin', show);
+    this._focusShow = show;
     show();
   }
 
@@ -645,24 +643,9 @@ export class LiveView {
     const f = this.focus?.el;
     if (!f || this.focus.tile !== tile) return;
     f.querySelectorAll('[data-k]').forEach((b) => b.setAttribute('aria-pressed', String(tile.kind === b.dataset.k)));
-    const z = tile.zoom;
-    if (z) {
-      f.querySelector('.pct').textContent = `${z.percent}%`;
-      f.querySelector('[data-a=zin]').disabled = z.atMax;
-      f.querySelector('[data-a=zout]').disabled = !z.zoomed;
-      f.querySelector('[data-a=zreset]').disabled = !z.zoomed;
-      // Zoom navigator (Focus board, top-right): the part of the picture you're looking at, live, while
-      // zoomed — computed from the same scale/offset the stage transform uses.
-      const nav = f.querySelector('.zoom-nav'), ctl = f.querySelector('.focus-zoom');
-      nav.hidden = !z.zoomed; ctl.hidden = !z.zoomed;
-      if (z.zoomed) {
-        const m = z.metrics();
-        const clamp01 = (v) => Math.min(1, Math.max(0, v));
-        const l = clamp01(((-m.w / 2 - z.x) / z.s + m.bw / 2) / m.bw), t = clamp01(((-m.h / 2 - z.y) / z.s + m.bh / 2) / m.bh);
-        const w = Math.min(1 - l, (m.w / z.s) / m.bw), h = Math.min(1 - t, (m.h / z.s) / m.bh);
-        Object.assign(f.querySelector('.zoom-view').style, { left: `${l * 100}%`, top: `${t * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` });
-      }
-    }
+    // A zoom (wheel, pinch, keys) brings the chrome up, so the minimap and its controls are there to use.
+    if (tile.zoom && tile.zoom.s !== this.focus.lastS) { if (this.focus.lastS !== undefined) this._focusShow?.(); this.focus.lastS = tile.zoom.s; }
+    this.focus.hud?.update();
     const pending = tile.pend ? ` · loading ${tile.pend.kind === 'main' ? 'HD' : 'SD'}…` : '';
     const live = tile.state === 'live';
     f.querySelector('.bar-sub .dot').className = `dot ${live ? 'live' : tile.state === 'off' ? 'off' : 'wait'}`;
@@ -721,6 +704,7 @@ export class LiveView {
     } else {
       tile.dispose();
     }
+    this.focus.hud?.destroy();
     this.focus.el.remove();
     this.focus = null;
     if (!silent && !fromGrid) this.renderWall();   // the borrowed-tile case needs no rebuild — everything else kept running
@@ -1002,6 +986,7 @@ export class LiveView {
   destroy() {
     this.disposeTiles();
     this.focus?.tile.dispose();
+    this.focus?.hud?.destroy();
     this.focus = null;
     this.closeReplay();
     document.removeEventListener('keydown', this.onKey);

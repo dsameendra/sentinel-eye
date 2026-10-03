@@ -399,7 +399,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 /* a grid tile on loan to the large view: its own chrome (click-to-focus hitzone, name bar, buttons) is
    replaced by the focus view's — the tile itself (and its live connection) keeps running underneath */
 .tile.in-focus { border: 0; border-radius: 0; }
-.tile.in-focus .hit, .tile.in-focus .ov, .tile.in-focus .tile-actions, .tile.in-focus > .zoomtag, .tile.in-focus .ev-badges { display: none; }
+.tile.in-focus .hit, .tile.in-focus .ov, .tile.in-focus .tile-actions, .tile.in-focus > .zhud, .tile.in-focus .ev-badges { display: none; }
 .stage { position: absolute; inset: 0; container-type: size; overflow: hidden; display: grid; place-items: center; }
 .stage > * { grid-area: 1 / 1; }
 /* The player is a box with the picture's real shape (--ar), sized to fit (or fill) the tile. The video is stretched
@@ -541,6 +541,27 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .focus-bottom .btn b { font-weight: 600; }
 .replay-pill { gap: 9px; padding: 0 18px; height: 42px; background: var(--glass-fill); border-color: var(--glass-border); color: #fff; }
 .replay-pill span { color: rgba(255, 255, 255, .5); font-weight: 400; }
+/* Zoom HUD (zoomhud.js): minimap + − / % / +, while zoomed — Focus (top right, under its bar), grid tiles
+   (compact, bottom right above the name) and Playback panes (top right). Plain dark, not glass, so a grid
+   of zoomed tiles never pays for blur over video. */
+.zhud { position: absolute; right: 14px; bottom: 14px; z-index: 7; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: auto; }
+.zhud[hidden] { display: none; }
+.zmap { position: relative; width: 150px; aspect-ratio: var(--ar, 16 / 9); border-radius: 10px; overflow: hidden; background: #000; border: 1px solid rgba(255, 255, 255, .28); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); cursor: crosshair; touch-action: none; }
+.zmap canvas { width: 100%; height: 100%; display: block; }
+.zmap-view { position: absolute; border: 1.5px solid #fff; border-radius: 3px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .45); pointer-events: none; }
+.zctl { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--r-full); background: rgba(20, 20, 23, .78); border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.zctl button { height: 30px; min-width: 30px; padding: 0; border: 0; border-radius: var(--r-full); background: transparent; color: #fff; display: grid; place-items: center; cursor: pointer; font-size: 12.5px; font-weight: 600; }
+.zctl button .i { width: 15px; height: 15px; }
+.zctl button:hover { background: rgba(255, 255, 255, .16); }
+.zctl button:disabled { opacity: .35; cursor: default; background: transparent; }
+.zctl .pct { min-width: 54px; padding: 0 6px; font-variant-numeric: tabular-nums; }
+.zhud.compact { right: 10px; bottom: 40px; gap: 6px; }
+.zhud.compact .zmap { width: 104px; border-radius: 8px; }
+.zhud.compact .zctl button { height: 26px; min-width: 26px; font-size: 11.5px; }
+.zhud.compact .zctl .pct { min-width: 46px; }
+.focus .zhud { top: calc(84px + env(safe-area-inset-top)); bottom: auto; right: 18px; }
+.pb-pane .zhud { top: 12px; right: 12px; bottom: auto; }
+html.tv-mode .zctl button:focus-visible { outline: none; background: #fff; color: #000; }
 .focus-bar, .focus-bottom, .focus .nav-arrow, .focus-zoom { transition: opacity var(--dur-chrome-in) var(--ease-out-expo); }
 .focus .focus-bar:not(.show), .focus .focus-bottom:not(.show), .focus .nav-arrow:not(.show), .focus .focus-zoom:not(.show) { opacity: 0; pointer-events: none; transition-duration: var(--dur-chrome-out); }
 @media (hover: none) { .focus .focus-bar, .focus .focus-bottom, .focus .nav-arrow { opacity: 1 !important; pointer-events: auto !important; } }
@@ -549,13 +570,6 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .focus .nav-arrow.prev { left: 18px; } .focus .nav-arrow.next { right: 18px; }
 .focus .hitzone { position: absolute; inset: 0; z-index: 1; }
 /* Zoom navigator + controls — only while zoomed. */
-.zoom-nav { position: absolute; top: calc(84px + env(safe-area-inset-top)); right: 18px; z-index: 7; width: 120px; height: 68px; padding: 4px; border-radius: var(--r-sm); background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-.zoom-nav[hidden], .focus-zoom[hidden] { display: none; }
-.zoom-nav::before { content: ""; position: absolute; inset: 4px; border-radius: 6px; background: rgba(255, 255, 255, .04); }
-.zoom-view { position: absolute; border: 1.5px solid var(--accent); background: var(--accent-soft); border-radius: 3px; margin: 4px; max-width: calc(100% - 8px); max-height: calc(100% - 8px); }
-.focus-zoom { position: absolute; top: calc(160px + env(safe-area-inset-top)); right: 18px; z-index: 7; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--r-full); background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-.focus-zoom .btn { height: 30px; color: #fff; }
-.focus-zoom .pct { min-width: 54px; font-variant-numeric: tabular-nums; padding: 0 6px; }
 .replay-stage { position: absolute; inset: 0; display: grid; place-items: center; }
 .replay-stage canvas { max-width: 100%; max-height: 100%; }
 
@@ -858,8 +872,6 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .stage.zanim cam-player { transition: transform .2s ease; }
 .tile .hit.zoomed { cursor: grab; } .tile .hit.zoomed.panning, .hitzone.zoomed.panning { cursor: grabbing; }
 .hitzone { touch-action: none; } .hitzone.zoomed { cursor: grab; }
-.tile > .zoomtag { position: absolute; right: 8px; bottom: 8px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: var(--r-full); background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px var(--ov-scrim); }
-.tile > .zoomtag:hover { filter: brightness(1.1); }
 .zoomctl { display: inline-flex; align-items: center; gap: 2px; }
 .zoomctl .pct { min-width: 54px; font-variant-numeric: tabular-nums; }
 
@@ -1013,8 +1025,6 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-pane.flashlight-on { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='10' fill='rgba(255,214,130,0.22)' stroke='%23ffd682' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.2' fill='%23ffd682'/%3E%3C/svg%3E") 14 14, crosshair; }
 /* Top-right rather than bottom-right: the playback transport is a floating overlay at the bottom of the
    pane now, and a bottom-right pill would sit right on top of it. */
-.pb-pane > .zoomtag { position: absolute; right: 8px; top: 8px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: var(--r-full); background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px var(--ov-scrim); }
-.pb-pane > .zoomtag:hover { filter: brightness(1.1); }
 /* Fullscreen: the topline now floats/auto-hides instead of permanently occupying its own row (see its own
    comment), so a top-row pane's video — and this label — genuinely reaches the true top of the screen,
    including an iPad's status-bar/notch safe area, which it never did before that change. Found directly
@@ -1420,7 +1430,7 @@ html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
    single-camera focus view). Escape (or the two-finger-pinch-out gesture on iPad/iPhone) always still works
    too — that's the browser's own Fullscreen API, not this cluster.
    Vertically centered on the right edge, not the top-right corner — every tile's own controls anchor to
-   ONE of its corners (.tile-actions to its top, .zoomtag to its bottom when zoomed), and whichever tile
+   ONE of its corners (.tile-actions to its top, the zoom HUD to its bottom when zoomed), and whichever tile
    ends up in the wall's own top-right or bottom-right corner sits exactly there too, so either corner could
    float this cluster directly over that tile's real controls and block them outright (found directly: the
    top-right tile's own expand toggle, unreachable underneath it). The vertical middle of the right edge has
@@ -1464,7 +1474,7 @@ html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
    identification chrome, so idle is not a reason to hide it. */
 .liveview:fullscreen:not(.show) .tile .ov,
 .liveview:fullscreen:not(.show) .tile .tile-actions,
-.liveview:fullscreen:not(.show) .tile > .zoomtag {
+.liveview:fullscreen:not(.show) .tile > .zhud {
   opacity: 0 !important; pointer-events: none !important;
 }
 .liveview:fullscreen .tile .ov { transition: opacity .22s ease; }
