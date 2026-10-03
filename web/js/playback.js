@@ -1,6 +1,7 @@
 // Playback view: DVR review, 1-4 cameras at once (the DVR's hard playback-session limit — spec 2.2/7.2).
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
+import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
@@ -87,14 +88,15 @@ export class PlaybackView {
   build(channelId) {
     const cams = this.cams();
     if (!cams.length) {
-      this.root.innerHTML = `<main class="pb"><div class="center-card"><div class="cc-icon">${icon('video')}</div>
+      this.root.innerHTML = `<main class="pb">${barHTML({ lead: 'back', title: 'Playback' })}<div class="center-card"><div class="cc-icon">${icon('video')}</div>
         <h2>No cameras</h2><p>Enable a channel in Settings first.</p>
         <a class="btn primary" href="#/settings/channels">Open settings</a></div></main>`;
+      wireBar(this.root, this.ctx);
       return;
     }
     const first = cams.find((c) => c.id === channelId) || cams[0];
 
-    this.root.innerHTML = `<main class="pb">
+    this.root.innerHTML = `<main class="pb">${barHTML({ lead: 'back', title: 'Playback' })}
       <div class="pb-body">
         <aside class="pb-side pb-side-left">
           <h3>Cameras</h3>
@@ -158,6 +160,7 @@ export class PlaybackView {
       </div>
       <div class="pb-timeline"></div>
     </main>`;
+    wireBar(this.root, this.ctx);
 
     const speedSel = this.root.querySelector('.pb-speed');
     speedSel.innerHTML = SPEEDS.map((s) => `<option value="${s}" ${s === '1' ? 'selected' : ''}>${s.startsWith('0.') ? '1/' + Math.round(1 / parseFloat(s)) : s}×</option>`).join('');

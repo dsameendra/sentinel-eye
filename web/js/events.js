@@ -3,6 +3,7 @@
 // thumbnail per event (captured from its midpoint, on demand — app/thumbnails.py), and jumps a result
 // straight into Playback at that instant. Motion/line/tamper spans arrive already stitched into start/end
 // windows by app/events.py, so no further run-collapsing is needed here.
+import { barHTML, wireBar } from './bar.js';
 import { esc, icon, toast, confirmDialog } from './ui.js';
 import { fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
@@ -127,7 +128,7 @@ export class EventsView {
 
   // ------------------------------------------------------------- rendering
   build() {
-    this.root.innerHTML = `<div class="events-view">
+    this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Events', size: 'title' })}<div class="events-view">
       <aside class="pb-side pb-side-left">
         <h3>Cameras</h3>
         <button class="btn sm" data-a="selectall" style="width:100%;justify-content:center"></button>
@@ -184,6 +185,7 @@ export class EventsView {
       epoch: this.customTo, tzOffsetMin: this.tzOffsetMin, label: 'To',
       onChange: (e) => { this.customTo = e; },
     });
+    wireBar(this.root, this.ctx);
     this.renderResults();
   }
 

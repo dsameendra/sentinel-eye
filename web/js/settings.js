@@ -1,5 +1,6 @@
 // Settings: Connection, Channels, Display, Enhancement, Status (edit a draft copy; nothing is applied until
 // Save) and Security (security.js, saves as it goes). Non-admins only get "This device".
+import { barHTML, wireBar } from './bar.js';
 import { api } from './api.js';
 import { SecurityPanel } from './security.js';
 import { LAYOUTS, layoutIds, layoutIcon } from './layouts.js';
@@ -72,10 +73,11 @@ export class SettingsView {
 
   // ------------------------------------------------------------- rendering
   build() {
-    this.root.innerHTML = `<div class="settings">
+    this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Settings', size: 'title' })}<div class="settings">
       <nav class="side" aria-label="Settings sections">${this.tabs.map(([id, label, ic]) =>
         `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}${label}</a>`).join('')}</nav>
       <main class="pane"><div class="pane-inner"></div></main></div><div class="savebar" hidden></div>`;
+    wireBar(this.root, this.ctx);
     this.pane = this.root.querySelector('.pane-inner');
     this.bar = this.root.querySelector('.savebar');
     this.render();
