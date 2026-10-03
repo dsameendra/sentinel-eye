@@ -86,7 +86,15 @@ export function openEnhancePopup(opts) {
         <div class="enh-ocr-body"></div>
         <p class="hint">Tesseract's best guess per line, with its own confidence — verify by eye before relying on any of it.</p>
       </div>
-      <div class="enh-loading"><div class="spin"></div><div class="msg">Starting…</div></div>
+      <div class="enh-loading">
+        <div class="enh-steps">
+          <div class="enh-step" data-step="decode"><span class="n"></span><span>Decoding frames</span></div>
+          ${burst.length > 1 ? `<div class="enh-step" data-step="fuse"><span class="n"></span><span>Aligning &amp; fusing ${burst.length} frames</span></div>` : ''}
+          <div class="enh-step" data-step="restore"><span class="n"></span><span>Restoring detail</span></div>
+          <div class="enh-step" data-step="done"><span class="n"></span><span>Done</span></div>
+        </div>
+        <div class="msg">Starting…</div>
+      </div>
     </div>
     <div class="enh-bottom">
       <div class="enh-blend" title="Cross-fade between the original picture and the AI-enhanced one — drag to compare or land on a middle ground you trust.">
@@ -374,6 +382,8 @@ export function openEnhancePopup(opts) {
     updateFrameText();
     loading.hidden = false;
     loading.querySelector('.msg').textContent = 'Starting…';
+    stepIdx = 0;
+    setStep('decode');
     imgSrc.hidden = true;
     imgResult.hidden = true;
     roiBox.hidden = true;
@@ -427,6 +437,33 @@ export function openEnhancePopup(opts) {
     }
   }
 
+  // Progress stepper (redesign v2) — the server already reports real per-stage text (app/enhance_ai.py's
+  // progress() callback: "Decoding frames…", "Aligning and fusing N frames…", "Loading models…"/"Waiting
+  // for another enhancement…" during restoration); this just maps that text onto the mockups' done/now/next
+  // step indicator instead of showing it as a single changing line. There's no distinct "restoring" message
+  // from the server (GFPGAN/Real-ESRGAN run with no further callback once models are loaded), so any
+  // message that isn't decode/fuse — including a repeat or something unrecognized — is treated as "we're
+  // past fusion, so we must be restoring" rather than left unmatched.
+  const STEP_ORDER = ['decode', 'fuse', 'restore', 'done'];
+  let stepIdx = 0;
+  function stepFor(text) {
+    const t = (text || '').toLowerCase();
+    if (t.includes('decod')) return 'decode';
+    if (t.includes('align') || t.includes('fus')) return 'fuse';
+    return 'restore';
+  }
+  function setStep(name) {
+    const idx = STEP_ORDER.indexOf(name);
+    if (idx < stepIdx) return;   // steps only ever move forward
+    stepIdx = idx;
+    loading.querySelectorAll('.enh-step').forEach((el) => {
+      const i = STEP_ORDER.indexOf(el.dataset.step);
+      el.classList.toggle('done', i < stepIdx);
+      el.classList.toggle('now', i === stepIdx);
+      el.classList.toggle('next', i > stepIdx);
+    });
+  }
+
   function poll(jobId) {
     // Measured directly against this Mac's GPU: a single frame is ~40s including first-time model load;
     // a full 5-frame burst is ~100s. 240s leaves real margin for a burst plus a second job queued right
@@ -447,8 +484,9 @@ export function openEnhancePopup(opts) {
           reject(err);
           return;
         }
-        if (j.state === 'done') { resolve(j); return; }
+        if (j.state === 'done') { setStep('done'); resolve(j); return; }
         loading.querySelector('.msg').textContent = j.progress || 'Working…';
+        setStep(stepFor(j.progress));
         setTimeout(tick, 900);
       };
       tick();
