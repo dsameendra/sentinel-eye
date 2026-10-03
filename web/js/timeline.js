@@ -344,9 +344,15 @@ export class Timeline {
     if (this.playhead != null) {
       const x = (this.playhead - t0) * this.pxPerSec;
       if (x >= -5 && x <= w + 5) {
-        ctx.fillStyle = accent;
-        ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x, 8); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = accent; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        // Handle: a small white rounded chip (redesign v2) rather than an accent-colored flag — it needs to
+        // read as "the scrubbable grip" against every lane color the line crosses underneath it, not just
+        // against the ruler's own background, which a same-hue-as-the-line flag didn't guarantee.
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, .5)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.roundRect(x - 7, 0, 14, 14, 4); ctx.fill();
+        ctx.restore();
         this.jumpBtn.hidden = true;
       } else {
         // Off-screen either side — point back to it rather than leaving the user to guess which way to

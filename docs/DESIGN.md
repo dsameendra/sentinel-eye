@@ -222,13 +222,13 @@ Flat at rest. Panels, cards, tiles, and the topbar sit at the same visual depth 
 A small, consistent radius scale rather than one blanket value. Containers get a modest, soft-technical radius; anything representing status or a compact selectable chip goes fully round.
 
 - **Extra-small — 5-6px:** the smallest interactive chips (`.tag`, `kbd`, `.grip`, OCR result rows) — one step down from Small, for elements too compact for even a small-button radius.
-- **Small-tight — 7px:** compact interactive rows and small buttons one step under Small — `.seg button`, `.tile-actions button` (video overlay controls), `.cal-day`, `.events-presets button`. Audited and normalized here after being the second most-repeated undocumented radius (5 uses).
+- **Small-tight — 7px:** compact interactive rows and small buttons one step under Small — `.seg button`, `.tile-actions button` (video overlay controls), `.events-presets button`. Audited and normalized here after being the second most-repeated undocumented radius (5 uses).
 - **Small — 8px:** buttons, inputs, the brand mark square.
 - **Small-wide — 9px:** containers a touch softer than Small but not yet Medium — `.seg`/`.pb-macros` (segmented-control and toolbar-cluster wrappers), `.result`, `.ev-row`. Audited and normalized here after being the third most-repeated undocumented radius (4 uses).
 - **Medium — 10px:** video tiles, layout-option buttons, generic small containers (the system's default, `--r`).
 - **Large — 12px:** cards, popover menus, event cards.
 - **Extra-large — 14px:** modal dialogs, the AI-enhancer's larger popovers.
-- **Full (999px):** pills, tags, badges, the theme/quality segmented-control thumb, the toggle switch track and knob.
+- **Full (999px):** pills, tags, badges, the theme/quality segmented-control thumb, the toggle switch track and knob. The date-picker's day cells (`.cal-day`, redesign v2 — was Small-tight) use `50%` instead of the token for the same fully-round result: a day cell is a true 1∶1 square (`aspect-ratio: 1`), where `50%` and `999px` render identically, and `50%` reads as the obviously-correct value for a circle on a square box.
 
 ### Named Rules
 **The Pill-for-Status Rule.** Full-round shape is reserved for things that represent state or a compact choice (status pills, event badges, quality tags, toggles). Containers that hold content — cards, tiles, dialogs — never go fully round; they stay in the 8–14px range.
@@ -238,7 +238,7 @@ A small, consistent radius scale rather than one blanket value. Containers get a
 Controls stay compact and restrained: real but understated hover/pressed feedback (brightness lift, accent-soft wash, ring outline) rather than large motion or decoration — refined, not flashy.
 
 ### Buttons
-- **Shape:** 8px radius, 34px height (28px in the `.sm` variant), icon-only variants are square (34px/28px).
+- **Shape:** 8px radius, 36px height (28px in the `.sm` variant, redesign v2 — was 34px), icon-only variants are square (36px/28px).
 - **Primary:** Accent Blue background, Accent Blue Ink (white) text, 600 weight — the one emphasized action in a group.
 - **Secondary (default `.btn`):** Gunmetal Panel-2 background, 1px Gunmetal Line-2 border, primary text color.
 - **Ghost:** transparent background and border, muted text; fills to Panel-2 + primary text on hover.
