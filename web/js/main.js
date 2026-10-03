@@ -82,6 +82,7 @@ function setOverviewOn(v) { try { localStorage.setItem(OVERVIEW_ON_KEY, v ? '1' 
 const ctx = {
   settings: () => state.settings,
   me: () => state.me,
+  prevHash: () => state.prev,
   can,
   async refreshMe() { state.me = await authApi.me(); return state.me; },
   applyTheme,
@@ -129,6 +130,7 @@ async function route() {
     history.replaceState(null, '', state.hash);
     return;
   }
+  if (state.hash && state.hash !== hash) state.prev = state.hash;
   state.hash = hash;
   const host = document.getElementById('view');
   const navSection = section === 'search' ? 'events' : section;
@@ -139,9 +141,9 @@ async function route() {
   }
 
   if (section === 'settings') {
-    if (state.kind === 'settings') { state.view.setTab(arg || 'connection'); return; }
+    if (state.kind === 'settings') { state.view.setTab(arg); return; }
     state.view?.destroy();
-    state.view = new SettingsView(host, ctx, arg || 'connection');
+    state.view = new SettingsView(host, ctx, arg);
     state.kind = 'settings';
     return;
   }

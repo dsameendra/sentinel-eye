@@ -23,6 +23,7 @@ const ENHANCE_MODES = [['auto', 'Auto'], ['face', 'Face priority'], ['plate', 'P
 const HOST_RE = /^[A-Za-z0-9._-]+$/;
 const DEFAULT_CHANNEL_ZERO_PATH = '/Streaming/Channels/1';   // mirrors app/settings.py's DEFAULT_CHANNEL_ZERO_PATH
 const clone = (o) => JSON.parse(JSON.stringify(o));
+const phone = () => matchMedia('(max-width: 640px)').matches;
 const fpsText = (v) => (v === 'auto' || v == null ? '' : String(v));
 
 export class SettingsView {
@@ -32,6 +33,9 @@ export class SettingsView {
     this.ctx = ctx;
     this.tabs = ctx.can('admin') ? TABS : DEVICE_TABS;
     this.tab = this.tabs.some((t) => t[0] === tab) ? tab : this.tabs[0][0];
+    // On a phone, Settings is a tab root: #/settings alone shows the list of sections (iOS-style), and a
+    // section opens full width with a back chevron to that list. Wider screens keep the sidebar.
+    this.listMode = !tab && phone();
     this.base = clone(ctx.settings());
     this.draft = clone(this.base);
     this.tests = {};          // per-channel probe results
@@ -46,7 +50,11 @@ export class SettingsView {
   /** Account is always listed (Settings board); its page explains itself when sign-in is off. */
   _showAccount() { return true; }
 
-  setTab(tab) { if (this.tabs.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); } }
+  setTab(tab) {
+    const list = !tab && phone();
+    if (list !== this.listMode) { this.listMode = list; if (tab) this.tab = tab; this.build(); return; }
+    if (this.tabs.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); }
+  }
 
   // ------------------------------------------------------------- validation
   errors() {
@@ -78,12 +86,13 @@ export class SettingsView {
 
   // ------------------------------------------------------------- rendering
   build() {
-    this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Settings', size: 'title' })}<div class="settings">
+    const inSection = phone() && !this.listMode;
+    this.root.innerHTML = `${barHTML({ lead: 'back', title: inSection ? (this.tabs.find((t) => t[0] === this.tab)?.[1] || 'Settings') : 'Settings', size: 'title', cls: this.listMode ? 'tabroot' : '' })}<div class="settings${this.listMode ? ' list-mode' : ''}">
       <nav class="side" aria-label="Settings sections">${this.tabs.map(([id, label, ic]) =>
         `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(label)}</span></a>`).join('')}
         ${this._showAccount() ? `<a href="#/account" class="side-account">${icon('user')}<span>Account</span></a>` : ''}</nav>
       <main class="pane"><div class="pane-inner"></div></main></div><div class="savebar" hidden></div>`;
-    wireBar(this.root, this.ctx);
+    wireBar(this.root, this.ctx, { back: inSection ? '#/settings' : '#/live' });
     this.pane = this.root.querySelector('.pane-inner');
     this.bar = this.root.querySelector('.savebar');
     this.render();

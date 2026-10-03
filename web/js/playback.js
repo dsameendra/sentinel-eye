@@ -97,7 +97,7 @@ export class PlaybackView {
 
     const spLabel = (sp) => (sp.startsWith('0.') ? `${sp.replace(/^0/, '')}×`.replace('.5×', '0.5×') : `${sp}×`);
     this.root.innerHTML = `<main class="pb">${barHTML({
-      lead: 'back', title: 'Playback',
+      lead: 'back', title: 'Playback', cls: 'tabroot',
       sub: '<span class="pb-status"><span class="dot wait"></span><span class="txt">Connecting…</span></span>',
       context: `<div class="date-step" role="group" aria-label="Day">
           <button data-a="dayprev" title="Previous day" aria-label="Previous day">${icon('left')}</button>
@@ -806,7 +806,7 @@ export class PlaybackView {
 
   _onPaneState(pane, s, msg) {
     const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
-      paused: ['off', 'Paused'], error: ['off', msg || 'Error'], idle: ['off', 'Idle'] };
+      paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'] };
     const [cls, label] = labels[s] || ['off', s];
     if (s === 'connecting' || s === 'queued') { pane.veil.hidden = false; pane.veil.className = 'pb-veil is-wait'; pane.veil.innerHTML = `<div class="msg">${esc(label)}</div>`; }
     if (s === 'error') { pane.veil.className = 'pb-veil'; pane.veil.innerHTML = `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(msg || '')}">Couldn't play this moment — try another time or camera</div>`; }
@@ -817,7 +817,7 @@ export class PlaybackView {
     const dot = this.statusEl.querySelector('.dot');
     const txt = this.statusEl.querySelector('.txt');
     const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
-      paused: ['off', 'Paused'], error: ['off', msg || 'Error'], idle: ['off', 'Idle'] };
+      paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'] };
     const [cls, label] = labels[s] || ['off', s];
     dot.className = `dot ${cls}`;
     txt.textContent = label;

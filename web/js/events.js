@@ -113,7 +113,7 @@ export class EventsView {
   build() {
     const seg = `<div class="seg ev-range" role="group" aria-label="Time range">${PRESETS.map(([v, l]) => `<button data-preset="${v}" aria-pressed="${this.preset === v}">${l}</button>`).join('')}</div>`;
     this.root.innerHTML = `${barHTML({
-      lead: 'back', title: 'Events', size: 'title', cls: 'ev-bar',
+      lead: 'back', title: 'Events', size: 'title', cls: 'ev-bar tabroot',
       context: `<label class="ev-search">${icon('search')}<input type="search" placeholder="Search events…" aria-label="Search events" autocomplete="off" spellcheck="false"></label>`,
       actions: `${seg}<button class="btn glass-btn ev-filters-btn" data-a="filters" aria-expanded="false">${icon('layout')} Filters <span class="ev-filter-n"></span></button>`,
     })}<div class="events-view">

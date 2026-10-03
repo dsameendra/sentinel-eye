@@ -37,6 +37,11 @@ const friendlyError = (err) => {
 };
 const BADGE_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss' };
 
+// A tap anywhere outside a tile whose quick actions were long-pressed open puts them away again.
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest?.('.tile.show-actions')) document.querySelectorAll('.tile.show-actions').forEach((t) => t.classList.remove('show-actions'));
+}, true);
+
 export class Tile {
   /**
    * @param cam      channel settings object
@@ -85,7 +90,28 @@ export class Tile {
     this.enhParams = { ...(ENHANCE_PRESETS[opts.display?.enhance_default_preset] || ENHANCE_PRESETS.off) };
     if (opts.chrome) {
       const hit = this.el.querySelector('.hit');
-      hit.addEventListener('click', () => opts.onFocus?.(this));
+      // Touch (Mobile board): a tap opens Focus; a long press reveals this tile's quick actions instead
+      // (on a phone they're hidden until asked for — seven buttons on every small tile is clutter).
+      let pressTimer = 0, pressed = false, pressAt = null;
+      hit.addEventListener('pointerdown', (e) => {
+        if (e.pointerType !== 'touch') return;
+        pressed = false; pressAt = [e.clientX, e.clientY];
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(() => {
+          pressed = true;
+          document.querySelectorAll('.tile.show-actions').forEach((t) => t !== this.el && t.classList.remove('show-actions'));
+          this.el.classList.add('show-actions');
+          navigator.vibrate?.(10);
+        }, 480);
+      });
+      hit.addEventListener('pointermove', (e) => { if (pressAt && Math.hypot(e.clientX - pressAt[0], e.clientY - pressAt[1]) > 10) clearTimeout(pressTimer); });
+      ['pointerup', 'pointercancel'].forEach((ev) => hit.addEventListener(ev, () => { clearTimeout(pressTimer); pressAt = null; }));
+      hit.addEventListener('contextmenu', (e) => { if (pressed || pressAt) e.preventDefault(); });
+      hit.addEventListener('click', () => {
+        if (pressed) { pressed = false; return; }   // the long press already did its thing
+        if (this.el.classList.contains('show-actions')) { this.el.classList.remove('show-actions'); return; }
+        opts.onFocus?.(this);
+      });
       // TV mode: the picture itself has to be a real (tabbable) keyboard target — arrow keys don't move
       // focus between elements in any tested browser on their own (that's LiveView._tvMove's job, driven
       // by hand rather than assumed), but this tabindex is still what makes a tile reachable via Tab, gives

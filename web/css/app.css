@@ -207,6 +207,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .acct-pop { min-width: 240px; }
 /* Phone tab bar (Mobile board): glass, bottom, four tabs. Only ≤640px — desktop/iPad navigate from Live's bar. */
 .tabbar { display: none; }
+.live-hint { display: none; }
 
 /* ---------- buttons & controls ---------- */
 /* Height 36px (was 34, redesign v2) — the one sizing change approved alongside the blue accent and
@@ -1548,3 +1549,58 @@ a.btn.ghost { color: var(--muted); }
 .acct-dev .btn.ghost { color: var(--muted); font-weight: 600; }
 .acct-dev .btn.ghost:hover { color: var(--text); }
 @media (max-width: 860px) { .acct-grid { grid-template-columns: 1fr; } .acct { padding: 16px 16px 40px; } }
+
+/* ---------- Phone (Mobile board) ----------
+   ≤640px: the glass tab bar replaces the bar's global cluster; Live leads with a large title and its
+   health line under it; tiles keep their quick actions behind a long press. */
+@media (max-width: 640px) {
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: grid; grid-template-columns: repeat(4, 1fr); height: calc(62px + env(safe-area-inset-bottom)); padding: 6px 8px env(safe-area-inset-bottom); background: var(--glass-fill-heavy); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); border-top: 1px solid var(--glass-border); border-radius: 22px 22px 0 0; }
+  .tabbar .tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); text-decoration: none; font-size: 10.5px; font-weight: 500; }
+  .tabbar .tab .i { width: 22px; height: 22px; }
+  .tabbar .tab[aria-current="page"] { color: var(--accent-text); }
+  .tabbar .tab.locked { opacity: .45; }
+  #view { padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
+  html.tv-mode .tabbar, body:has(.focus) .tabbar, body:has(.replay-overlay) .tabbar, body:has(:fullscreen) .tabbar { display: none; }
+  html.tv-mode #view, body:has(.focus) #view { padding-bottom: 0; }
+
+  /* Live header: big "Live", the health line beneath it, Overview and the bell on the right. */
+  .topbar.live { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: "title ctx actions" "health ctx actions"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + env(safe-area-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
+  .topbar.live .bar-brand, .topbar.live > .spacer { display: none; }
+  .topbar.live .bar-title { grid-area: title; }
+  .topbar.live .bar-title h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .topbar.live .pill.health { grid-area: health; justify-self: start; height: auto; padding: 0; background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 400; }
+  .topbar.live .bar-ctx { grid-area: ctx; }
+  .topbar.live .bar-actions { grid-area: actions; }
+  .topbar.live .lay-btn, .topbar.live .view-toggle span, .topbar.live [data-a=wallfs], .topbar.live .bar-sep,
+  .topbar.live .gbtn[data-g=playback], .topbar.live .gbtn[data-g=events], .topbar.live .gbtn[data-g=settings], .topbar.live .avatar { display: none; }
+  .topbar.live .view-toggle { width: 40px; padding: 0; justify-content: center; }
+  .topbar.live.tv { display: flex; }
+  .wall { padding: 4px 14px 12px; gap: 12px; }
+  .wall .tile, .wall .tile.empty { aspect-ratio: 4 / 3; }
+  .live-hint { display: block; margin: 4px 0 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
+  .tile .loadhd { display: none; }
+  .liveview:has(.overview-tile) .live-hint { display: none; }
+}
+@media (max-width: 640px) {
+  .topbar.tabroot .bar-back { display: none; }
+  .topbar.tabroot { padding-left: 18px; }
+  .liveview { overflow-y: auto; }
+  .liveview .wall { flex: none; overflow: visible; }
+  /* Settings as an iOS-style list: #/settings shows the sections; a section opens full width. */
+  .settings { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .settings.list-mode .pane, .settings:not(.list-mode) .side { display: none; }
+  .settings.list-mode .side { flex-direction: column; overflow-y: auto; border: 0; padding: 8px 16px 24px; gap: 0; }
+  .settings.list-mode .side a { margin: 0; min-height: 52px; padding: 0 16px; border-radius: 0; background: var(--panel); color: var(--text); font-size: 16px; border-top: 1px solid var(--line); }
+  .settings.list-mode .side a:first-child { border-top: 0; border-radius: var(--r-md) var(--r-md) 0 0; }
+  .settings.list-mode .side a:last-child { border-radius: 0 0 var(--r-md) var(--r-md); margin-top: 0; }
+  .settings.list-mode .side a.side-account { margin-top: 22px; border-radius: var(--r-md); border-top: 0; }
+  .settings.list-mode .side a:nth-last-child(2) { border-radius: 0 0 var(--r-md) var(--r-md); }
+  .settings.list-mode .side a .i { color: var(--accent-text); }
+  .settings.list-mode .side a::after { content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--faint); border-top: 2px solid var(--faint); transform: rotate(45deg); }
+  .settings.list-mode .side a[aria-current="page"] { background: var(--panel); }
+  .savebar { left: 0; bottom: calc(62px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 640px) and (hover: none) {
+  .tile-actions { opacity: 0; pointer-events: none; }
+  .tile.show-actions .tile-actions { opacity: 1; transform: none; pointer-events: auto; }
+}

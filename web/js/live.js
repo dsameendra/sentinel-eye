@@ -117,6 +117,7 @@ export class LiveView {
       return;
     }
     this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="wall"></div><div class="pager-row" hidden></div>
+      <p class="live-hint">Long-press any tile for quick actions</p>
       <div class="tv-fs-controls">
         <button class="tv-fs-btn" data-a="pgprev" title="Previous page" aria-label="Previous page">${icon('left')}</button>
         <span class="tv-fs-page"></span>

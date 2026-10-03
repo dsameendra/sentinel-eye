@@ -207,7 +207,7 @@ export class AccountView {
     const me = this.ctx.me() || {};
     const signOut = me.via === 'session' ? `<button class="btn glass-btn" data-a="logout">${icon('logout')} Sign out${this.user?.kind === 'device' ? ' this device' : ''}</button>` : '';
     this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
-    wireBar(this.root, this.ctx);
+    wireBar(this.root, this.ctx, { back: 'history' });
     this.wire();
   }
 

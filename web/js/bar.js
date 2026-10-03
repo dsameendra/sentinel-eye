@@ -31,7 +31,12 @@ export function barHTML(o) {
 
 /** Back chevron goes home (Live). Global cluster buttons are wired by wireGlobal(). */
 export function wireBar(root, ctx, { back = '#/live' } = {}) {
-  root.querySelector('[data-bar=back]')?.addEventListener('click', () => ctx.go(back));
+  // back: a hash, or 'history' — return to wherever the user came from (Account is reached from several
+  // places), falling back to Live on a fresh tab with nothing behind it.
+  root.querySelector('[data-bar=back]')?.addEventListener('click', () => {
+    const prev = ctx.prevHash?.();
+    ctx.go(back !== 'history' ? back : prev && prev !== location.hash ? prev : '#/live');
+  });
 }
 
 // ------------------------------------------------------------------------------------------------- global
