@@ -173,6 +173,11 @@ async function route() {
   const navSection = section === 'search' ? 'events' : section;
   document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.n === navSection));
   document.querySelectorAll('.nav a[aria-current]').forEach((a) => a.setAttribute('aria-current', 'page'));
+  // Live and Playback each have their own second glass bar (.subbar / .pb-topline) directly beneath this
+  // one — dropping the topbar's own bottom hairline there lets the two read as one combined nav band
+  // (redesign v2, matching the mockups) instead of two stacked panels with a visible seam. Settings/Events
+  // have nothing directly below the topbar, so they keep the hairline as the band's real bottom edge.
+  document.querySelector('.topbar')?.classList.toggle('seamless', navSection === 'live' || navSection === 'playback');
 
   if (section === 'settings') {
     if (state.kind === 'settings') { state.view.setTab(arg || 'connection'); return; }

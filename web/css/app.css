@@ -153,6 +153,11 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    reduced-transparency guard rules near the end of this file for what happens when blur isn't available or
    isn't wanted. */
 .topbar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
+/* Live/Playback: main.js's route() toggles this once .subbar/.pb-topline is about to render directly
+   beneath — same Glass fill, so the two read as one continuous combined nav band (redesign v2, matching
+   the mockups) with its hairline at the true bottom (.subbar/.pb-topline's own border-bottom) instead of a
+   visible seam between two stacked panels. */
+.topbar.seamless { border-bottom: 0; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .01em; }
 .brand-mark { width: 26px; height: 26px; border-radius: var(--r-sm); background: #111827; display: grid; place-items: center; }
 .brand-mark::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--accent); box-shadow: inset 0 0 0 2px #111827, inset 0 0 0 5px var(--accent); }
