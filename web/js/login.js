@@ -3,6 +3,9 @@
 import { authApi } from './api.js';
 import { qrSvg } from './qr.js';
 import { esc, icon } from './ui.js';
+import { installTvNav } from './tvnav.js';
+
+installTvNav();
 
 const card = document.getElementById('card');
 const tvMode = document.documentElement.classList.contains('tv-mode');

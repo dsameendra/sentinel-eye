@@ -53,6 +53,10 @@ export class LiveView {
     this._autoFs = !!ctx.consumeTvFullscreen?.();
     this.onKey = (e) => this.key(e);
     document.addEventListener('keydown', this.onKey);
+    this.onTvEdge = (e) => this._tvEdge(e);
+    document.addEventListener('tvnav-edge', this.onTvEdge);
+    this.onVis = () => { if (!document.hidden && this.tvMode) this._tvWakeLock(); };
+    document.addEventListener('visibilitychange', this.onVis);
     this.onFs = () => this.syncFullscreen();
     document.addEventListener('fullscreenchange', this.onFs);
     this.rotTimer = setInterval(() => this.rotate(), 1000);
@@ -123,9 +127,7 @@ export class LiveView {
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
         <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
-      </div>${this.tvMode ? `<div class="tv-hints" aria-hidden="true">
-        <span><i>${icon('right')}</i>Arrows move between cameras</span><span><i>${icon('checkcircle')}</i>OK opens Focus</span>
-        <span><i>${icon('left')}</i>Back returns</span><span><i>F</i>Full screen</span></div>` : ''}</main>`;
+      </div>${this.tvMode ? '<div class="tv-hints" aria-hidden="true"></div>' : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
     this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
@@ -135,10 +137,15 @@ export class LiveView {
     this.live.querySelector('[data-a=pgprev]').addEventListener('click', () => this.goPage(this.page - 1));
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
-    if (this.tvMode) this._tvHintsWake();
+    if (this.tvMode) {
+      this.live.addEventListener('mousemove', () => this._tvWake());
+      this._tvWake();
+      this._tvWakeLock();
+    }
     this.page = Math.min(this.page, this.pages() - 1);
     this.renderBar();
     this.renderWall();
+    if (this.tvMode) this._tvDefaultFocus();
     if (this.pendingFocusId) this.route(this.pendingFocusId);
   }
 
@@ -223,18 +230,16 @@ export class LiveView {
   _renderTvBar() {
     const single = this.chan0Displayed;
     const layout = this.effLayout();
+    const fs = !!document.fullscreenElement;
     const actions = `<span class="tv-clock"></span>
-      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid' : 'Overview'}</span></button>` : ''}
-      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}
-      <a class="btn icon ghost gbtn" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>`;
+      ${this.channelZeroOn ? `<button class="btn ghost tv-btn view-toggle" data-a="overview" aria-pressed="${single}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Camera grid' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost tv-btn lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}
+      <button class="btn ghost tv-btn" data-a="tvfs">${icon(fs ? 'collapse' : 'expand')}<span>${fs ? 'Exit full screen' : 'Full screen'}</span></button>
+      <a class="btn icon ghost tv-btn" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>`;
     this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Sentinel Eye', actions, cls: 'live tv' });
     this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
-    this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => {
-      this.overviewOn = !this.overviewOn;
-      this.ctx.setOverviewOn?.(this.overviewOn);
-      if (!this.wall) { this.build(); return; }
-      this.renderBar(); this.renderWall();
-    });
+    this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => this._setOverview(!this.chan0Displayed));
+    this.bar.querySelector('[data-a=tvfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
     const clock = this.bar.querySelector('.tv-clock');
     const tick = () => {
       const d = new Date();
@@ -245,18 +250,22 @@ export class LiveView {
     tick();
     clearInterval(this.clockTimer);
     this.clockTimer = setInterval(tick, 15000);
+    // What the remote does right now, in this mode.
+    const hints = this.live?.querySelector('.tv-hints');
+    if (hints) {
+      const h = (glyph, text) => `<span><i>${glyph}</i>${text}</span>`;
+      const pp = '<b class="pp">▶︎❚❚</b>';
+      hints.innerHTML = single
+        ? `${h(pp, 'Camera grid')}${h(icon('dpad'), 'Controls')}`
+        : `${h(icon('dpad'), this.pages() > 1 ? 'Move · past the edge turns the page' : 'Move')}${h('OK', 'Open a camera')}${this.channelZeroOn ? h('Back', 'Overview') : ''}`;
+    }
     this._renderPager();
     this._syncFsControls();
+    this._tvDefaultFocus();
   }
 
-  /** The remote hints fade after a few quiet seconds and come back on the next key press. */
-  _tvHintsWake() {
-    const el = this.live?.querySelector('.tv-hints');
-    if (!el) return;
-    el.classList.add('show');
-    clearTimeout(this.hintTimer);
-    this.hintTimer = setTimeout(() => el.classList.remove('show'), 8000);
-  }
+
+
 
   /** The bar's quiet health indicator (States board: "lives permanently in the top bar's corner — never
    * hidden, never alarming at rest"): a plain camera count when everything's streaming, a dot + live/total
@@ -469,6 +478,7 @@ export class LiveView {
     this.rotSince = Date.now();
     this.renderBar();
     this.renderWall();
+    if (this.tvMode) this._tvDefaultFocus();
   }
 
   toggleEdit(force) {
@@ -550,6 +560,7 @@ export class LiveView {
 
     const f = document.createElement('div');
     f.className = 'focus' + (this.fitMode() === 'cover' ? ' fill' : '');
+    f.dataset.tvScope = '';   // a remote moves among Focus's own controls, not the grid behind it
     const c0 = isChan0(cam), op = this.ctx.can('operator');
     // Focus board: glass bars over the picture (fading on idle), a zoom navigator once you're zoomed in,
     // and the actions that matter one tap away. Everything the old control strip had is still here — the
@@ -821,6 +832,7 @@ export class LiveView {
     this.closeReplay();
     const r = document.createElement('div');
     r.className = 'replay-overlay';
+    r.dataset.tvScope = '';
     r.innerHTML = `<div class="focus-bar show">
         <button class="btn icon ghost bar-back" data-a="x" title="Close (Esc)" aria-label="Close instant replay">${icon('left')}</button>
         <div class="bar-title"><h2>Instant replay</h2><div class="bar-sub"><span class="dot wait"></span><span class="stat">starting…</span><span>· ${esc(cam.name || 'Camera ' + cam.channel)} · last ${seconds}s</span></div></div>
@@ -870,38 +882,44 @@ export class LiveView {
   // having had a chance to see the labels/controls at all, let alone watch them fade.
   syncFullscreen() {
     if (document.fullscreenElement === this.live) this._fsShow?.();
+    if (this.tvMode && !this.focus) this.renderBar();   // the header's Full screen / Exit full screen label
   }
 
   key(e) {
     if (!this.wall || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.getElementById('modal-root').firstChild) return;
-    // A TV remote's Back key arrives under several names depending on the set's browser.
-    const k = this.tvMode && /^(Backspace|BrowserBack|GoBack|XF86Back)$/.test(e.key) ? 'Escape' : e.key;
+    // A TV remote's keys arrive under different names depending on the set's browser (Tizen sends keyCode
+    // 10009 for Back and 10252 for Play/Pause; others send the standard key names).
+    const tvBack = this.tvMode && (/^(Backspace|BrowserBack|GoBack|XF86Back)$/.test(e.key) || e.keyCode === 10009);
+    const tvPlay = this.tvMode && (/^(MediaPlayPause|MediaPlay|MediaPause|MediaStop)$/.test(e.key) || [10252, 415, 19, 413].includes(e.keyCode));
+    const k = tvBack ? 'Escape' : e.key;
+    if (this.tvMode) this._tvWake();
+    if (tvPlay) { e.preventDefault(); this._tvPlayPause(); return; }
+    if (tvBack && document.body._openPopover) { e.preventDefault(); closePopover(); return; }
     if (k === '?') { shortcutsDialog(); return; }
-    if (this.replay) { if (k === 'Escape') this.closeReplay(); return; }
+    if (this.replay) { if (k === 'Escape') { e.preventDefault(); this.closeReplay(); } return; }
     if (this.focus) {
-      if (k === 'Escape' && !document.fullscreenElement) { if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }
+      // On a remote, Left/Right switch cameras unless a control in Focus's own bars has the focus — then
+      // they move between those controls (tvnav); Up/Down always go to the controls.
+      const inBars = document.activeElement?.closest?.('.focus-bar, .focus-bottom, .focus-zoom');
+      if (this.tvMode && (k === 'ArrowUp' || k === 'ArrowDown' || ((k === 'ArrowLeft' || k === 'ArrowRight') && inBars))) { this._focusShow?.(); return; }
+      if (k === 'Escape' && !document.fullscreenElement) { e.preventDefault(); if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }
       else if (k === '+' || k === '=') this.focus.tile.zoom?.zoomBy(1.6);
       else if (k === '-' || k === '_') this.focus.tile.zoom?.zoomBy(1 / 1.6);
       else if (k === '0') this.focus.tile.zoom?.reset();
-      else if (k === 'ArrowLeft') this.stepFocus(-1);
-      else if (k === 'ArrowRight') this.stepFocus(1);
+      else if (k === 'ArrowLeft') { e.preventDefault(); this.stepFocus(-1); }
+      else if (k === 'ArrowRight') { e.preventDefault(); this.stepFocus(1); }
       else if (k === 'f' || k === 'F') this.toggleFullscreen(this.focus.el);
       else if (k === 's' || k === 'S') this.focus.tile.snapshot();
       else if ((k === 'h' || k === 'H') && !isChan0(this.focus.tile.cam)) this.focus.tile.setKind(this.focus.tile.kind === 'main' ? 'sub' : 'main');
       else if (k === 'b' || k === 'B') { const c = this.focus.tile.cam; isChan0(c) ? this.bookmarkAllCams() : this.bookmarkNow(c); }
       return;
     }
-    // TV mode: arrow keys move a selection cursor between tiles instead of paging — a D-pad's arrow keys
-    // don't move focus between elements on their own (that's a Tab-key thing on every browser tested,
-    // Tizen's Chromium-based one included — there's no built-in "spatial navigation" to lean on), so this
-    // drives it by hand rather than assuming the browser does it. Enter/Space then opens the selected tile
-    // via the real keydown handler already on its .hit element (tile.js, under the same flag).
-    if (this.tvMode) this._tvHintsWake();
-    if (this.tvMode && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown')) {
-      e.preventDefault();
-      const cols = LAYOUTS[this.effLayout()].cols || 1;
-      this._tvMove(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : k === 'ArrowUp' ? -cols : cols);
+    if (this.tvMode) {
+      // Arrows belong to tvnav (spatial focus across tiles and the header); Back from the grid returns to
+      // the Overview — the TV's resting state.
+      if (k === 'Escape') { e.preventDefault(); if (!this.chan0Displayed && this.channelZeroOn) this._setOverview(true); }
+      else if (k === 'f' || k === 'F') this.toggleFullscreen(this.live);
       return;
     }
     if (k === 'Escape') { if (this.edit) this.toggleEdit(false); }
@@ -912,22 +930,65 @@ export class LiveView {
     else if (/^[1-9]$/.test(k)) { const t = this.tiles[+k - 1]; if (t) this.ctx.go(`#/live/${t.cam.id}`); }
   }
 
+
   // ---------------------------------------------------------------- TV mode grid navigation
   /** Moves the TV-mode selection cursor by `delta` tiles (±1 for left/right, ±cols for up/down) and gives
    * that tile's hit-target real keyboard focus — works identically on a real TV remote and a laptop
    * keyboard, since nothing here depends on the browser's own focus-traversal order. */
-  _tvMove(delta) {
-    if (!this.tiles.length) return;
-    const next = this.tvIndex + delta;
-    // Past either end of the page, a left/right press turns the page (the remote has no other way to).
-    if ((next < 0 || next >= this.tiles.length) && Math.abs(delta) === 1 && this.pages() > 1) {
-      this.goPage(this.page + delta);
-      this.tvIndex = delta > 0 ? 0 : this.tiles.length - 1;
-    } else {
-      this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, next));
-    }
-    this.tiles[this.tvIndex]?.el.querySelector('.hit')?.focus({ preventScroll: true });
+  /** tvnav found nothing further left/right from a tile: turn the page (a remote has no other way to). */
+  _tvEdge(e) {
+    const { dx, from } = e.detail;
+    if (!this.tvMode || this.focus || this.chan0Displayed || !dx || this.pages() < 2 || !from?.closest?.('.wall')) return;
+    this.goPage(this.page + dx);
+    const t = dx > 0 ? this.tiles[0] : this.tiles[this.tiles.length - 1];
+    t?.el.querySelector('.hit')?.focus();
   }
+
+  _setOverview(on) {
+    if (!this.channelZeroOn || this.overviewOn === on) return;
+    this.overviewOn = on;
+    this.ctx.setOverviewOn?.(on);
+    if (!this.wall) { this.build(); return; }
+    this.renderBar(); this.renderWall();
+    if (this.tvMode) this._tvDefaultFocus();
+  }
+
+  /** Play/Pause on the remote: Overview ⇄ grid; from a camera in Focus, back out to where it came from. */
+  _tvPlayPause() {
+    if (this.focus) { this.ctx.go('#/live'); return; }
+    if (this.channelZeroOn) this._setOverview(!this.chan0Displayed);
+  }
+
+  /** Where a remote's first arrow press lands: the Overview/Grid button on the Overview, else the first
+   * camera. Marked for tvnav and focused straight away if nothing has focus yet. */
+  _tvDefaultFocus() {
+    this.root.querySelectorAll('[data-tv-default]').forEach((el) => el.removeAttribute('data-tv-default'));
+    const el = this.chan0Displayed ? this.bar?.querySelector('[data-a=overview]') : this.tiles[0]?.el.querySelector('.hit');
+    el?.setAttribute('data-tv-default', '');
+  }
+
+  /** TV chrome (header, hints) shows on any key or pointer movement and fades after a few quiet seconds,
+   * unless a header control has the focus. Five quiet minutes on the grid go back to the Overview, the
+   * TV's resting state. */
+  _tvWake() {
+    if (!this.tvMode || !this.live) return;
+    this.live.classList.add('tv-awake');
+    clearTimeout(this.tvHideTimer);
+    const hide = () => {
+      if (this.bar?.contains(document.activeElement) || document.body._openPopover) { this.tvHideTimer = setTimeout(hide, 4000); return; }
+      this.live?.classList.remove('tv-awake');
+    };
+    this.tvHideTimer = setTimeout(hide, 6000);
+    clearTimeout(this.tvIdleTimer);
+    this.tvIdleTimer = setTimeout(() => { if (!this.focus && !this.chan0Displayed && this.channelZeroOn) this._setOverview(true); }, 5 * 60 * 1000);
+  }
+
+  /** Keep the TV from dimming or sleeping while it's showing cameras (where the browser allows it). */
+  async _tvWakeLock() {
+    if (!this.tvMode || !navigator.wakeLock || document.hidden) return;
+    try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch { /* not allowed here */ }
+  }
+
 
   /** Keeps tvIndex in sync when a tile is focused by some other means (mouse click, Tab) — so arrow-key
    * navigation picks up from wherever focus actually is, not a stale cursor position. */
@@ -948,7 +1009,11 @@ export class LiveView {
     clearInterval(this.rotTimer);
     clearInterval(this.evTimer);
     clearInterval(this.clockTimer);
-    clearTimeout(this.hintTimer);
+    clearTimeout(this.tvHideTimer);
+    clearTimeout(this.tvIdleTimer);
+    document.removeEventListener('tvnav-edge', this.onTvEdge);
+    document.removeEventListener('visibilitychange', this.onVis);
+    this.wakeLock?.release?.().catch(() => {});
     if (document.fullscreenElement) document.exitFullscreen?.();
     this.root.innerHTML = '';
   }

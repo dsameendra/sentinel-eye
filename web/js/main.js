@@ -1,6 +1,7 @@
 // App shell: hash router (#/live[/id], #/settings/<tab>), theme, clock.
 import { api, authApi, authHooks, signInAgain } from './api.js';
 import { AccountView, openAccount } from './account.js';
+import { installTvNav } from './tvnav.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
@@ -20,6 +21,9 @@ const app = document.getElementById('app');
 // variable at call time, since the value is needed before layout/paint on the very first call.
 const THEME_BG = { dark: '#09090b', light: '#f2f2f5' };
 function applyTheme(t) {
+  // A TV in TV mode follows its own appearance (dark unless chosen otherwise), not the synced theme: a
+  // TV browser often reports a light preference, which turned everything around the video light.
+  if (getTvMode()) { const tv = getTvTheme(); t = tv === 'auto' ? null : tv; }
   if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
   else document.documentElement.removeAttribute('data-theme');
   // Installed-app chrome (iOS status bar tint, Android/desktop PWA title bar) reads this meta tag, not the
@@ -30,7 +34,7 @@ function applyTheme(t) {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEME_BG[effective]);
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
-  if (!(state.settings?.display.theme === 'dark' || state.settings?.display.theme === 'light')) applyTheme(null);
+  if (getTvMode() || !(state.settings?.display.theme === 'dark' || state.settings?.display.theme === 'light')) applyTheme(state.settings?.display.theme);
 });
 
 // TV mode: a big-text, remote-friendly UI mode for browsing on a smart TV's browser (Tizen etc). Kept as a
@@ -43,8 +47,15 @@ function getTvMode() { try { return localStorage.getItem(TV_MODE_KEY) === '1'; }
 function setTvMode(on) {
   try { localStorage.setItem(TV_MODE_KEY, on ? '1' : '0'); } catch { /* private mode */ }
   document.documentElement.classList.toggle('tv-mode', on);
+  if (state.settings) applyTheme(state.settings.display.theme);
 }
 setTvMode(getTvMode());   // apply before first paint of the shell below
+const TV_THEME_KEY = 'sentinel-eye-tv-theme';
+function getTvTheme() { try { const v = localStorage.getItem(TV_THEME_KEY); return v === 'light' || v === 'auto' ? v : 'dark'; } catch { return 'dark'; } }
+function setTvTheme(v) {
+  try { localStorage.setItem(TV_THEME_KEY, v); } catch { /* private mode */ }
+  applyTheme(state.settings?.display.theme);
+}
 
 // TV mode's own quality choice (grid + large view) — separate from the synced Settings > Display > quality
 // picker for the same reason TV mode itself is local: SD-by-default is right for the TV's own decoder, not
@@ -87,6 +98,8 @@ const ctx = {
   async refreshMe() { state.me = await authApi.me(); return state.me; },
   applyTheme,
   tvMode: getTvMode,
+  tvTheme: getTvTheme,
+  setTvTheme,
   setTvMode,
   armTvFullscreen,
   consumeTvFullscreen,
@@ -170,6 +183,7 @@ async function route() {
 }
 
 async function boot() {
+  installTvNav();   // arrows move focus spatially in TV mode (a remote has no pointer)
   // Who's asking decides what the shell shows, so this comes first. Sign-in off = an admin, as always.
   try { state.me = await authApi.me(); } catch { state.me = { auth_enabled: false, via: 'none', role: 'admin', user: null }; }
   if (state.me.auth_enabled && state.me.via === 'anon') { signInAgain(); return; }   // e.g. a cached shell from the service worker

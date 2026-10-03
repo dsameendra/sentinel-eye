@@ -2,6 +2,9 @@
 // sign-in page, names the device and picks what it may do.
 import { authApi, signInAgain } from './api.js';
 import { esc, icon } from './ui.js';
+import { installTvNav } from './tvnav.js';
+
+installTvNav();
 
 const card = document.getElementById('card');
 const brand = '<div class="auth-mark" aria-hidden="true"><span class="brand-mark"></span></div>';

@@ -66,6 +66,10 @@ const P = {
   // A bracketed span of time — "pick a range to export" (crop meant the wrong thing on a timeline).
   // A figure in motion (motion events).
   motion: '<circle cx="14" cy="4.5" r="2"/><path d="m8.5 21 2.6-5.6 2.9 2.6V22"/><path d="M6 11.5 9 8l4.2.4 2.3 3.6 3 .8"/><path d="m11.1 15.4 1.6-7"/>',
+  // Two arrows pointing in — leave full screen.
+  collapse: '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>',
+  // A remote's direction pad — "the arrows".
+  dpad: '<path d="m9 6 3-3 3 3"/><path d="m9 18 3 3 3-3"/><path d="m6 9-3 3 3 3"/><path d="m18 9 3 3-3 3"/><circle cx="12" cy="12" r="2"/>',
   excl: '<path d="M12 6.5v7"/><path d="M12 17.5h.01"/>',
   range: '<path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 12h6"/>',
   bookmark: '<path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-4 7 4Z"/>',

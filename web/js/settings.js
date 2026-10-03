@@ -227,7 +227,8 @@ export class SettingsView {
     <section class="sgroup"><h2>Appearance</h2><div class="srows">
       ${this.srow('Theme', 'Auto follows this device’s light or dark setting.', seg('theme', [['auto', 'Auto'], ['dark', 'Dark'], ['light', 'Light']], 'Theme'))}
       ${this.srow('Picture', 'Fit never crops; Fill crops to fill each tile edge to edge. Live and Playback.', seg('fit', [['contain', 'Fit'], ['cover', 'Fill']], 'Fit'))}
-      ${this.srow('TV mode', 'Bigger type and arrow-key camera selection for watching from a distance. This browser only.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
+      ${this.srow('TV mode', 'A remote-friendly layout for watching from across the room — starts on the Overview, keeps the screen awake. This browser only.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
+      ${this.ctx.tvMode() ? this.srow('TV appearance', 'This TV only. Dark keeps the room dim and the picture the brightest thing on screen.', `<div class="seg" role="group" aria-label="TV appearance">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']].map(([v, l]) => `<button data-tvtheme="${v}" aria-pressed="${this.ctx.tvTheme?.() === v}">${l}</button>`).join('')}</div>`) : ''}
     </div></section>
     <section class="sgroup"><h2>Layout</h2>
       <div class="laygrid">${layoutIds.map((id) => `<button data-o="layout:${id}" aria-pressed="${d.layout === id}">${layoutIcon(id, 44)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div>
@@ -258,7 +259,8 @@ export class SettingsView {
   deviceTab() {
     return `<h1 class="sr-only">This device</h1><p class="pane-note">Options for this browser only. Cameras, layout and everything else are set by an admin.</p>
     <section class="sgroup"><div class="srows">
-      ${this.srow('TV mode', 'Bigger type and arrow-key camera selection for watching from a distance. SD by default.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
+      ${this.srow('TV mode', 'A remote-friendly layout for watching from across the room — starts on the Overview, keeps the screen awake.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
+      ${this.ctx.tvMode() ? this.srow('TV appearance', 'This TV only. Dark keeps the room dim and the picture the brightest thing on screen.', `<div class="seg" role="group" aria-label="TV appearance">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']].map(([v, l]) => `<button data-tvtheme="${v}" aria-pressed="${this.ctx.tvTheme?.() === v}">${l}</button>`).join('')}</div>`) : ''}
       ${this.srow('Keyboard shortcuts', 'Every shortcut, on every screen. Press ? anywhere.', '<button class="btn glass-btn" data-a="keys">Show</button>')}
     </div></section>`;
   }
@@ -341,6 +343,7 @@ export class SettingsView {
     }));
     p.querySelector('#f-tv')?.addEventListener('change', (e) => this._onTvModeToggle(e.target.checked));
     p.querySelector('[data-a=keys]')?.addEventListener('click', () => shortcutsDialog());
+    p.querySelectorAll('[data-tvtheme]').forEach((b) => b.addEventListener('click', () => { this.ctx.setTvTheme?.(b.dataset.tvtheme); this.render(); }));
     p.querySelectorAll('[data-reveal]').forEach((b) => b.addEventListener('click', () => {
       const i = p.querySelector('#' + b.dataset.reveal);
       i.type = i.type === 'password' ? 'text' : 'password';

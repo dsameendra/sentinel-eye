@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Sentinel Eye">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<script>try { if (localStorage.getItem('sentinel-eye-tv-mode') === '1') document.documentElement.classList.add('tv-mode'); } catch (e) { /* private mode */ }</script>
+<script>try { if (localStorage.getItem('sentinel-eye-tv-mode') === '1') { document.documentElement.classList.add('tv-mode'); var tt = localStorage.getItem('sentinel-eye-tv-theme') || 'dark'; if (tt !== 'auto') document.documentElement.dataset.theme = tt; } } catch (e) { /* private mode */ }</script>
 </head>
 <body>
 <main class="auth-page"><div class="auth-card" id="card" aria-live="polite"></div></main>
