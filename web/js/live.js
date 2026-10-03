@@ -500,23 +500,34 @@ export class LiveView {
 
     const f = document.createElement('div');
     f.className = 'focus' + (this.fitMode() === 'cover' ? ' fill' : '');
+    const c0 = isChan0(cam), op = this.ctx.can('operator');
+    // Focus board: glass bars over the picture (fading on idle), a zoom navigator once you're zoomed in,
+    // and the actions that matter one tap away. Everything the old control strip had is still here — the
+    // rarer ones (fit/fill, zoom buttons, shortcuts) live under ⋯.
     f.innerHTML = `<div class="focus-bar">
-        <button class="btn" data-a="close">${icon('left')} Back</button>
-        <h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span><span class="pill stat"></span><span class="spacer"></span>
-        ${isChan0(cam) ? '' : `<div class="seg" role="group" aria-label="Video quality"><button data-k="sub">SD</button><button data-k="main">HD</button></div>`}
-        <div class="zoomctl" role="group" aria-label="Zoom"><button class="btn icon" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
-          <button class="btn pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
-        <button class="btn icon" data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
-        ${isChan0(cam) ? '' : `<button class="btn icon" data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>`}
-        <button class="btn icon" data-a="bookmark" title="${isChan0(cam) ? 'Bookmark this moment on every camera' : 'Bookmark this moment'}" aria-label="${isChan0(cam) ? 'Bookmark this moment on every camera' : 'Bookmark this moment'}">${icon('flag')}</button>
-        <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
-        <button class="btn icon" data-a="fit" aria-pressed="${this.fitMode() === 'cover'}"
-          title="${this.fitMode() === 'cover' ? 'Filling (cropped) — tap to letterbox instead. This session only.' : 'Letterboxed to fit — tap to fill instead (crops). This session only.'}"
-          aria-label="Toggle fit or fill">${icon('crop')}</button>
-        <button class="btn icon" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
-        <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
-      </div><div class="stage-host" style="position:relative;flex:1;min-height:0"></div>
-      ${cams.length > 1 ? `<button class="nav-arrow prev" aria-label="Previous camera">${icon('left')}</button><button class="nav-arrow next" aria-label="Next camera">${icon('right')}</button>` : ''}`;
+        <button class="btn icon ghost bar-back" data-a="close" title="Back to all cameras (Esc)" aria-label="Back to all cameras">${icon('left')}</button>
+        <div class="bar-title"><h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2>
+          <div class="bar-sub"><span class="dot live"></span><span class="stat"></span><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span></div></div>
+        <span class="spacer"></span>
+        ${c0 ? '' : '<div class="seg" role="group" aria-label="Video quality"><button data-k="main">HD</button><button data-k="sub">SD</button></div>'}
+        <button class="btn icon ghost" data-a="bookmark" title="${c0 ? 'Bookmark this moment on every camera (B)' : 'Bookmark this moment (B)'}" aria-label="Bookmark this moment">${icon('bookmark')}</button>
+        <button class="btn icon ghost" data-a="more" title="More" aria-label="More options" aria-haspopup="true">${icon('more')}</button>
+      </div>
+      <div class="zoom-nav" hidden><div class="zoom-view"></div></div>
+      <div class="zoomctl focus-zoom" role="group" aria-label="Zoom" hidden><button class="btn icon ghost" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
+        <button class="btn ghost pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon ghost" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
+      <div class="focus-bottom">
+        ${c0 ? '<span></span>' : `<button class="btn replay-pill" data-a="replay" title="Instant replay">${icon('back2')}<b>Instant replay</b><span>· last 10s</span></button>`}
+        <span class="spacer"></span>
+        ${c0 ? '' : `<button class="btn ghost" data-a="playback" title="${op ? 'Open this camera in Playback' : 'Playback needs an Operator or Admin account'}">${icon('calendar')}<b>Playback</b></button>`}
+        <div class="menu-wrap enh-wrap"><button class="btn icon ghost" data-a="enhance" title="Picture adjustments" aria-label="Picture adjustments" aria-haspopup="true">${icon('sparkle')}</button></div>
+        <button class="btn icon ghost" data-a="snap" title="Save snapshot (S)" aria-label="Save snapshot">${icon('share')}</button>
+        <button class="btn icon ghost" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('expand')}</button>
+      </div>
+      ${cams.length > 1 ? `<button class="nav-arrow prev" aria-label="Previous camera">${icon('left')}</button><button class="nav-arrow next" aria-label="Next camera">${icon('right')}</button>` : ''}
+      <div class="stage-host"></div>`;
+    // The stage is last on purpose: the borrowed grid tile inside it carries its own (hidden) zin/snap/
+    // replay/enhance buttons, and every querySelector below must find the Focus view's own controls first.
     tile.el.style.cssText = 'position:absolute;inset:0;border:0;border-radius:0';
     f.querySelector('.stage-host').append(tile.el);
     const hit = document.createElement('div');
@@ -529,19 +540,16 @@ export class LiveView {
     // above already dropped the browser out of fullscreen, so this is a fresh request, not a toggle.
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
     f.querySelector('[data-a=close]').addEventListener('click', () => this.ctx.go('#/live'));
-    f.querySelector('[data-a=x]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
     f.querySelector('[data-a=replay]')?.addEventListener('click', () => this.openReplay(cam));
-    f.querySelector('[data-a=bookmark]').addEventListener('click', () => (isChan0(cam) ? this.bookmarkAllCams() : this.bookmarkNow(cam)));
-    f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
-    f.querySelector('[data-a=fit]').addEventListener('click', () => {
-      this.toggleFit();
-      const btn = f.querySelector('[data-a=fit]');
-      const on = this.fitMode() === 'cover';
-      btn.setAttribute('aria-pressed', String(on));
-      btn.title = on ? 'Filling (cropped) — tap to letterbox instead. This session only.' : 'Letterboxed to fit — tap to fill instead (crops). This session only.';
+    f.querySelector('[data-a=playback]')?.addEventListener('click', () => {
+      if (!op) { toast('Playback needs an Operator or Admin account — ask an admin to change your role.', 'bad', 5000); return; }
+      this.ctx.go(`#/playback/${cam.id}/${Math.round(Date.now() / 1000 - 60)}`);
     });
+    f.querySelector('[data-a=bookmark]').addEventListener('click', () => (c0 ? this.bookmarkAllCams() : this.bookmarkNow(cam)));
+    f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
     f.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleFocusEnhanceMenu(tile));
+    f.querySelector('[data-a=more]').addEventListener('click', (e) => this._openFocusMore(e.currentTarget, tile));
     f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
     f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
     f.querySelector('[data-a=zreset]').addEventListener('click', () => tile.zoom.reset());
@@ -558,13 +566,11 @@ export class LiveView {
   // .show class the CSS only applies under .focus:fullscreen). Listeners live on `f` itself, so they're
   // discarded along with it on close/swap — no separate teardown needed.
   _bindFocusAutoHide(f) {
-    const bar = f.querySelector('.focus-bar');
-    const arrows = f.querySelectorAll('.nav-arrow');
+    const chrome = f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow, .focus-zoom');
     let hideTimer;
-    const hide = () => { bar.classList.remove('show'); arrows.forEach((a) => a.classList.remove('show')); };
+    const hide = () => { if (f.querySelector('.focus-bar:hover, .focus-bottom:hover')) { hideTimer = setTimeout(hide, 2600); return; } chrome.forEach((a) => a.classList.remove('show')); };
     const show = () => {
-      bar.classList.add('show');
-      arrows.forEach((a) => a.classList.add('show'));
+      chrome.forEach((a) => a.classList.add('show'));
       clearTimeout(hideTimer);
       hideTimer = setTimeout(hide, 2600);
     };
@@ -584,10 +590,46 @@ export class LiveView {
       f.querySelector('[data-a=zin]').disabled = z.atMax;
       f.querySelector('[data-a=zout]').disabled = !z.zoomed;
       f.querySelector('[data-a=zreset]').disabled = !z.zoomed;
+      // Zoom navigator (Focus board, top-right): the part of the picture you're looking at, live, while
+      // zoomed — computed from the same scale/offset the stage transform uses.
+      const nav = f.querySelector('.zoom-nav'), ctl = f.querySelector('.focus-zoom');
+      nav.hidden = !z.zoomed; ctl.hidden = !z.zoomed;
+      if (z.zoomed) {
+        const m = z.metrics();
+        const clamp01 = (v) => Math.min(1, Math.max(0, v));
+        const l = clamp01(((-m.w / 2 - z.x) / z.s + m.bw / 2) / m.bw), t = clamp01(((-m.h / 2 - z.y) / z.s + m.bh / 2) / m.bh);
+        const w = Math.min(1 - l, (m.w / z.s) / m.bw), h = Math.min(1 - t, (m.h / z.s) / m.bh);
+        Object.assign(f.querySelector('.zoom-view').style, { left: `${l * 100}%`, top: `${t * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` });
+      }
     }
-    const pill = f.querySelector('.stat');
     const pending = tile.pend ? ` · loading ${tile.pend.kind === 'main' ? 'HD' : 'SD'}…` : '';
-    pill.textContent = (tile.summary() || (tile.state === 'live' ? 'live' : 'connecting…')) + pending;
+    const live = tile.state === 'live';
+    f.querySelector('.bar-sub .dot').className = `dot ${live ? 'live' : tile.state === 'off' ? 'off' : 'wait'}`;
+    f.querySelector('.stat').textContent = (live ? `Live${tile.summary() ? ' · ' + tile.summary() : ''}` : tile.state === 'off' ? 'No signal — retrying' : 'Connecting…') + pending;
+  }
+
+  /** ⋯ in the Focus bar: the less-frequent controls (fit/fill, zoom, shortcuts). */
+  _openFocusMore(btn, tile) {
+    const fill = this.fitMode() === 'cover';
+    const menu = openPopover(btn, `<div class="view-menu">
+      <div class="pop-row"><span>Picture</span><div class="seg" role="group" aria-label="Fit or fill">
+        <button data-f="contain" aria-pressed="${!fill}">Fit</button><button data-f="cover" aria-pressed="${fill}">Fill</button></div></div>
+      <div class="pop-sep"></div>
+      <button class="pop-item" data-m="zin">${icon('plus')}<span>Zoom in</span><kbd>+</kbd></button>
+      <button class="pop-item" data-m="zout">${icon('minus')}<span>Zoom out</span><kbd>−</kbd></button>
+      <button class="pop-item" data-m="zreset">${icon('refresh')}<span>Reset zoom</span><kbd>0</kbd></button>
+      <div class="pop-sep"></div>
+      <button class="pop-item" data-m="keys">${icon('layout')}<span>Keyboard shortcuts</span><kbd>?</kbd></button>
+    </div>`, { className: 'view-pop' });
+    if (!menu) return;
+    menu.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
+      if ((this.fitMode() === 'cover') !== (b.dataset.f === 'cover')) this.toggleFit();
+      menu.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    menu.querySelector('[data-m=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
+    menu.querySelector('[data-m=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
+    menu.querySelector('[data-m=zreset]').addEventListener('click', () => { closePopover(); tile.zoom.reset(); });
+    menu.querySelector('[data-m=keys]').addEventListener('click', () => { closePopover(); shortcutsDialog(); });
   }
 
   stepFocus(dir) {
@@ -701,17 +743,17 @@ export class LiveView {
     this.closeReplay();
     const r = document.createElement('div');
     r.className = 'replay-overlay';
-    r.innerHTML = `<div class="replay-bar">
-        ${icon('rewind')} <span>Instant replay · ${esc(cam.name || 'Camera ' + cam.channel)}</span>
-        <span class="pill stat">starting…</span><span class="spacer"></span>
-        <button class="btn primary" data-a="live">${icon('play')} Back to live</button>
-        <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
-      </div><div class="replay-stage"><canvas></canvas></div>`;
+    r.innerHTML = `<div class="focus-bar show">
+        <button class="btn icon ghost bar-back" data-a="x" title="Close (Esc)" aria-label="Close instant replay">${icon('left')}</button>
+        <div class="bar-title"><h2>Instant replay</h2><div class="bar-sub"><span class="dot wait"></span><span class="stat">starting…</span><span>· ${esc(cam.name || 'Camera ' + cam.channel)} · last ${seconds}s</span></div></div>
+        <span class="spacer"></span>
+      </div><div class="replay-stage"><canvas></canvas></div>
+      <div class="focus-bottom show"><span class="spacer"></span><button class="btn primary" data-a="live">${icon('play')}Back to live</button></div>`;
     this.live.append(r);
     const canvas = r.querySelector('canvas');
     const pill = r.querySelector('.stat');
     const player = new WCPlayer(canvas, {
-      onState: (s) => { pill.textContent = s === 'playing' ? 'replaying' : s === 'queued' ? 'waiting for a recorder session…' : s; },
+      onState: (s) => { pill.textContent = s === 'playing' ? 'Replaying' : s === 'queued' ? 'Waiting for a recorder session…' : (s ? s[0].toUpperCase() + s.slice(1) : ''); pill.previousElementSibling.className = `dot ${s === 'playing' ? 'armed' : 'wait'}`; },
       onError: (msg) => { pill.textContent = 'error'; toast(`Instant replay: ${msg}`, 'bad', 6000); },
     });
     if (!player.supported) { toast(`Instant replay unavailable: ${unsupportedReason()}`, 'bad', 8000); r.remove(); return; }

@@ -490,35 +490,43 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .ev-badge.tamper { color: #d59bf6; background: linear-gradient(rgba(191, 90, 242, .22), rgba(191, 90, 242, .22)), rgba(10, 10, 12, .7); }
 .ev-badge.videoloss, .ev-badge.line, .ev-badge.intrusion { color: #ff6a5f; background: linear-gradient(rgba(255, 59, 48, .2), rgba(255, 59, 48, .2)), rgba(10, 10, 12, .7); }
 
-/* focus view */
-.focus { position: absolute; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; }
-/* Glass (redesign v2 foundation) — windowed-mode only; the fullscreen floating version below stays a
-   gradient scrim on purpose (it floats directly over live video, where continuous backdrop-filter is the
-   real performance trap — see the glass guardrails comment near TV mode). */
-.focus-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); flex-wrap: wrap; }
-.focus-bar h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.focus .nav-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 6; width: 42px; height: 68px; border: 0; border-radius: var(--r-sm); background: rgba(15, 20, 28, .6); color: #fff; display: grid; place-items: center; opacity: 0; transition: opacity .15s; }
-.focus:hover .nav-arrow { opacity: 1; }
-.focus .nav-arrow:hover { background: var(--accent); color: var(--accent-ink); }
-.focus .nav-arrow.prev { left: 10px; } .focus .nav-arrow.next { right: 10px; }
-@media (hover: none) { .focus .nav-arrow { opacity: 1; } }
+/* focus view + instant replay (Focus board): the picture fills everything; glass bars float over it and fade
+   together after a moment of inactivity (LiveView._bindFocusAutoHide toggles .show), coming back on any
+   pointer/touch activity or while the pointer rests on a bar. Glass is fine here — one stream, not a wall
+   of them (see the guardrails near TV mode for where it isn't). */
+.focus, .replay-overlay { position: absolute; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; }
+.replay-overlay { z-index: 25; }
+.focus .stage-host { position: absolute; inset: 0; z-index: 0; }
+.focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; padding-top: env(safe-area-inset-top); box-sizing: content-box; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
+.focus-bar h2 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
+.focus-bar .bar-sub { display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, .62); }
+.focus-bar .bar-sub .dot { width: 6px; height: 6px; box-shadow: none; }
+.focus-bar .bar-sub .tag.fx { padding: 0 4px; }
+.focus-bar .btn.ghost, .focus-bottom .btn.ghost { color: #f5f5f7; }
+.focus-bar .btn.ghost:hover, .focus-bottom .btn.ghost:hover { background: rgba(255, 255, 255, .1); }
+.focus-bar .seg { background: rgba(255, 255, 255, .08); }
+.focus-bar .seg button { color: rgba(255, 255, 255, .62); }
+.focus-bar .seg button[aria-pressed="true"] { background: #2c2c31; color: #fff; }
+.focus-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; display: flex; align-items: center; gap: 8px; padding: 18px 20px calc(20px + env(safe-area-inset-bottom)); background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-top: 1px solid var(--glass-border); }
+.focus-bottom .btn b { font-weight: 600; }
+.replay-pill { gap: 9px; padding: 0 18px; height: 42px; background: var(--glass-fill); border-color: var(--glass-border); color: #fff; }
+.replay-pill span { color: rgba(255, 255, 255, .5); font-weight: 400; }
+.focus-bar, .focus-bottom, .focus .nav-arrow, .focus-zoom { transition: opacity var(--dur-chrome-in) var(--ease-out-expo); }
+.focus .focus-bar:not(.show), .focus .focus-bottom:not(.show), .focus .nav-arrow:not(.show), .focus .focus-zoom:not(.show) { opacity: 0; pointer-events: none; transition-duration: var(--dur-chrome-out); }
+@media (hover: none) { .focus .focus-bar, .focus .focus-bottom, .focus .nav-arrow { opacity: 1 !important; pointer-events: auto !important; } }
+.focus .nav-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 6; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass-fill); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; display: grid; place-items: center; }
+.focus .nav-arrow:hover { background: rgba(255, 255, 255, .18); }
+.focus .nav-arrow.prev { left: 18px; } .focus .nav-arrow.next { right: 18px; }
 .focus .hitzone { position: absolute; inset: 0; z-index: 1; }
-/* JS-driven (LiveView._bindFocusAutoHide), same show-on-activity/hide-while-idle cycle Playback's topline
-   and controls use — not a :hover reveal, which (like every other hover-only control above) never showed
-   this at all on a device that can't hover, fullscreen or not. */
-/* Same safe-area fix as .pb-pane-label above, same cause: floating instead of occupying its own row means
-   this can now genuinely reach an iPad's status-bar/notch area. */
-.focus:fullscreen .focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; background: linear-gradient(#000c, transparent); border: 0; padding-top: max(8px, env(safe-area-inset-top)); opacity: 0; pointer-events: none; transition: opacity .22s ease; }
-.focus:fullscreen .focus-bar.show { opacity: 1; pointer-events: auto; }
-.focus:fullscreen .nav-arrow { opacity: 0; }
-.focus:fullscreen .nav-arrow.show { opacity: 1; }
-.focus:fullscreen { background: #000; }
-
-/* instant replay overlay */
-.replay-overlay { position: absolute; inset: 0; z-index: 25; background: #000; display: flex; flex-direction: column; }
-.replay-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.replay-bar span { font-weight: 600; }
-.replay-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
+/* Zoom navigator + controls — only while zoomed. */
+.zoom-nav { position: absolute; top: calc(84px + env(safe-area-inset-top)); right: 18px; z-index: 7; width: 120px; height: 68px; padding: 4px; border-radius: var(--r-sm); background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.zoom-nav[hidden], .focus-zoom[hidden] { display: none; }
+.zoom-nav::before { content: ""; position: absolute; inset: 4px; border-radius: 6px; background: rgba(255, 255, 255, .04); }
+.zoom-view { position: absolute; border: 1.5px solid var(--accent); background: var(--accent-soft); border-radius: 3px; margin: 4px; max-width: calc(100% - 8px); max-height: calc(100% - 8px); }
+.focus-zoom { position: absolute; top: calc(160px + env(safe-area-inset-top)); right: 18px; z-index: 7; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--r-full); background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.focus-zoom .btn { height: 30px; color: #fff; }
+.focus-zoom .pct { min-width: 54px; font-variant-numeric: tabular-nums; padding: 0 6px; }
+.replay-stage { position: absolute; inset: 0; display: grid; place-items: center; }
 .replay-stage canvas { max-width: 100%; max-height: 100%; }
 
 /* ---------- empty / onboarding ---------- */
@@ -1128,17 +1136,17 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
    3. prefers-reduced-transparency — an explicit accessibility signal, same spirit as
       prefers-reduced-motion above; honored the same way, by removing the effect rather than lessening it. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .topbar, .savebar > div, .focus-bar, .pb-topline { background: var(--panel); }
+  .topbar, .savebar > div, .focus-bar, .focus-bottom, .pb-topline { background: var(--panel); }
   .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side, .auth-card { background: var(--panel-2); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .topbar, .menu, .dialog, .toast, .savebar > div, .evp-dialog, .pb .pb-side, .events-view .pb-side, .focus-bar, .pb-topline, .auth-card {
+  .topbar, .menu, .dialog, .toast, .savebar > div, .evp-dialog, .pb .pb-side, .events-view .pb-side, .focus-bar, .focus-bottom, .pb-topline, .auth-card {
     backdrop-filter: none; -webkit-backdrop-filter: none;
   }
-  .topbar, .savebar > div, .focus-bar, .pb-topline { background: var(--panel); }
+  .topbar, .savebar > div, .focus-bar, .focus-bottom, .pb-topline { background: var(--panel); }
   .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side, .auth-card { background: var(--panel-2); }
 }
-html.tv-mode .topbar, html.tv-mode .menu, html.tv-mode .savebar > div, html.tv-mode .focus-bar {
+html.tv-mode .topbar, html.tv-mode .menu, html.tv-mode .savebar > div, html.tv-mode .focus-bar, html.tv-mode .focus-bottom {
   backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--panel);
 }
 html.tv-mode { font-size: 19px; }   /* basis for the rem sizes below; nothing outside .liveview uses rem, so shared chrome elsewhere is untouched */
@@ -1167,7 +1175,7 @@ html.tv-mode .live-bar .topbar .btn.icon, html.tv-mode .focus-bar .btn.icon { wi
    needed here, it was already input-agnostic. */
 html.tv-mode .tile .name { font-size: 1.15rem; }
 html.tv-mode .tile .hit:focus-visible { outline: 4px solid var(--accent); outline-offset: -4px; z-index: 6; }
-html.tv-mode .focus-bar { min-height: 64px; padding: 10px 14px; }
+html.tv-mode .focus-bar, html.tv-mode .focus-bottom { min-height: 64px; padding: 10px 14px; }
 html.tv-mode .focus-bar h2 { font-size: 1.3rem; }
 html.tv-mode .focus-bar .btn { font-size: 1.05rem; height: 44px; padding: 0 18px; }
 html.tv-mode .focus-bar .btn:focus-visible,
