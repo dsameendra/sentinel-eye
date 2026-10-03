@@ -6,15 +6,15 @@
     "colorMeta": {
       "accent-blue": { "role": "primary", "displayName": "Accent Blue", "canonical": "#0074e8", "tonalRamp": ["#042c54", "#063d73", "#084e93", "#0a66bc", "#0074e8", "#4a9bee", "#8cc0f4", "#d6eafb"] },
       "accent-blue-text": { "role": "primary-text", "displayName": "Accent Blue Text", "canonical": "#2e97ff", "tonalRamp": ["#06233f", "#0a3157", "#0f4274", "#1760a6", "#2e97ff", "#63b0ff", "#9ccaff", "#dcedff"] },
-      "armed-green": { "role": "success", "displayName": "Armed Green", "canonical": "#34d399", "tonalRamp": ["#17694b", "#209369", "#29bd87", "#34d399", "#6cdfb5", "#96e8ca", "#c0f1df", "#eafaf4"] },
-      "armed-green-text": { "role": "success-text", "displayName": "Armed Green Text", "canonical": "#34d399", "tonalRamp": ["#063d2b", "#0a543a", "#0f6c4b", "#1c8f65", "#34d399", "#71e0b7", "#a4ecd2", "#e0f9ee"] },
+      "armed-green": { "role": "success", "displayName": "Armed Green", "canonical": "#30d158", "tonalRamp": ["#0d3a18", "#145a25", "#1c7e33", "#26a843", "#30d158", "#64dd85", "#9be9b0", "#d9f7e2"] },
+      "armed-green-text": { "role": "success-text", "displayName": "Armed Green Text", "canonical": "#30d158", "tonalRamp": ["#0d3a18", "#145a25", "#1c7e33", "#26a843", "#30d158", "#64dd85", "#9be9b0", "#d9f7e2"] },
       "live-red": { "role": "status", "displayName": "Live Red", "canonical": "#ff453a", "tonalRamp": ["#6e0b06", "#9c0f08", "#cc140b", "#ff453a", "#ff7268", "#ff9d96", "#ffc7c3", "#ffeeec"] },
       "tamper-purple": { "role": "status", "displayName": "Tamper Purple", "canonical": "#bf5af2", "tonalRamp": ["#4a0d6e", "#671497", "#8a1ec4", "#bf5af2", "#d085f6", "#dfabf9", "#eed1fc", "#faeefe"] },
       "graphite-bg": { "role": "neutral", "displayName": "Graphite — Bg", "canonical": "#09090b", "tonalRamp": ["#030304", "#09090b", "#141417", "#222226", "#3a3a40", "#5c5c63", "#8e8e96", "#d4d4d9"] },
       "graphite-panel": { "role": "neutral", "displayName": "Graphite — Panel", "canonical": "#18181b", "tonalRamp": ["#0a0a0c", "#18181b", "#232327", "#323237", "#4a4a51", "#6a6a72", "#9c9ca3", "#dadade"] },
       "graphite-panel-2": { "role": "neutral", "displayName": "Graphite — Panel-2", "canonical": "#222226", "tonalRamp": ["#0f0f11", "#1c1c20", "#222226", "#363640", "#50505a", "#737380", "#a3a3ac", "#dfdfe4"] },
       "danger-red": { "role": "error", "displayName": "Danger Red", "canonical": "#f87171", "tonalRamp": ["#7a0606", "#aa0808", "#db0b0b", "#f42424", "#f75555", "#f98585", "#fbb6b6", "#fee7e7"] },
-      "warn-amber": { "role": "warning", "displayName": "Warn Amber", "canonical": "#fbbf24", "tonalRamp": ["#7d5b02", "#af7f03", "#e1a404", "#fbbd1e", "#fccc50", "#fdda82", "#fee9b4", "#fff8e6"] },
+      "warn-amber": { "role": "warning", "displayName": "Warn Amber", "canonical": "#ffd60a", "tonalRamp": ["#5c4c00", "#8a7200", "#b89800", "#e6be00", "#ffd60a", "#ffe04a", "#ffea8a", "#fff7d1"] },
       "info-teal": { "role": "info", "displayName": "Info Teal", "canonical": "#2dd4bf", "tonalRamp": ["#04433c", "#065d53", "#09786b", "#0e9d8b", "#2dd4bf", "#6ee3d4", "#a7eee3", "#def8f3"] }
     },
     "typographyMeta": {
@@ -135,7 +135,7 @@
       "refersTo": "pill-status",
       "description": "The real Armed Green usage: an 'On'/'2FA' status badge (`.badge.ok`) — success/healthy state, never a live indicator. The label color is Armed Green Text, the light-theme-safe foreground variant, not the fill-optimized Armed Green.",
       "html": "<span class=\"ds-badge-ok\">2FA</span>",
-      "css": ".ds-badge-ok { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--r-full, 999px); font-size: 11.5px; font-weight: 600; background: var(--armed-soft, rgba(52,211,153,.14)); border: 1px solid var(--armed, #34d399); color: var(--armed-text, #34d399); white-space: nowrap; }"
+      "css": ".ds-badge-ok { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--r-full, 999px); font-size: 11.5px; font-weight: 600; background: var(--armed-soft, rgba(48,209,88,.14)); border: 1px solid var(--armed, #34d399); color: var(--armed-text, #34d399); white-space: nowrap; }"
     },
     {
       "name": "Glass Dialog",
@@ -149,9 +149,9 @@
       "name": "The Eye Mark",
       "kind": "custom",
       "refersTo": "brand-mark",
-      "description": "Signature mark (`.brand-mark`): a ring-and-dot iris in Accent Blue on a dark square. Used in the topbar brand lockup and as the favicon — the only purely-identity use of the accent color. The square's own background (`#111827`) is a literal, not a themed/custom-property token.",
+      "description": "Signature mark (`.brand-mark`): a white ring-and-pupil iris with Live Red's record dot at the upper right, on a dark rounded tile (`#141417`, radius 30/108). The bar mark, favicon, app icons, sign-in/pairing mark and Verify header all use this one drawing; the red dot is the only identity use of Live Red.",
       "html": "<span class=\"ds-eyemark\"></span>",
-      "css": ".ds-eyemark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-sm, 10px); background: #111827; } .ds-eyemark::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--accent, #0074e8); box-shadow: inset 0 0 0 2px #111827, inset 0 0 0 5px var(--accent, #0074e8); }"
+      "css": ".ds-eyemark { position: relative; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: #141417; } .ds-eyemark::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #f5f5f7; box-shadow: inset 0 0 0 2.5px #141417, inset 0 0 0 6px #f5f5f7; } .ds-eyemark::after { content: ''; position: absolute; top: 4px; right: 4px; width: 4px; height: 4px; border-radius: 50%; background: #ff3b30; }"
     }
   ],
   "narrative": {
@@ -171,7 +171,7 @@
       { "name": "The Fill-vs-Text Rule", "body": "A semantic color has two numerically distinct values when it's used both as a filled background (optimized for white/ink text on top of it) and as foreground text elsewhere (Accent Blue vs. Accent Blue Text, Armed Green vs. Armed Green Text in light theme) — never assume a fill color passes as text just because the fill itself is accessible.", "section": "colors" },
       { "name": "The Tabular Numbers Rule", "body": "Every numeric read-out — the clock, timestamps, durations, zoom percentage, event counts — uses `font-variant-numeric: tabular-nums`, so digits never shift width as they change on a screen meant to be glanced at repeatedly.", "section": "typography" },
       { "name": "The Floating-Only Shadow Rule", "body": "If it's part of the normal page layout at rest, it's flat with a hairline border. A layer floats above or apart from the page → Float or Shadow-3, usually with Glass. A live-grid tile or Events card has the pointer directly on it → Hover-Lift, and only while the pointer stays there. Nothing else gets a shadow.", "section": "elevation" },
-      { "name": "The No-Blur-On-Video Rule", "body": "Glass material never sits directly over continuously-live video — on-video floating chrome (fullscreen focus-bar, playback controls, the TV-mode floating cluster) keeps an opaque gradient scrim instead. Continuous `backdrop-filter` recomputation over moving video is a real, measured performance cost; a gradient is not.", "section": "elevation" },
+      { "name": "The Glass-Over-One-Stream Rule", "body": "Glass may sit over video only where there is one stream on screen (Focus, full-screen Playback) and only while that chrome is visible — it fades on idle, so continuous backdrop-filter recomputation over moving footage is limited to the moments someone is using the controls. Never across the multi-tile grid." },
       { "name": "The Pill-for-Status-and-Action Rule", "body": "Full-round shape is reserved for things you act on or that represent a state — buttons, segmented controls, status pills, event badges, quality tags, toggles. Containers that hold content — cards, tiles, dialogs — never go fully round; they stay in the 16–30px range.", "section": "shapes" }
     ],
     "dos": [
@@ -184,7 +184,7 @@
     "donts": [
       "Don't introduce a fifth semantic hue for \"brand\" purposes — warn-amber, danger-red and info-teal stay semantic-only.",
       "Don't add shadow to any surface that's part of the normal page flow at rest (cards, tiles, panels) — that's reserved for floating/glass layers and the hover-lift exception.",
-      "Don't apply glass/`backdrop-filter` to chrome that floats directly over continuously-live video — use the existing opaque gradient-scrim treatment there instead (see the No-Blur-On-Video Rule).",
+      "Don't put glass/`backdrop-filter` over the multi-tile grid, or keep it over a single stream once its chrome has faded (see the Glass-Over-One-Stream Rule).",
       "Don't add a display/hero type size anywhere; this is an Operate-mode instrument panel, not a marketing surface, and the type scale stays functional.",
       "Don't give a mode-switch button (one whose own label already states which mode is active, like Overview/Grid) the pressed-accent treatment — that treatment means \"the selected option among several,\" not \"this is currently on.\""
     ]

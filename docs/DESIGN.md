@@ -8,10 +8,10 @@ colors:
   accent-blue-soft: "rgba(0, 116, 232, 0.16)"
   live-red: "#ff453a"
   live-red-soft: "rgba(255, 69, 58, 0.16)"
-  armed-green: "#34d399"
-  armed-green-text: "#34d399"
-  armed-green-ink: "#052e22"
-  armed-green-soft: "rgba(52, 211, 153, 0.14)"
+  armed-green: "#30d158"
+  armed-green-text: "#30d158"
+  armed-green-ink: "#06220f"
+  armed-green-soft: "rgba(48, 209, 88, 0.14)"
   tamper-purple: "#bf5af2"
   tamper-purple-soft: "rgba(191, 90, 242, 0.16)"
   graphite-bg: "#09090b"
@@ -22,7 +22,7 @@ colors:
   text-primary: "#f5f5f7"
   text-muted: "#a1a1a6"
   text-faint: "#6e6e73"
-  warn-amber: "#fbbf24"
+  warn-amber: "#ffd60a"
   danger-red: "#f87171"
   danger-red-soft: "rgba(248, 113, 113, 0.14)"
   info-teal: "#2dd4bf"
@@ -40,9 +40,11 @@ colors:
   ov-roi: "rgba(59, 130, 246, 0.12)"
   ov-btn-bg: "rgba(255, 255, 255, 0.08)"
   ov-btn-bg-hover: "rgba(255, 255, 255, 0.16)"
-  ev-motion: "#eab308"
-  ev-videoloss: "#6b7280"
-  ev-bookmark: "#22d3ee"
+  ev-motion: "#ff9f0a"
+  ev-line: "#0a84ff"
+  ev-videoloss: "#8e8e93"
+  ev-bookmark: "#e5e5ea"
+  tl-rec: "#2a2a2f"
   cam-1: "#60a5fa"
   cam-2: "#f472b6"
   cam-3: "#34d399"
@@ -128,16 +130,16 @@ components:
 
 **Creative North Star: "The Watch Room, Redesigned"**
 
-Redesign v2 (see `ROADMAP.md`) rebuilt the Watch Room twice. The first pass kept the pre-redesign app's dense, flat, blue-tinted architecture and only swapped its single accent color for four single-job colors. The second, larger pass — this one — rebuilt the foundation itself to actually match the approved mockups: a neutral graphite ground (not blue-tinted), glass material on floating and page chrome (not flat panel fills), a bigger and rounder radius scale topped out by fully-pill buttons (not an 8px-radius rectangle), and real press feedback. The calm, low-contrast, stare-at-it-for-hours character survives intact — spacing stays tight, numbers stay tabular, the interface still gets out of the way of the footage it exists to show — but the material language is now genuinely Apple-adjacent rather than merely re-colored.
+Redesign v2 (see `ROADMAP.md`) rebuilt the Watch Room three times. The third pass rebuilt every screen to its design board — one bar per screen (Live is home with the brand mark and the global cluster; every other screen leads with a back chevron and carries its own context), Playback, Export, Verify, Events, Settings, Account, Sign in, Pairing, the AI Frame Enhancer, TV mode and the phone/iPad layouts — on the foundation described below. Before that, The first pass kept the pre-redesign app's dense, flat, blue-tinted architecture and only swapped its single accent color for four single-job colors. The second, larger pass — this one — rebuilt the foundation itself to actually match the approved mockups: a neutral graphite ground (not blue-tinted), glass material on floating and page chrome (not flat panel fills), a bigger and rounder radius scale topped out by fully-pill buttons (not an 8px-radius rectangle), and real press feedback. The calm, low-contrast, stare-at-it-for-hours character survives intact — spacing stays tight, numbers stay tabular, the interface still gets out of the way of the footage it exists to show — but the material language is now genuinely Apple-adjacent rather than merely re-colored.
 
 Four colors, four jobs: a system blue for everything interactive (selected, primary, focus, in progress), red for "this is live right now," green for "this succeeded / is healthy," and purple for tamper events specifically. Status and selection never compete for the same pixel the way a single accent used to force them to.
 
 **Key Characteristics:**
 - Dark by default (`color-scheme: dark`), with a fully-specified light theme as a first-class alternate, not an afterthought.
 - Four semantic colors, each with exactly one job: blue = interactive, red = live, green = success/healthy, purple = tamper. Never mixed, never decorative.
-- Glass material on chrome that floats above or sits apart from content (topbar, subbar, popovers, dialogs, toasts, the auth card); flat borders everywhere else. Never blurred directly over continuously-live video.
+- Glass material on chrome that floats above or sits apart from content (bars, popovers, dialogs, toasts, the tab bar, the auth card); flat borders everywhere else. Over video, glass only over a single stream and only while the chrome is showing (see the Glass-Over-One-Stream Rule).
 - A six-step radius scale running from a 6px chip to a fully-round 999px pill — buttons, segmented controls and status pills are pills now, not rounded rectangles.
-- Small, functional type scale — no hero/display type anywhere; this is an instrument panel, not a marketing page.
+- Small, functional type scale with one exception: large titles (24px desktop, 30px phone) lead the screens that are destinations — Settings, Events, Your account, phone tab roots. No hero/display type.
 - Tabular numerals on every timestamp, clock, duration, zoom percentage, and count.
 
 ## Colors
@@ -150,7 +152,7 @@ A near-monochrome graphite UI with four semantic hues, each scoped to exactly on
 
 ### Status — one meaning each
 - **Live Red** (`#ff453a` dark / `#ff3b30` light): the one and only "this is live right now" signal — the live dot, nothing else. A pulsing dot has no text-contrast requirement to audit; the value is Apple's own dark/light system red, used as-is.
-- **Armed Green** (`#34d399` dark / `#048059` light): "this succeeded, this is healthy, this is connected" — a passed connection test, an "ok" status badge, the Status page's "video engine running" indicator, a success toast. As text-on-fill it's **Armed Green Ink** (`#052e22` dark / `#fff` light); the wash is **Armed Green Soft** (`rgba(52,211,153,.14)` dark / `rgba(4,128,89,.12)` light). As *foreground on the wash* (e.g. a success badge's label) dark theme reuses `#34d399` directly (already 6.2–7.1:1 there); light theme needs its own darkened **Armed Green Text** (`#04724f`, was 3.8–4.2:1 on the composited wash, under AA — now 4.55+), the same fill-vs-text split Accent Blue needed.
+- **Armed Green** (`#30d158` dark — Apple's system green, per the Design Language board / `#048059` light): "this succeeded, this is healthy, this is connected" — a passed connection test, an "ok" status badge, the Status page's "video engine running" indicator, a success toast. As text-on-fill it's **Armed Green Ink** (`#06220f` dark / `#fff` light); the wash is **Armed Green Soft** (`rgba(48,209,88,.14)` dark / `rgba(4,128,89,.12)` light). As *foreground on the wash* (e.g. a success badge's label) dark theme reuses `#30d158` directly (already 6.2–7.1:1 there); light theme needs its own darkened **Armed Green Text** (`#04724f`, was 3.8–4.2:1 on the composited wash, under AA — now 4.55+), the same fill-vs-text split Accent Blue needed.
 - **Tamper Purple** (`#bf5af2` dark / `#af52de` light): tamper events specifically, where they get their own themed treatment (distinct from the On-Video family's fixed `--ov-danger` used for tamper/video-loss badges painted on footage — see below). Purple keeps "a camera was physically tampered with" visually distinct from both "a destructive action" and "this is live."
 
 ### Neutral — "Graphite"
@@ -165,16 +167,16 @@ Neutral, cool-grey surfaces that carry almost the entire UI — true neutral, no
 - **Video Tile** (`#060608`, same in both themes): the near-black backdrop behind every camera tile and video stage — always darker than the surrounding chrome so footage reads as the visual floor of the screen.
 
 ### Semantic
-- **Warn Amber** (`#fbbf24` dark / `#b35309` light): warning states only (e.g. a pending/waiting connection dot, storage-pool warnings). Light theme's value was re-audited against the new ground and darkened a touch from `#b45309` (4.49:1, just under AA) to `#b35309` (4.52:1).
+- **Warn Amber** (`#ffd60a` dark — the board's Caution yellow / `#b35309` light): warning states only (e.g. a pending/waiting connection dot, storage-pool warnings). Light theme's value was re-audited against the new ground and darkened a touch from `#b45309` (4.49:1, just under AA) to `#b35309` (4.52:1).
 - **Danger Red** (`#f87171` dark / `#d72323` light) + **Danger Red Soft** wash: destructive actions, offline/error states, form validation errors. Light theme's value was re-audited against the new ground and darkened a touch from `#da2323` (4.43:1, just under AA against the new, slightly lighter ground) to `#d72323` (4.52:1).
 - **Info Teal** (`#2dd4bf` dark / `#0d9488` light): reserved, low-frequency informational accent — not actually used anywhere in the UI yet.
 
 ### Glass material
 Translucent, blurred surfaces (redesign v2 foundation) for chrome that floats above or sits apart from page content — ported from the mockups' own Obsidian/Daylight glass tokens, which are opacity/blur treatments of the *same* Graphite values above, not a separate color decision.
-- **Glass Fill** (`rgba(28,28,31,.66)` dark / `rgba(255,255,255,.72)` light) + `backdrop-filter: blur(26px) saturate(1.6)`: the topbar, subbar, focus-bar, and Playback's topline.
-- **Glass Fill Heavy** (`rgba(18,18,20,.86)` dark / `rgba(255,255,255,.88)` light) + `backdrop-filter: blur(40px) saturate(1.7)`: popovers/menus, dialogs, toasts, the save bar, the auth card, and the Playback/Events touch drawers — anything that needs to read clearly above whatever's behind it.
+- **Glass Fill** (`rgba(28,28,31,.66)` dark / `rgba(255,255,255,.72)` light) + `backdrop-filter: blur(26px) saturate(1.6)`: the screen bars, Focus's top and bottom bars and nav arrows, Playback's timeline panel and its full-screen controls.
+- **Glass Fill Heavy** (`rgba(18,18,20,.86)` dark / `rgba(255,255,255,.88)` light) + `backdrop-filter: blur(40px) saturate(1.7)`: popovers/menus, dialogs, toasts, the save bar, the auth card, the phone tab bar and the Events filter sheet — anything that needs to read clearly above whatever's behind it.
 - **Glass Border** (`rgba(255,255,255,.1)` dark / `rgba(0,0,0,.07)` light) and **Glass Highlight** (`rgba(255,255,255,.06)` dark / `rgba(255,255,255,.5)` light, used as an inset top highlight alongside Shadow-3): the hairline and specular edge that make a glass surface read as a physical sheet rather than a flat translucent fill.
-- Never applied to chrome that floats directly over continuously-live video (the fullscreen focus-bar, `.pb-controls`, `.tv-fs-controls`) — those keep their existing opaque gradient-scrim treatment on purpose; continuous `backdrop-filter` recomputation over live, moving video is the real performance trap, not glass itself. Also turned off under `html.tv-mode` and `prefers-reduced-transparency`, and has an `@supports` fallback to an opaque Panel/Panel-2 fill for browsers without `backdrop-filter` at all.
+- Over video, only over one stream at a time (Focus, full-screen Playback) and only while that chrome is showing — it fades out on idle, so the blur isn't recomputed over moving footage while nobody is looking at the controls. Never across the multi-tile Live grid. Turned off under `html.tv-mode` and `prefers-reduced-transparency`, with an `@supports` fallback to an opaque Panel/Panel-2 fill for browsers without `backdrop-filter`.
 
 ### On-Video Overlay (theme-invariant)
 Chrome painted directly over live camera footage — tile/focus overlays, event badges, ROI boxes, playback's floating transport buttons. The video underneath never re-themes, so this whole family is fixed across light and dark rather than switching with the rest of the UI.
@@ -187,10 +189,11 @@ Chrome painted directly over live camera footage — tile/focus overlays, event 
 
 ### Qualitative — Timeline
 Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js`). Categorical, not semantic state, so these intentionally stay the same in both themes. Defined as CSS custom properties (`--ev-motion`, `--ev-videoloss`, `--ev-bookmark`, `--cam-1..4`) and read via `getComputedStyle` at draw time.
-- **Ev Motion** (`#eab308`): motion event spans. The playhead itself is a small white rounded handle with a drop shadow (redesign v2 — was an accent-colored flag), so it reads as "the scrubbable grip" against every lane color it crosses rather than blending into whichever lane shares its hue.
-- Line-crossing / intrusion / tamper events reuse **Danger Red** directly.
-- **Ev Video-loss** (`#6b7280`): video-loss event spans.
-- **Ev Bookmark** (`#22d3ee`): the bookmark flag glyph.
+- **Ev Motion** (`#ff9f0a`): motion event spans, the motion tile ring and pill. The playhead itself is a small white rounded handle with a drop shadow (redesign v2 — was an accent-colored flag), so it reads as "the scrubbable grip" against every lane color it crosses rather than blending into whichever lane shares its hue.
+- **Ev Line** (`#0a84ff`): line-crossing and intrusion. Tamper uses **Tamper Purple**.
+- **Ev Video-loss** (`#8e8e93`): video-loss event spans.
+- **Ev Bookmark** (`#e5e5ea` dark / `#6e6e73` light): the bookmark flag glyph.
+- **Timeline Recorded** (`--tl-rec`, `#2a2a2f` dark / `#e3e3e8` light): recorded spans on the coverage lane; gaps are hatched.
 - **Cam 1-4** (`#60a5fa`, `#f472b6`, `#34d399`, `#fb923c`): the left-edge lane-identity dot when more than one camera's events share the timeline.
 
 ### Named Rules
@@ -205,7 +208,8 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 **Character:** One typeface for everything — no serif, no display face, no mono except for the odd `<kbd>` hint. The hierarchy is carried entirely by size, weight, and color (muted vs. primary text), not by a second font.
 
 ### Hierarchy
-- **Title** (600, 20px, 1.3 line-height): pane headings (`.pane h1`). Smaller title-weight text (600, 19px / 15px) is reused for card-scale headings like empty-state and focus-view titles.
+- **Large Title** (600–700, 24px in a destination screen's bar, 30px as a phone tab root's title): Settings, Events, Your account, Live on a phone.
+- **Title** (600, 16–20px): screen-bar titles and card-scale headings (Settings panes carry no heading of their own — the selected sidebar row is the title). Smaller title-weight text (600, 19px / 15px) is reused for card-scale headings like empty-state and focus-view titles.
 - **Body** (400, 14px, 1.45 line-height): the base UI size — nearly everything reads at or near this size.
 - **Small** (400, 13px): the system's actual secondary-text size — hints, sub-labels, result rows, muted supporting lines under a heading.
 - **Micro** (600, 11px): compact badges and tags (`.tag`, event badges) where Label's 12px/uppercase treatment would be too loud for a small pill sitting on video.
@@ -216,7 +220,7 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 
 ## Layout
 
-A fixed-header, fill-the-viewport shell: a 60px glass topbar (redesign v2, was 52px solid), then a flex-1 body that owns the rest of the screen (`overflow: hidden` on `html`/`body` — the app never scrolls as a whole page; individual panes scroll internally). Settings and Playback use a fixed-width side rail (210px / 232px, collapsing to a horizontal strip under ~800px, or a glass drawer on touch) next to a fluid main pane. The live grid is a CSS grid sized to fill available space with a 4px gutter; video tiles keep their real aspect ratio via `aspect-ratio` + container queries rather than letterboxing crudely.
+A fill-the-viewport shell with one bar per screen, rendered by the screen itself (`bar.js`): 60px glass for working screens, 72px for destination screens with a large title. The body owns the rest (`overflow: hidden` on `html`/`body` — panes scroll internally). Settings has a 240px plain sidebar (an iOS-style section list on a phone); Events a 220px filter sidebar (a sheet below 900px); Export and the AI Frame Enhancer are full screens over the view rather than dialogs. At ≤640px a glass tab bar (Live, Playback, Events, Settings) replaces the bar's global cluster, and between 641 and 900px a bar's context controls drop to a second, swipeable line. The live grid is a CSS grid sized to fill available space with a 4px gutter; video tiles keep their real aspect ratio via `aspect-ratio` + container queries rather than letterboxing crudely.
 
 Spacing is tight and functional rather than airy: card padding is 18–20px, pane padding 22–28px, control gaps mostly 6–14px. Responsive behavior collapses side rails and multi-column forms to single columns around 760–900px, and hides secondary chrome (clock, nav labels) below 800px rather than wrapping it.
 
@@ -232,7 +236,7 @@ Flat at rest, glass above. Cards, tiles, and panels sit at the same visual depth
 
 ### Named Rules
 **The Floating-Only Shadow Rule.** If it's part of the normal page layout at rest, it's flat with a hairline border. A layer floats above or apart from the page → Float or Shadow-3, usually with Glass. A live-grid tile or Events card has the pointer directly on it → Hover-Lift, and only while the pointer stays there. Nothing else gets a shadow.
-**The No-Blur-On-Video Rule.** Glass material never sits directly over continuously-live video — on-video floating chrome (fullscreen focus-bar, playback controls, the TV-mode floating cluster) keeps an opaque gradient scrim instead. Continuous `backdrop-filter` recomputation over moving video is a real, measured performance cost; a gradient is not.
+**The Glass-Over-One-Stream Rule.** Glass may sit over video only where there is one stream on screen (Focus, full-screen Playback) and only while that chrome is visible — it fades on idle, so continuous `backdrop-filter` recomputation over moving footage is limited to the moments someone is actually using the controls. Never across the multi-tile grid, where every tile would pay for it at once. (Revised in the screen-by-screen pass: the old blanket No-Blur-On-Video rule predated the Focus and Playback boards, which put glass bars over the picture.)
 
 ## Shapes
 
@@ -263,7 +267,9 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 - **Seg (`.seg`):** full-round, borderless, Panel-2 background (redesign v2 — was a bordered 9px-radius rectangle); its buttons are full-round too, with the pressed option taking a Panel background + Shadow-1.
 - **Pill (status chip):** Panel-2 background, no border (redesign v2 — border removed), full radius, muted text, 24px tall — used for connection status, quality/HD tags, and filter-active indicators. A compact variant (`.tile-status`, 20px, translucent dark fill) wraps just the live-grid tile's status dot.
 - **Event Badge:** solid, slightly translucent dark chip (`rgba(15,20,28,.82)` + blur) that floats over video — Ev Motion gold (with dark Ov Ink Dark text) for motion, Ov Danger red for tamper/video-loss, amber-orange for line-crossing. White text otherwise.
-- **Toggle Switch:** 38×22px full-round track, Line-2 when off, Accent Blue when on, white knob.
+- **Toggle Switch:** 44×26px full-round track, Line-2 when off, Accent Blue when on, white knob with a soft shadow.
+- **Row Card (`.srow`):** a titled row with its control on the right — the Settings board's "Stream Encryption" card. Grouped rows join into one inset list (`.srows`) with hairline dividers.
+- **Toast:** one glass pill dropping in at the top centre (newest on top, at most three, tap to dismiss), with an icon or an event-kind dot; an event toast opens that camera in Focus when tapped.
 
 ### Cards / Containers
 - **Corner Style:** 22px radius (redesign v2, was 12px).
@@ -273,13 +279,15 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 - **Internal Padding:** 18px top/bottom, 20px sides.
 
 ### Inputs / Fields
-- **Style:** Graphite Bg background, 1px Line-2 border, 10px radius, 36px height.
-- **Focus:** system focus ring (2px Accent Blue outline, 2px offset) via `:focus-visible`.
+- **Style:** filled — Panel-2 background, 1px Graphite Line border, 10px radius, 40px height; labels sit above in Muted 12.5px.
+- **Focus:** Accent Blue border with a 3px Accent Blue Soft halo via `:focus-visible`.
 - **Hover:** border brightens to Faint.
 - **Error / Disabled:** invalid inputs get a Danger Red border; disabled inputs drop to 50% opacity with a Panel-2 fill.
 
 ### Navigation
-- **Style:** flat icon+label links, 10px radius, muted text at rest, Accent Blue Soft background + Accent Blue Text when the current page (`aria-current="page"`) — same active-state language used across topbar nav, settings side rail, and segmented view controls.
+- **Screen bar:** brand mark (Live) or back chevron, title (+ optional subtitle), the screen's own context controls, then its actions; Live alone carries the global cluster (Playback, Events, notifications, Settings, account avatar — locked with an explanation for a viewer, never hidden).
+- **Sidebars:** plain icon+label rows; the current one takes a soft Panel-2 fill and primary text, not an accent tint.
+- **Tab bar (phones):** four glass tabs, Accent Blue Text on the current one; tab-root screens drop their back chevron.
 
 ### Live-Grid Tile Anatomy
 Redesign-v2 foundation: identity moved from a single top bar to a top/bottom split, matching the mockups.
@@ -289,7 +297,7 @@ Redesign-v2 foundation: identity moved from a single top bar to a top/bottom spl
 - Event badges (motion/tamper/video-loss/line) stack directly under the status pill.
 
 ### Signature Component — The Eye Mark
-A 26×26px dark square (`#111827`, 10px radius) containing a ring-and-dot iris drawn entirely in Accent Blue (2.5px ring, solid center dot) — the product's mark, reused unchanged as the browser favicon. It's the only place the accent is used purely as identity rather than state, and it should stay that way.
+A dark rounded tile (`#141417`, radius 30/108) holding a white iris — a ring and a solid pupil — with Live Red's record dot at the upper right. The same drawing is the bar mark, the favicon, the app icons (any, maskable, Apple touch — full-bleed sizes keep it inside the safe zone), the sign-in and pairing mark and the Verify page header. The red dot is the one place Live Red is used as identity, and it stays that way.
 
 ## Do's and Don'ts
 
@@ -303,6 +311,7 @@ A 26×26px dark square (`#111827`, 10px radius) containing a ring-and-dot iris d
 ### Don't:
 - **Don't** introduce a fifth semantic hue for "brand" purposes — warn-amber, danger-red and info-teal stay semantic-only.
 - **Don't** add shadow to any surface that's part of the normal page flow at rest (cards, tiles, panels) — that's reserved for floating/glass layers and the hover-lift exception.
-- **Don't** apply glass/`backdrop-filter` to chrome that floats directly over continuously-live video — use the existing opaque gradient-scrim treatment there instead (see the No-Blur-On-Video Rule).
-- **Don't** add a display/hero type size anywhere; this is an Operate-mode instrument panel, not a marketing surface, and the type scale stays functional.
+- **Don't** put glass/`backdrop-filter` over the multi-tile grid, or keep it over a single stream once its chrome has faded (see the Glass-Over-One-Stream Rule).
+- **Don't** ship designer annotations or invented numbers from the boards ("this click simulates…", an estimated size nobody can compute) — when a board shows data the app doesn't have, show what it does have, honestly labelled.
+- **Don't** add a display/hero type size anywhere; large titles are as big as it gets — this is an Operate-mode instrument panel, not a marketing surface.
 - **Don't** give a mode-switch button (one whose own label already states which mode is active, like Overview/Grid) the pressed-accent treatment — that treatment means "the selected option among several," not "this is currently on."
