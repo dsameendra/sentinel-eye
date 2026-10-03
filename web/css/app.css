@@ -192,6 +192,12 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .btn.sm { height: 28px; padding: 0 9px; font-size: 13px; }
 .btn.sm.icon { width: 28px; padding: 0; }
 .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+/* The Overview/Grid toggle sets aria-pressed for screen readers (it IS a real on/off state) but stays
+ * visually neutral — blue here would read as "this is a selected filter/choice among several," which is
+ * what the accent-pressed treatment means everywhere else (layout picker, quality seg, filter chips). This
+ * button is a mode switch whose label already says which mode you're in; it isn't choosing among options.
+ * Matches the mockups' own treatment (a plain ghost/glass button, never accent-tinted, in either state). */
+.btn.view-toggle[aria-pressed="true"] { background: var(--panel-2); border-color: var(--line-2); color: var(--text); }
 /* Pill-shaped, borderless (redesign v2 foundation) — was a bordered 9px-radius rectangle; --panel-2 plays
    the mockup's own recessed-fill role here rather than its literal rgba(255,255,255,.06), which only reads
    as a tint against a dark ground — against the Daylight theme's white panel it would be invisible. */
@@ -1020,14 +1026,14 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
       prefers-reduced-motion above; honored the same way, by removing the effect rather than lessening it. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .topbar, .savebar > div, .focus-bar, .subbar, .pb-topline { background: var(--panel); }
-  .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side { background: var(--panel-2); }
+  .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side, .auth-card { background: var(--panel-2); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .topbar, .menu, .dialog, .toast, .savebar > div, .evp-dialog, .pb .pb-side, .events-view .pb-side, .focus-bar, .subbar, .pb-topline {
+  .topbar, .menu, .dialog, .toast, .savebar > div, .evp-dialog, .pb .pb-side, .events-view .pb-side, .focus-bar, .subbar, .pb-topline, .auth-card {
     backdrop-filter: none; -webkit-backdrop-filter: none;
   }
   .topbar, .savebar > div, .focus-bar, .subbar, .pb-topline { background: var(--panel); }
-  .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side { background: var(--panel-2); }
+  .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side, .auth-card { background: var(--panel-2); }
 }
 html.tv-mode .topbar, html.tv-mode .menu, html.tv-mode .savebar > div, html.tv-mode .focus-bar, html.tv-mode .subbar {
   backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--panel);
@@ -1123,9 +1129,12 @@ html.tv-mode .nav-arrow { width: 56px; height: 56px; }
 .liveview:fullscreen .tile .ov { transition: opacity .22s ease; }
 
 /* ---------- sign-in (login.html, pair.html) ---------- */
-/* body is overflow:hidden app-wide (the app scrolls inside its panes); these standalone pages scroll here. */
-.auth-page { height: 100%; overflow-y: auto; display: grid; place-items: center; padding: 24px 16px; }
-.auth-card { width: min(400px, 100%); padding: 28px 26px; border-radius: var(--r-xl); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+/* body is overflow:hidden app-wide (the app scrolls inside its panes); these standalone pages scroll here.
+   The radial glow (redesign v2, from the mockups) is accent-tinted and very low-alpha — a identity touch
+   behind the card, not a background pattern competing with it; faint enough that it reads fine in both
+   themes without a separate light-theme value. */
+.auth-page { height: 100%; overflow-y: auto; display: grid; place-items: center; padding: 24px 16px; position: relative; background: radial-gradient(circle at 50% 30%, rgba(10, 132, 255, .1), transparent 60%), var(--bg); }
+.auth-card { position: relative; width: min(400px, 100%); padding: 28px 26px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
 .auth-card h1 { margin: 18px 0 6px; font-size: 20px; }
 .auth-card .cc-icon { margin: 18px 0 0; }
 .auth-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .01em; }
