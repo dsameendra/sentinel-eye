@@ -156,6 +156,10 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 @keyframes pulse-live { 50% { opacity: .55; } }
 .dot.wait { background: var(--warn); animation: pulse 1.2s infinite; }
 .dot.off { background: var(--danger); }
+/* Healthy/running, not recording — the Status page's "video engine running" indicator reused .dot.live
+   (redesign v2: now Live Red specifically) before this, which read as an alert next to the word "running"
+   rather than a status, see docs/DESIGN.md's One-Job-Per-Color Rule. */
+.dot.armed { background: var(--armed); }
 @keyframes pulse { 50% { opacity: .35; } }
 .menu-wrap { position: relative; }
 .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 220px; padding: 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: var(--shadow); }

@@ -268,7 +268,7 @@ export class SettingsView {
           const state = v.consumers ? 'Streaming' : v.producers ? 'Connected' : 'Idle (starts when watched)';
           return `<tr><td>${esc(names[id] || id)}</td><td>${label}</td><td><span class="dot ${v.consumers ? 'live' : v.producers ? 'wait' : ''}" style="display:inline-block"></span> ${state}</td><td>${v.consumers}</td></tr>`;
         }).join('');
-        card.innerHTML = `<div class="toggle-row" style="margin-bottom:12px"><span class="dot ${st.go2rtc ? 'live' : 'off'}"></span><b>Video engine ${st.go2rtc ? 'running' : 'not responding'}</b></div>
+        card.innerHTML = `<div class="toggle-row" style="margin-bottom:12px"><span class="dot ${st.go2rtc ? 'armed' : 'off'}"></span><b>Video engine ${st.go2rtc ? 'running' : 'not responding'}</b></div>
           <div class="tbl-scroll"><table class="tbl"><thead><tr><th>Camera</th><th>Stream</th><th>State</th><th>Viewers</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No streams configured.</td></tr>'}</tbody></table></div>`;
       } catch (e) { card.innerHTML = `<div class="result bad">${icon('alert')}<div>Cannot reach the server: ${esc(e.message)}</div></div>`; }
     };
