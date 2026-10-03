@@ -1,19 +1,21 @@
-// Settings: Connection, Channels, Display, Enhancement, Status (edit a draft copy; nothing is applied until
-// Save) and Security (security.js, saves as it goes). Non-admins only get "This device".
+// Settings (Settings board): Recorder connection, Cameras & channels, Display & layout, Channel-zero overview,
+// Enhancement, Status (edit a draft copy; nothing is applied until Save), Security & sign-in (security.js,
+// saves as it goes) and Account (its own screen, #/account). Non-admins get "This device" and Account.
 import { barHTML, wireBar } from './bar.js';
 import { api } from './api.js';
 import { SecurityPanel } from './security.js';
 import { LAYOUTS, layoutIds, layoutIcon } from './layouts.js';
 import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
-import { confirmDialog, esc, icon, toast } from './ui.js';
+import { confirmDialog, esc, icon, shortcutsDialog, toast } from './ui.js';
 
 const TABS = [
-  ['connection', 'Connection', 'plug'],
-  ['channels', 'Channels', 'video'],
-  ['display', 'Display', 'monitor'],
-  ['enhancement', 'Enhancement', 'wand'],
+  ['connection', 'Recorder connection', 'plug'],
+  ['channels', 'Cameras & channels', 'video'],
+  ['display', 'Display & layout', 'grid4'],
+  ['overview', 'Channel-zero overview', 'overview'],
+  ['enhancement', 'Enhancement', 'sparkle'],
   ['status', 'Status', 'activity'],
-  ['security', 'Security', 'shield'],
+  ['security', 'Security & sign-in', 'shield'],
 ];
 // Without admin rights (sign-in on, viewer/operator/device): only what belongs to this browser.
 const DEVICE_TABS = [['device', 'This device', 'monitor']];
@@ -40,6 +42,9 @@ export class SettingsView {
   }
 
   get dirty() { return JSON.stringify(this.draft) !== JSON.stringify(this.base) || !!this.draft.connection.password || !!this.draft.connection.key; }
+
+  /** Account is per person — only when signed in as one (a paired TV or sign-in-off install has none). */
+  _showAccount() { const me = this.ctx.me?.(); return me?.via === 'session' && me.user?.kind === 'person'; }
 
   setTab(tab) { if (this.tabs.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); } }
 
@@ -75,7 +80,8 @@ export class SettingsView {
   build() {
     this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Settings', size: 'title' })}<div class="settings">
       <nav class="side" aria-label="Settings sections">${this.tabs.map(([id, label, ic]) =>
-        `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}${label}</a>`).join('')}</nav>
+        `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(label)}</span></a>`).join('')}
+        ${this._showAccount() ? `<a href="#/account" class="side-account">${icon('user')}<span>Account</span></a>` : ''}</nav>
       <main class="pane"><div class="pane-inner"></div></main></div><div class="savebar" hidden></div>`;
     wireBar(this.root, this.ctx);
     this.pane = this.root.querySelector('.pane-inner');
@@ -85,7 +91,7 @@ export class SettingsView {
 
   render() {
     clearInterval(this.statusTimer);
-    const fn = { connection: () => this.connectionTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', device: () => this.deviceTab() }[this.tab];
+    const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', device: () => this.deviceTab() }[this.tab];
     this.pane.innerHTML = fn();
     if (this.tab === 'security') { this.bar.hidden = true; new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
     this.wire();
@@ -95,43 +101,63 @@ export class SettingsView {
 
   fieldErr(path) { const m = this.errors()[path]; return m ? `<div class="err" data-err="${path}">${esc(m)}</div>` : `<div class="err" data-err="${path}" hidden></div>`; }
 
+  /** A titled row with its control on the right (the board's "Stream Encryption" card). */
+  srow(title, sub, control, extra = '') {
+    return `<div class="srow"><div class="srow-t"><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</div><div class="srow-c">${control}</div></div>${extra}`;
+  }
+
+  switchHTML(bind, on, label, id = '') {
+    return `<label class="switch"><input type="checkbox" ${id ? `id="${id}"` : ''} ${bind ? `data-b="${bind}" data-t="bool"` : ''} ${on ? 'checked' : ''} aria-label="${esc(label)}"><span></span></label>`;
+  }
+
+  testStatus(r, busy, idle) {
+    if (busy) return '<span class="test-status"><span class="spin sm"></span> Testing…</span>';
+    if (!r) return `<span class="test-status">${idle}</span>`;
+    const bits = [r.codec, r.width ? `${r.width}×${r.height}` : '', r.fps ? `${r.fps} fps` : '', r.stream_encrypted ? 'encrypted' : ''].filter(Boolean).join(' · ');
+    return `<span class="test-status ${r.ok ? 'ok' : 'bad'}" role="status">${icon(r.ok ? 'checkcircle' : 'alert')}<span><b>${esc(r.message || (r.ok ? 'OK' : 'Failed'))}</b>${bits ? ` <span class="muted">${esc(bits)}</span>` : ''}</span></span>`;
+  }
+
   connectionTab() {
     const c = this.draft.connection, b = this.base.connection;
     const first = this.draft.channels.find((x) => x.enabled) || this.draft.channels[0];
-    const t = this.conn;
-    return `<h1>Connection</h1><p class="lead">How Sentinel Eye reaches your recorder or camera.</p>
-    <section class="card"><h3>Recorder</h3><p class="sub">The address and login of the DVR/NVR (or a single IP camera). Streams are read over RTSP.</p>
-      <div class="form">
-        <div class="field"><label for="f-host">IP address or hostname</label><input id="f-host" type="text" data-b="connection.host" value="${esc(c.host)}" placeholder="192.0.2.10" autocomplete="off" spellcheck="false">${this.fieldErr('connection.host')}</div>
-        <div class="field"><label for="f-port">RTSP port</label><input id="f-port" type="number" min="1" max="65535" data-b="connection.rtsp_port" data-t="int" value="${esc(c.rtsp_port)}">${this.fieldErr('connection.rtsp_port')}<div class="hint">Almost always 554.</div></div>
-        <div class="field"><label for="f-http">Web (HTTP) port</label><input id="f-http" type="number" min="1" max="65535" data-b="connection.http_port" data-t="int" value="${esc(c.http_port)}">${this.fieldErr('connection.http_port')}<div class="hint">Used only to read camera names. Usually 80.</div></div>
-        <div class="field"><label for="f-user">Username</label><input id="f-user" type="text" data-b="connection.username" value="${esc(c.username)}" autocomplete="off">${this.fieldErr('connection.username')}</div>
-        <div class="field"><label for="f-pass">Password</label><input id="f-pass" type="password" data-b="connection.password" value="${esc(c.password)}" placeholder="${b.has_password ? '•••••••• (saved, leave blank to keep)' : ''}" autocomplete="new-password">${this.fieldErr('connection.password')}</div>
-      </div></section>
-    <section class="card"><h3>Stream encryption</h3>
-      <p class="sub">If you turned on “Stream Encryption” on the recorder (Network → Platform Access), the video is scrambled and needs its verification code. Leave this off for normal, unencrypted streams.</p>
-      <div class="toggle-row"><label class="switch"><input type="checkbox" data-b="connection.encrypted" data-t="bool" ${c.encrypted ? 'checked' : ''} aria-label="Stream is encrypted"><span></span></label>
-        <span><b>${c.encrypted ? 'Encrypted' : 'Not encrypted'}</b> <span class="muted">— ${c.encrypted ? 'video is decrypted on this computer' : 'video is played as-is'}</span></span></div>
-      <div class="form" style="margin-top:14px"><div class="field wide"><label for="f-key">Verification code</label>
-        <div class="input-row"><input id="f-key" type="password" data-b="connection.key" value="${esc(c.key)}" ${c.encrypted ? '' : 'disabled'} placeholder="${c.encrypted ? (b.has_key ? '•••••••• (saved, leave blank to keep)' : 'The code set on the recorder') : 'Turn encryption on to enter the code'}" autocomplete="off" spellcheck="false">
-          <button class="btn icon" type="button" data-reveal="f-key" ${c.encrypted ? '' : 'disabled'} title="Show / hide" aria-label="Show or hide the code">${icon('eye')}</button></div>
-        ${this.fieldErr('connection.key')}<div class="hint">Up to 16 characters. It is stored only on this computer.</div></div></div></section>
-    <section class="card"><h3>Channel-zero (recorder overview)</h3>
-      <p class="sub">Some Hikvision recorders also serve a single, low-bandwidth stream showing the recorder's own multi-camera layout — the same picture a monitor plugged straight into it would show. Turning this on makes it available; the live view's own "Overview" toggle then switches straight to it, full screen (off by default, on any device except a TV — TV mode (Settings → Display) always starts there, since that's its own point).</p>
-      <div class="toggle-row"><label class="switch"><input type="checkbox" data-b="connection.channel_zero" data-t="bool" ${c.channel_zero ? 'checked' : ''} aria-label="Channel-zero"><span></span></label>
-        <span><b>${c.channel_zero ? 'On' : 'Off'}</b></span></div>
-      <div class="form" style="margin-top:14px"><div class="field wide"><label for="f-c0path">Stream path (optional)</label>
-        <input id="f-c0path" type="text" data-b="connection.channel_zero_path" value="${esc(c.channel_zero_path)}" ${c.channel_zero ? '' : 'disabled'} placeholder="/Streaming/Channels/1" autocomplete="off" spellcheck="false">
-        ${this.fieldErr('connection.channel_zero_path')}<div class="hint">Leave blank for the default (confirmed working against an 8-channel NVR — not every recorder model uses the same path, hence this override). Verify with the button below.</div></div></div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
-        <button class="btn" id="t-c0run" ${!c.channel_zero || this.busy.has('c0') ? 'disabled' : ''}>${this.busy.has('c0') ? '<span class="spin sm"></span> Testing…' : 'Test channel-zero'}</button></div>
-      ${this.c0Test ? this.resultHtml(this.c0Test) : ''}</section>
-    <section class="card"><h3>Test connection</h3><p class="sub">Connects with the values above (even before saving), reads a few seconds of video, and tells you what it found.</p>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <select id="t-ch" style="width:auto;min-width:170px" aria-label="Channel to test">${this.draft.channels.map((x) => `<option value="${x.id}" ${first && x.id === first.id ? 'selected' : ''}>${esc(x.name || 'Channel ' + x.channel)} (ch ${x.channel})</option>`).join('') || '<option value="">Channel 1</option>'}</select>
-        <div class="seg" role="group" aria-label="Stream"><button data-tk="sub" aria-pressed="${this.tk !== 'main'}">SD</button><button data-tk="main" aria-pressed="${this.tk === 'main'}">HD</button></div>
-        <button class="btn primary" id="t-run" ${this.busy.has('conn') ? 'disabled' : ''}>${this.busy.has('conn') ? '<span class="spin sm"></span> Testing…' : 'Test connection'}</button></div>
-      ${t ? this.resultHtml(t) : ''}</section>`;
+    return `<h1 class="sr-only">Recorder connection</h1>
+    <div class="form form-conn">
+      <div class="field f-host"><label for="f-host">Host</label><input id="f-host" type="text" data-b="connection.host" value="${esc(c.host)}" placeholder="192.0.2.10" autocomplete="off" spellcheck="false">${this.fieldErr('connection.host')}</div>
+      <div class="field"><label for="f-port">RTSP port</label><input id="f-port" type="number" min="1" max="65535" data-b="connection.rtsp_port" data-t="int" value="${esc(c.rtsp_port)}">${this.fieldErr('connection.rtsp_port')}</div>
+      <div class="field"><label for="f-http">HTTP port</label><input id="f-http" type="number" min="1" max="65535" data-b="connection.http_port" data-t="int" value="${esc(c.http_port)}">${this.fieldErr('connection.http_port')}</div>
+      <div class="field f-user"><label for="f-user">Username</label><input id="f-user" type="text" data-b="connection.username" value="${esc(c.username)}" autocomplete="off">${this.fieldErr('connection.username')}</div>
+      <div class="field f-pass"><label for="f-pass">Password</label><input id="f-pass" type="password" data-b="connection.password" value="${esc(c.password)}" placeholder="${b.has_password ? '•••••••• saved — type to replace' : ''}" autocomplete="new-password">${this.fieldErr('connection.password')}</div>
+    </div>
+    <p class="pane-note">The recorder's (or a single IP camera's) address and login. Video is read over RTSP, usually port 554; the HTTP port, usually 80, is only used to read camera names.</p>
+    ${this.srow('Stream Encryption', c.encrypted ? 'On for this recorder — video is decrypted on this computer before it is shown.' : 'Off — streams play as-is. Turn on if Stream Encryption is enabled on the recorder (Network → Platform Access).',
+      this.switchHTML('connection.encrypted', c.encrypted, 'Stream is encrypted'))}
+    <div class="field enc-key" ${c.encrypted ? '' : 'hidden'}><label for="f-key">Stream encryption verification code</label>
+      <div class="input-row"><input id="f-key" type="password" data-b="connection.key" value="${esc(c.key)}" ${c.encrypted ? '' : 'disabled'} placeholder="${b.has_key ? '•••••••• saved — type to replace' : 'The code set on the recorder'}" autocomplete="off" spellcheck="false">
+        <button class="btn icon ghost" type="button" data-reveal="f-key" ${c.encrypted ? '' : 'disabled'} title="Show / hide" aria-label="Show or hide the code">${icon('eye')}</button></div>
+      ${this.fieldErr('connection.key')}<div class="hint">Up to 16 characters, stored only on this computer.</div></div>
+    <div class="test-card">
+      <button class="btn glass-btn" id="t-run" ${this.busy.has('conn') ? 'disabled' : ''}>Test connection</button>
+      ${this.testStatus(this.conn, this.busy.has('conn'), 'Not tested yet this session')}
+      <span class="spacer"></span>
+      <select id="t-ch" aria-label="Channel to test">${this.draft.channels.map((x) => `<option value="${x.id}" ${first && x.id === first.id ? 'selected' : ''}>${esc(x.name || 'Channel ' + x.channel)}</option>`).join('') || '<option value="">Channel 1</option>'}</select>
+      <div class="seg" role="group" aria-label="Stream"><button data-tk="sub" aria-pressed="${this.tk !== 'main'}">SD</button><button data-tk="main" aria-pressed="${this.tk === 'main'}">HD</button></div>
+    </div>
+    <p class="pane-note">Connects with the values above — even before saving — reads a few seconds of video, and says what it found.</p>`;
+  }
+
+  /** Channel-zero gets its own pane (board): the recorder's own multi-camera picture, one light stream. */
+  overviewTab() {
+    const c = this.draft.connection;
+    return `<h1 class="sr-only">Channel-zero overview</h1>
+    ${this.srow('Channel-zero overview', "The recorder's own multi-camera picture — what a monitor plugged straight into it shows — as one low-bandwidth stream. On, Live's Overview button switches to it, and TV mode starts there.",
+      this.switchHTML('connection.channel_zero', c.channel_zero, 'Channel-zero overview'))}
+    <div class="field" ${c.channel_zero ? '' : 'hidden'}><label for="f-c0path">Stream path</label>
+      <input id="f-c0path" type="text" data-b="connection.channel_zero_path" value="${esc(c.channel_zero_path)}" ${c.channel_zero ? '' : 'disabled'} placeholder="${DEFAULT_CHANNEL_ZERO_PATH}" autocomplete="off" spellcheck="false">
+      ${this.fieldErr('connection.channel_zero_path')}<div class="hint">Leave blank for the usual Hikvision path. Some recorder models use a different one — test it below.</div></div>
+    <div class="test-card">
+      <button class="btn glass-btn" id="t-c0run" ${!c.channel_zero || this.busy.has('c0') ? 'disabled' : ''}>Test channel-zero</button>
+      ${this.testStatus(this.c0Test, this.busy.has('c0'), c.channel_zero ? 'Not tested yet this session' : 'Turn it on to test')}
+    </div>`;
   }
 
   resultHtml(r, label = '') {
@@ -166,14 +192,14 @@ export class SettingsView {
           ${t.sub?.fps || t.main?.fps ? `&nbsp; <button class="btn sm" data-usefps="${c.id}">Use measured fps</button>` : ''}</div></td></tr>` : ''}`;
     }).join('');
     const foundHtml = this.found ? this.foundHtml() : '';
-    return `<h1>Channels</h1><p class="lead">The cameras shown on the live view. Names and order apply everywhere.</p>
-    <section class="card"><div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <button class="btn primary" id="add-ch">${icon('plus')} Add channel</button>
-        <button class="btn" id="detect" ${this.busy.has('detect') ? 'disabled' : ''}>${icon('search')} ${this.busy.has('detect') ? 'Detecting…' : 'Detect channels'}</button>
-        <span class="muted" style="font-size:12.5px">Frame rate is normally measured from the stream itself (leave “auto”). Set a number only to override it.</span></div>
+    return `<h1 class="sr-only">Cameras &amp; channels</h1>
+    <div class="pane-tools"><p class="pane-note">The cameras on Live. Names and order apply everywhere; frame rate is measured from the stream unless you set one.</p>
+      <button class="btn glass-btn" id="detect" ${this.busy.has('detect') ? 'disabled' : ''}>${this.busy.has('detect') ? '<span class="spin sm"></span> Detecting…' : `${icon('search')} Detect channels`}</button>
+      <button class="btn primary" id="add-ch">${icon('plus')} Add channel</button></div>
+    <section class="card card-flush">
       ${foundHtml}
       ${rows.length ? `<div class="tbl-scroll"><table class="tbl"><thead><tr><th></th><th>Ch</th><th>Name</th><th>SD fps</th><th>HD fps</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
-        : '<p class="muted">No channels yet. Add one or detect them from the recorder.</p>'}</section>`;
+        : '<p class="muted" style="padding:18px 20px;margin:0">No channels yet — add one, or detect them from the recorder.</p>'}</section>`;
   }
 
   foundHtml() {
@@ -191,32 +217,28 @@ export class SettingsView {
 
   displayTab() {
     const d = this.draft.display;
+    const seg = (key, opts, label) => `<div class="seg" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-o="${key}:${v}" aria-pressed="${d[key] === v}">${l}</button>`).join('')}</div>`;
     const opt = (key, val, title, sub) => `<button class="opt" data-o="${key}:${val}" aria-pressed="${d[key] === val}"><b>${title}</b><small>${sub}</small></button>`;
-    return `<h1>Display</h1><p class="lead">How the live view looks and behaves.</p>
-    <section class="card"><h3>Appearance</h3><div class="form">
-      <div class="field wide"><span class="lbl">Fit</span><div class="seg" role="group" aria-label="Fit"><button data-o="fit:contain" aria-pressed="${d.fit === 'contain'}">Fit</button><button data-o="fit:cover" aria-pressed="${d.fit === 'cover'}">Fill tile</button></div>
-        <div class="hint">Applies to both the live grid/large view and Playback. "Fit" never crops (letterboxed if the shapes don't match); "Fill tile" crops to fill the space edge-to-edge.</div></div>
-      <div class="field"><span class="lbl">Theme</span><div class="seg" role="group" aria-label="Theme"><button data-o="theme:auto" aria-pressed="${d.theme === 'auto'}">Auto</button><button data-o="theme:dark" aria-pressed="${d.theme === 'dark'}">Dark</button><button data-o="theme:light" aria-pressed="${d.theme === 'light'}">Light</button></div></div></div></section>
-    <section class="card"><h3>TV mode</h3><p class="sub">A bigger, couch-distance layout with arrow-key camera selection — for a TV's browser, or just a bigger screen. SD by default (switch to HD any time below); applies to this browser only, not your other devices. Defaults to the recorder's Channel-zero overview (above) full screen when that's turned on.</p>
-      <div class="toggle-row"><label class="switch"><input type="checkbox" id="f-tv" ${this.ctx.tvMode() ? 'checked' : ''} aria-label="TV mode"><span></span></label>
-        <span><b>${this.ctx.tvMode() ? 'On' : 'Off'}</b></span></div></section>
-    <section class="card"><h3>Layout &amp; rotation</h3>
-      <div class="form"><div class="field"><label for="f-rot">Auto-rotate pages</label><select id="f-rot" data-b="display.rotate_seconds" data-t="int">${[[0, 'Off'], [5, 'Every 5 seconds'], [10, 'Every 10 seconds'], [15, 'Every 15 seconds'], [30, 'Every 30 seconds'], [60, 'Every minute']].map(([v, l]) => `<option value="${v}" ${+d.rotate_seconds === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <div class="hint">Only matters when there are more cameras than fit on one page.</div></div></div>
-      <p class="sub" style="margin-top:14px">Default layout — you can also change it any time from the live view.</p>
-      <div class="laygrid">${layoutIds.map((id) => `<button data-o="layout:${id}" aria-pressed="${d.layout === id}">${layoutIcon(id, 44)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div></section>
-    <section class="card"><h3>Streaming</h3><p class="sub">Each camera has a light SD sub-stream and a sharp HD main stream.</p>
-      <div class="opts">${opt('quality', 'auto', 'Auto', 'HD for large tiles and the large view, SD for small tiles')}${opt('quality', 'sub', 'Always SD', 'Lowest bandwidth. Best for big walls')}${opt('quality', 'main', 'Always HD', 'Sharpest picture, heavier on network and CPU')}</div>
-      <p class="sub" style="margin-top:14px">H.265 (HD) playback — HD streams are usually H.265. Converting to H.264 on this computer plays smoothly everywhere; playing H.265 directly saves CPU but can stutter on some cameras and doesn't work in Firefox.</p>
-      <div class="opts">${opt('main_codec', 'h264', 'Convert to H.264', 'Recommended. Smooth everywhere; uses some CPU while an HD stream is open')}${opt('main_codec', 'passthrough', 'Play directly', 'No extra CPU. May stutter or fail in some browsers')}</div></section>
-    <section class="card"><h3>Interaction</h3><p class="sub">Fine-tuning for how the overlay controls and snapshots behave — sensible as-is for most people, here if you want to tune them.</p>
-      <div class="form">
-        ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Auto-hide controls after', min: 1, max: 10, step: 0.5, unit: 's', hint: 'How long the play/pause/zoom overlay (Live large view, Playback) stays up after you stop moving the mouse, while playing. Always stays up while paused.' })}
-        ${this.rangeField('display.snapshot_quality', d.snapshot_quality, { id: 'f-snapq', label: 'Snapshot quality', min: 0.5, max: 1, step: 0.01, hint: 'JPEG quality for the camera snapshot button. Higher is sharper but a larger file.' })}
-      </div></section>
-    <section class="card"><h3>Keyboard shortcuts</h3><dl class="kv">
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next page, or camera in the large view</dd><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open that camera on the page</dd>
-      <dt><kbd>E</kbd></dt><dd>Arrange mode (drag to reorder)</dd><dt><kbd>F</kbd></dt><dd>Full screen</dd><dt><kbd>H</kbd> / <kbd>S</kbd></dt><dd>Large view: toggle HD / save snapshot</dd><dt><kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></dt><dd>Large view: zoom in / out / reset (scroll or pinch also works, drag to pan)</dd><dt><kbd>Esc</kbd></dt><dd>Reset zoom, then close the large view</dd></dl></section>`;
+    return `<h1 class="sr-only">Display &amp; layout</h1>
+    <section class="sgroup"><h2>Appearance</h2><div class="srows">
+      ${this.srow('Theme', 'Auto follows this device’s light or dark setting.', seg('theme', [['auto', 'Auto'], ['dark', 'Dark'], ['light', 'Light']], 'Theme'))}
+      ${this.srow('Picture', 'Fit never crops; Fill crops to fill each tile edge to edge. Live and Playback.', seg('fit', [['contain', 'Fit'], ['cover', 'Fill']], 'Fit'))}
+      ${this.srow('TV mode', 'Bigger type and arrow-key camera selection for watching from a distance. This browser only.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
+    </div></section>
+    <section class="sgroup"><h2>Layout</h2>
+      <div class="laygrid">${layoutIds.map((id) => `<button data-o="layout:${id}" aria-pressed="${d.layout === id}">${layoutIcon(id, 44)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div>
+      <p class="pane-note">The starting layout — change it any time from Live.</p>
+      <div class="srows">${this.srow('Auto-rotate pages', 'Only when there are more cameras than fit on one page.',
+        `<select id="f-rot" data-b="display.rotate_seconds" data-t="int">${[[0, 'Off'], [5, 'Every 5 s'], [10, 'Every 10 s'], [15, 'Every 15 s'], [30, 'Every 30 s'], [60, 'Every minute']].map(([v, l]) => `<option value="${v}" ${+d.rotate_seconds === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}</div></section>
+    <section class="sgroup"><h2>Streaming</h2>
+      <div class="opts">${opt('quality', 'auto', 'Auto', 'HD for large tiles and Focus, SD for small tiles')}${opt('quality', 'sub', 'Always SD', 'Lowest bandwidth — best for big walls')}${opt('quality', 'main', 'Always HD', 'Sharpest, heavier on network and CPU')}</div>
+      <p class="pane-note">HD streams are usually H.265. Converting to H.264 here plays smoothly everywhere; playing H.265 directly saves CPU but can stutter on some cameras, and doesn't work in Firefox.</p>
+      <div class="opts">${opt('main_codec', 'h264', 'Convert to H.264', 'Recommended — smooth everywhere, some CPU while HD is open')}${opt('main_codec', 'passthrough', 'Play directly', 'No extra CPU — may stutter or fail in some browsers')}</div></section>
+    <section class="sgroup"><h2>Interaction</h2><div class="form">
+      ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Hide controls after', min: 1, max: 10, step: 0.5, unit: 's', hint: 'How long Focus and Playback controls stay up after the pointer stops, while playing. They stay up while paused.' })}
+      ${this.rangeField('display.snapshot_quality', d.snapshot_quality, { id: 'f-snapq', label: 'Snapshot quality', min: 0.5, max: 1, step: 0.01, hint: 'JPEG quality for snapshots. Higher is sharper, and a larger file.' })}
+    </div></section>
+    <section class="sgroup"><div class="srows">${this.srow('Keyboard shortcuts', 'Every shortcut, on every screen. Press ? anywhere.', '<button class="btn glass-btn" data-a="keys">Show</button>')}</div></section>`;
   }
 
   /** A labelled range slider bound to `data-b` path `bindPath`, with a live numeric readout — the one
@@ -230,31 +252,29 @@ export class SettingsView {
 
   /** What a non-admin can change: this browser's own options. */
   deviceTab() {
-    return `<h1>This device</h1><p class="lead">Options for this browser only. Cameras, layout and the rest are set by an admin.</p>
-    <section class="card"><h3>TV mode</h3><p class="sub">A bigger, couch-distance layout with arrow-key camera selection — for a TV's browser, or just a bigger screen. SD by default; applies to this browser only.</p>
-      <div class="toggle-row"><label class="switch"><input type="checkbox" id="f-tv" ${this.ctx.tvMode() ? 'checked' : ''} aria-label="TV mode"><span></span></label>
-        <span><b>${this.ctx.tvMode() ? 'On' : 'Off'}</b></span></div></section>
-    <section class="card"><h3>Keyboard shortcuts</h3><dl class="kv">
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next page, or camera in the large view</dd><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Open that camera on the page</dd>
-      <dt><kbd>F</kbd></dt><dd>Full screen</dd><dt><kbd>H</kbd> / <kbd>S</kbd></dt><dd>Large view: toggle HD / save snapshot</dd><dt><kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd></dt><dd>Large view: zoom in / out / reset</dd><dt><kbd>Esc</kbd></dt><dd>Reset zoom, then close the large view</dd></dl></section>`;
+    return `<h1 class="sr-only">This device</h1><p class="pane-note">Options for this browser only. Cameras, layout and everything else are set by an admin.</p>
+    <section class="sgroup"><div class="srows">
+      ${this.srow('TV mode', 'Bigger type and arrow-key camera selection for watching from a distance. SD by default.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
+      ${this.srow('Keyboard shortcuts', 'Every shortcut, on every screen. Press ? anywhere.', '<button class="btn glass-btn" data-a="keys">Show</button>')}
+    </div></section>`;
   }
 
   enhancementTab() {
     const d = this.draft.display;
-    return `<h1>Enhancement</h1><p class="lead">Defaults for the live "wand" filters and the frame enhancer — every control stays freely adjustable per-session, this just sets where it starts.</p>
-    <section class="card"><h3>Live filters</h3><p class="sub">The starting preset for a newly-opened live tile or Playback pane. Presets are just quick-fills — every slider underneath stays individually adjustable afterwards.</p>
-      <div class="form"><div class="field wide"><label for="f-enh-preset">Default preset</label>
-        <select id="f-enh-preset" data-b="display.enhance_default_preset">${Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) => `<option value="${k}" ${d.enhance_default_preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
-        <div class="hint">"Off" (recommended) starts every tile untouched — turn a preset on per-camera from the wand menu when you actually need it.</div></div></div></section>
-    <section class="card"><h3>Frame enhancer</h3><p class="sub">Starting mode and fidelity for the AI frame enhancer popup (Playback, pause first). docs/SPEC.md section 7.8.2d covers why 0.5 fidelity is the recommended default.</p>
-      <div class="form">
-        <div class="field wide"><span class="lbl">Default mode</span><div class="seg" role="group" aria-label="Default mode">${ENHANCE_MODES.map(([k, l]) => `<button data-o="enhance_default_mode:${k}" aria-pressed="${d.enhance_default_mode === k}">${l}</button>`).join('')}</div></div>
-        ${this.rangeField('display.enhance_default_fidelity', d.enhance_default_fidelity, { id: 'f-fidelity', label: 'Default fidelity', min: 0, max: 1, step: 0.05, hint: 'Lower = more face reconstruction (risk of inventing features); higher = closer to the real pixels (risk of staying blurry). Recommended: 0.5.' })}
-      </div></section>`;
+    return `<h1 class="sr-only">Enhancement</h1><p class="pane-note">Where the live filters and the frame enhancer start. Everything stays adjustable each time you use them.</p>
+    <section class="sgroup"><h2>Live filters</h2><div class="srows">
+      ${this.srow('Starting preset', 'For a newly opened tile or Playback pane. Off (recommended) starts every picture untouched.',
+        `<select id="f-enh-preset" data-b="display.enhance_default_preset">${Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) => `<option value="${k}" ${d.enhance_default_preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>`)}
+    </div></section>
+    <section class="sgroup"><h2>Frame enhancer</h2><div class="srows">
+      ${this.srow('Starting mode', 'What the enhancer looks for first.', `<div class="seg" role="group" aria-label="Default mode">${ENHANCE_MODES.map(([k, l]) => `<button data-o="enhance_default_mode:${k}" aria-pressed="${d.enhance_default_mode === k}">${l}</button>`).join('')}</div>`)}
+    </div><div class="form" style="margin-top:14px">
+      ${this.rangeField('display.enhance_default_fidelity', d.enhance_default_fidelity, { id: 'f-fidelity', label: 'Starting fidelity', min: 0, max: 1, step: 0.05, hint: 'Lower rebuilds more of a face — and risks inventing features. Higher stays closer to the real pixels — and may stay blurry. 0.5 is recommended.' })}
+    </div></section>`;
   }
 
   statusTab() {
-    return `<h1>Status</h1><p class="lead">What the video server is doing right now.</p><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
+    return `<h1 class="sr-only">Status</h1><p class="pane-note">What the video engine is doing right now. Updates every few seconds.</p><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
   }
 
   async startStatus() {
@@ -316,6 +336,7 @@ export class SettingsView {
       this.render(); this.refresh();
     }));
     p.querySelector('#f-tv')?.addEventListener('change', (e) => this._onTvModeToggle(e.target.checked));
+    p.querySelector('[data-a=keys]')?.addEventListener('click', () => shortcutsDialog());
     p.querySelectorAll('[data-reveal]').forEach((b) => b.addEventListener('click', () => {
       const i = p.querySelector('#' + b.dataset.reveal);
       i.type = i.type === 'password' ? 'text' : 'password';
@@ -380,11 +401,6 @@ export class SettingsView {
    * back off is the plain, instant, no-questions-asked toggle it always was. */
   async _onTvModeToggle(checked) {
     if (!checked) { this.ctx.setTvMode(false); this.render(); return; }
-    // The checkbox is already visually checked (native behaviour) the instant this fires, but nothing is
-    // actually on yet pending the confirm below — found directly: its "Off"/"On" label sat stale and wrong
-    // for as long as the dialog stayed open, since that text only updates on the render() calls below.
-    const label = this.pane.querySelector('#f-tv')?.closest('.toggle-row')?.querySelector('b');
-    if (label) label.textContent = 'On';
     const needsChannelZero = !this.base.connection.channel_zero && this.ctx.can('admin');   // only an admin can turn it on
     const go = await confirmDialog({
       title: 'Switch to TV mode?',
