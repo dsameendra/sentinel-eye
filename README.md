@@ -42,10 +42,10 @@ involved.
 - Instant replay: jump back up to a configurable window on any live camera without leaving the grid.
 - Live event badges (motion, line-crossing, tamper, video loss) painted directly onto the relevant tile.
 - **Channel-zero** (Settings → Connection, on recorders that support it): the recorder's own single-stream
-  overview of every camera at once — the same picture a monitor plugged straight into it would show. An
-  "Overview" toggle in the live view shows it as the first tile — off by default on a phone, tablet, or
-  laptop; TV mode always shows it, full screen, since a single low-bandwidth stream is exactly what a weak
-  TV browser wants. It has no recording of its own, so there's no instant replay for it, and bookmarking it
+  overview of every camera at once — the same picture a monitor plugged straight into it would show. A single
+  "Overview" toggle in the live view switches straight to it, full screen — off by default on a phone, tablet,
+  or laptop; TV mode always starts there, since a single low-bandwidth stream is exactly what a weak TV
+  browser wants. It has no recording of its own, so there's no instant replay for it, and bookmarking it
   bookmarks every real camera at once instead.
 - **TV mode** (Settings → Display): a bigger, remote-friendly layout for watching from a smart TV's browser
   or just a bigger screen — larger text, arrow-key camera selection, page switching and an exit button while
@@ -371,13 +371,13 @@ your network — installing it changes nothing about how or where data moves.
 If your recorder supports it, Settings → Connection → **Channel-zero** turns on a single stream showing the
 recorder's own multi-camera layout — the same picture a monitor plugged straight into it would show, at
 whatever resolution the recorder itself encodes it at (confirmed directly against a real 8-channel NVR:
-704×576, distinct from any individual camera's own main or sub stream). Once it's on, an **Overview** toggle
-appears in the live view's toolbar — off by default, so enabling it on the recorder doesn't suddenly add a
-tile to every device watching it. Turn it on and it becomes the first tile in the grid; a second toggle next
-to it switches between that grid and Channel-zero filling the whole screen by itself. It isn't a real
-recorded channel, so there's no instant replay for it, and bookmarking it bookmarks every real camera at
-once instead — the closest honest equivalent to "this moment," since it has no timeline of its own to find
-a bookmark on later.
+704×576, distinct from any individual camera's own main or sub stream). Once it's on, a single **Overview**
+toggle appears in the live view's toolbar — off by default, so enabling it on the recorder doesn't suddenly
+change what every device watching it is looking at. One click switches straight to Channel-zero filling the
+whole screen by itself (the button becomes **Grid** to switch back); it's never a tile mixed in among your
+real cameras. It isn't a real recorded channel, so there's no instant replay for it, and bookmarking it
+bookmarks every real camera at once instead — the closest honest equivalent to "this moment," since it has
+no timeline of its own to find a bookmark on later.
 
 ### TV mode
 
@@ -390,8 +390,8 @@ setting: turning it on for the TV doesn't change anything on your phone or lapto
 
 Turning it on offers to jump straight into it: if your recorder has Channel-zero, that confirmation also
 turns it on (for every device watching this recorder, not just the one you're on — the dialog says so) and
-takes you straight to it, full screen. A "Grid" toggle switches to the full camera grid (Channel-zero still
-first) and back; while full screen, a small floating cluster (hidden until you move the mouse or remote)
+takes you straight to it, full screen. The same single Overview/Grid toggle switches to the full camera grid
+and back; while full screen, a small floating cluster (hidden until you move the mouse or remote)
 handles paging and exiting.
 
 ![Sentinel Eye in TV mode — the same live grid with larger text and controls for viewing from a distance](docs/screenshots/tv-mode.png)

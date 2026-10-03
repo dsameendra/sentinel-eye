@@ -47,8 +47,8 @@ export class Tile {
     this.el.innerHTML = `<div class="stage"><canvas class="enh-canvas" hidden></canvas></div>
       <div class="veil"><div class="spin"></div><div class="msg">Connecting…</div></div>
       ${opts.chrome ? `<div class="hit"></div>
-      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="dot wait"></span><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span><span class="tag kind">SD</span></div>
-      <div class="ov bottom"><span class="stat"></span></div>
+      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="pill tile-status"><span class="dot wait"></span></span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span></div>
+      <div class="ov bottom"><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="stat"></span><span class="grow"></span><span class="tag kind">SD</span></div>
       <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="tile-actions">
         <div class="tile-actions-group">

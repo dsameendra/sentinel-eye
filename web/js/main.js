@@ -17,7 +17,7 @@ const app = document.getElementById('app');
 
 // Matches --bg in app.css exactly (dark/light) — kept as its own small map rather than reading the CSS
 // variable at call time, since the value is needed before layout/paint on the very first call.
-const THEME_BG = { dark: '#0b0e13', light: '#f3f5f8' };
+const THEME_BG = { dark: '#09090b', light: '#f2f2f5' };
 function applyTheme(t) {
   if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
   else document.documentElement.removeAttribute('data-theme');
@@ -69,12 +69,14 @@ let pendingTvFullscreen = false;
 const armTvFullscreen = () => { pendingTvFullscreen = true; };
 const consumeTvFullscreen = () => { const v = pendingTvFullscreen; pendingTvFullscreen = false; return v; };
 
-// Whether channel-zero (Settings > Connection) shows in the live grid on THIS browser — off by default
-// everywhere except TV mode, which always shows it regardless of this flag (see LiveView.chan0Displayed):
-// a phone or laptop shouldn't gain an extra tile just because someone turned it on for the TV down the hall.
-const CHAN0_VISIBLE_KEY = 'sentinel-eye-chan0-visible';
-function getChan0Visible() { try { return localStorage.getItem(CHAN0_VISIBLE_KEY) === '1'; } catch { return false; } }
-function setChan0Visible(v) { try { localStorage.setItem(CHAN0_VISIBLE_KEY, v ? '1' : '0'); } catch { /* private mode */ } }
+// Whether the live view is showing channel-zero's full-screen Overview (Settings > Connection) instead of
+// the camera grid, on THIS browser — redesign v2: one on/off state and one button (was two: a separate
+// "add it to the grid" toggle plus a second "view it alone" toggle). Off by default everywhere except TV
+// mode, which always shows it regardless of this flag (see LiveView.chan0Displayed): a phone or laptop
+// shouldn't jump into Overview just because someone turned it on for the TV down the hall.
+const OVERVIEW_ON_KEY = 'sentinel-eye-overview-on';
+function getOverviewOn() { try { return localStorage.getItem(OVERVIEW_ON_KEY) === '1'; } catch { return false; } }
+function setOverviewOn(v) { try { localStorage.setItem(OVERVIEW_ON_KEY, v ? '1' : '0'); } catch { /* private mode */ } }
 
 const ctx = {
   settings: () => state.settings,
@@ -90,8 +92,8 @@ const ctx = {
   setTvQuality,
   tvLayout: getTvLayout,
   setTvLayout,
-  chan0Visible: getChan0Visible,
-  setChan0Visible,
+  overviewOn: getOverviewOn,
+  setOverviewOn,
   go: (h) => { location.hash = h; },
   // For a view syncing its OWN url as its state changes (e.g. playback keeping the current position in the
   // hash) rather than navigating: replaces instead of pushing, so it doesn't fill browser history with

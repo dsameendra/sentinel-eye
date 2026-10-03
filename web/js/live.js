@@ -41,16 +41,12 @@ export class LiveView {
     this.tvQualityPref = ctx.tvQuality?.() || 'sub';
     this.tvLayoutPref = ctx.tvLayout?.() || '1x1';
     this.tvIndex = 0;   // currently-selected tile in TV mode's own arrow-key grid navigation
-    // Whether channel-zero shows at all on THIS device — its own local (localStorage), off-by-default
-    // preference everywhere except TV mode, which always shows it when the recorder offers it (see
-    // chan0Displayed): a phone or laptop shouldn't suddenly gain an extra tile because someone turned
-    // Channel-zero on for the TV in the other room.
-    this.chan0Visible = !!ctx.chan0Visible?.();
-    // Channel-zero's own single view (just that one stream, no grid) vs. showing it as the grid's first
-    // tile — session-only (not persisted): the subbar's "Grid"/"Channel 0" toggle switches between them
-    // without that choice following you to the next visit. TV mode defaults straight to the single view
-    // (its whole point — one cheap stream a weak TV browser can decode); elsewhere it starts in the grid.
-    this.chan0Single = this.tvMode && this.channelZeroOn;
+    // Overview mode: channel-zero shown full-screen, replacing the grid entirely — one on/off state (redesign
+    // v2; was two separate toggles, "add it to the grid" and "view it alone"). Local to this device
+    // (localStorage), off by default everywhere except TV mode, which always starts there when the recorder
+    // offers it (see chan0Displayed): a phone or laptop shouldn't jump into Overview because someone turned
+    // it on for the TV in the other room.
+    this.overviewOn = (this.tvMode && this.channelZeroOn) || !!ctx.overviewOn?.();
     // Set once by Settings right before ctx.go('#/live') (see settings.js's TV-mode confirm flow) —
     // consumed here so a plain reload/return to Live never re-triggers an unrequested full-screen jump.
     this._autoFs = !!ctx.consumeTvFullscreen?.();
@@ -70,7 +66,7 @@ export class LiveView {
   get s() { return this.ctx.settings(); }
   get d() { return this.s.display; }
   get channelZeroOn() { return !!this.s.connection.channel_zero; }   // the recorder actually offers it (Settings > Connection)
-  get chan0Displayed() { return this.channelZeroOn && (this.tvMode || this.chan0Visible); }   // ...and this device is actually showing it
+  get chan0Displayed() { return this.channelZeroOn && (this.tvMode || this.overviewOn); }   // ...and this device is actually showing it
   fitMode() { return this.fitOverride || this.d.fit; }
   toggleFit() {
     this.fitOverride = this.fitMode() === 'cover' ? 'contain' : 'cover';
@@ -82,11 +78,10 @@ export class LiveView {
     this.focus?.el.classList.toggle('fill', this.fitMode() === 'cover'); // focus is a separate overlay, not inside .wall — kept in sync here too
   }
   cams() {
+    // Channel-zero is never one of these (redesign v2) — Overview mode replaces the grid outright
+    // (renderWall/_renderChan0SingleView), it doesn't add a tile to it.
     const by = Object.fromEntries(this.s.channels.filter((c) => c.enabled).map((c) => [c.id, c]));
-    const real = this.d.order.map((id) => by[id]).filter(Boolean);
-    // Always first, regardless of the configured camera order — it's the recorder's own overview of
-    // everything else in this list, not one more camera slotted in wherever Arrange left it.
-    return this.chan0Displayed ? [CHAN0_CAM, ...real] : real;
+    return this.d.order.map((id) => by[id]).filter(Boolean);
   }
   slots() { return slotsOf(this.effLayout()); }
   pages() { return Math.max(1, Math.ceil(this.cams().length / this.slots())); }
@@ -162,7 +157,7 @@ export class LiveView {
   _syncFsControls() {
     const el = this.live?.querySelector('.tv-fs-controls');
     if (!el) return;
-    const single = this.chan0Displayed && this.chan0Single;
+    const single = this.chan0Displayed;
     const pages = this.pages(), multi = !single && pages > 1;
     el.querySelector('[data-a=pgprev]').hidden = !multi;
     el.querySelector('[data-a=pgnext]').hidden = !multi;
@@ -177,17 +172,11 @@ export class LiveView {
   renderBar() {
     if (!this.bar) return;
     const d = this.d, pages = this.pages(), q = this.effQuality(), layout = this.effLayout();
-    // Channel-zero's single view (its own stream, filling the wall, no grid) replaces the layout/order/
+    // Channel-zero's Overview mode (its own stream, filling the wall, no grid) replaces the layout/order/
     // Arrange controls entirely — there's nothing to lay out or reorder, just the one stream — so those
-    // give way to a single toggle back to the grid. Available on any device once channel-zero is actually
-    // showing, not just TV mode: TV mode still switches it on by default (its own point — a single cheap
-    // stream a weak TV browser can decode), everywhere else it's opt-in (see the "Channel 0" toggle below).
-    const single = this.chan0Displayed && this.chan0Single;
-    const canToggleView = this.chan0Displayed;
-    // The on/off toggle itself — hidden entirely in TV mode, where channel-zero showing is the deliberate,
-    // unconditional default (see the TV-mode confirm dialog in settings.js), not something to opt in/out
-    // of per visit the way it is on a phone, tablet, or laptop.
-    const canToggleChan0 = this.channelZeroOn && !this.tvMode;
+    // give way to the single Overview/Grid toggle a few lines down. TV mode starts here by default (its own
+    // point — a single cheap stream a weak TV browser can decode); everywhere else it's opt-in.
+    const single = this.chan0Displayed;
     const seg = (v, label, tip) => `<button data-q="${v}" aria-pressed="${q === v}" title="${tip}">${label}</button>`;
     this.bar.innerHTML = `
       ${single ? '' : `<div class="menu-wrap">
@@ -202,10 +191,10 @@ export class LiveView {
         title="${this.fitMode() === 'cover' ? 'Filling tiles (cropped to fill, nothing letterboxed) — tap to letterbox instead. This session only, not saved.' : 'Letterboxed to fit — tap to fill tiles instead (crops the picture). This session only, not saved.'}">
         ${icon('crop')} ${this.fitMode() === 'cover' ? 'Fill' : 'Fit'}
       </button>
-      ${canToggleChan0 ? `<button class="btn" data-a="chan0" aria-pressed="${this.chan0Visible}" title="${this.chan0Visible ? "Hide the recorder's Channel 0 overview" : "Show the recorder's Channel 0 overview as the first tile"}">${icon('monitor')} Overview</button>` : ''}
-      ${canToggleView
-        ? `<button class="btn" data-a="chan0view" title="${single ? 'Switch to the camera grid' : "Show only the recorder's Channel 0 overview"}">${icon(single ? 'live' : 'monitor')} ${single ? 'Grid' : 'Channel 0'}</button>`
-        : `<button class="btn" data-a="edit" aria-pressed="${this.edit}" title="Drag tiles to change their order (E)">${icon('move')} Arrange</button>`}
+      ${single ? '' : `<button class="btn" data-a="edit" aria-pressed="${this.edit}" title="Drag tiles to change their order (E)">${icon('move')} Arrange</button>`}
+      <!-- One button, one state (redesign v2 — was two: a separate on/off plus a separate grid/single-view
+           switch). Overview replaces the grid outright; this is the only control that moves between them. -->
+      ${this.channelZeroOn ? `<button class="btn view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'live' : 'monitor')} ${single ? 'Grid · all cameras' : 'Overview'}</button>` : ''}
       ${!single && d.rotate_seconds > 0 && pages > 1 ? `<button class="btn" data-a="rotate" aria-pressed="${this.rotating}" title="Auto-rotate pages every ${d.rotate_seconds}s">${icon(this.rotating ? 'pause' : 'play')} Rotate</button>` : ''}
       <span class="spacer"></span>
       ${!single && pages > 1 ? `<div class="pager"><button class="btn icon ghost" data-a="prev" aria-label="Previous page">${icon('left')}</button>
@@ -229,13 +218,11 @@ export class LiveView {
     }));
     this.bar.querySelector('[data-a=fit]').addEventListener('click', () => this.toggleFit());
     this.bar.querySelector('[data-a=edit]')?.addEventListener('click', () => this.toggleEdit());
-    this.bar.querySelector('[data-a=chan0]')?.addEventListener('click', () => {
-      this.chan0Visible = !this.chan0Visible;
-      this.ctx.setChan0Visible?.(this.chan0Visible);
-      if (!this.chan0Visible) this.chan0Single = false;   // turning it off while viewing it alone has nothing left to show — land back in the grid for next time
+    this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => {
+      this.overviewOn = !this.overviewOn;
+      this.ctx.setOverviewOn?.(this.overviewOn);
       this.renderBar(); this.renderWall();
     });
-    this.bar.querySelector('[data-a=chan0view]')?.addEventListener('click', () => { this.chan0Single = !this.chan0Single; this.renderBar(); this.renderWall(); });
     this.bar.querySelector('[data-a=rotate]')?.addEventListener('click', () => { this.rotating = !this.rotating; this.rotSince = Date.now(); this.renderBar(); });
     this.bar.querySelector('[data-a=prev]')?.addEventListener('click', () => this.goPage(this.page - 1));
     this.bar.querySelector('[data-a=next]')?.addEventListener('click', () => this.goPage(this.page + 1));
@@ -266,7 +253,7 @@ export class LiveView {
 
   renderWall() {
     if (!this.wall) return;
-    if (this.chan0Displayed && this.chan0Single) { this._renderChan0SingleView(); return; }
+    if (this.chan0Displayed) { this._renderChan0SingleView(); return; }
     this.disposeTiles();
     const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
     const w = this.wall;
@@ -317,9 +304,9 @@ export class LiveView {
     }
   }
 
-  /** Channel-zero's own single view — just that one stream, filling the wall — no grid, no per-camera
+  /** Channel-zero's own Overview mode — just that one stream, filling the wall — no grid, no per-camera
    * actions that don't apply to it (see the chan0 comment in renderWall), no Arrange. TV mode defaults
-   * here; any device can reach it once channel-zero is showing (the subbar's "Grid"/"Channel 0" toggle). */
+   * here; any device can reach it via the subbar's single Overview/Grid toggle (redesign v2). */
   _renderChan0SingleView() {
     this.disposeTiles();
     const w = this.wall;

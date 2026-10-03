@@ -115,7 +115,7 @@ export class SettingsView {
           <button class="btn icon" type="button" data-reveal="f-key" ${c.encrypted ? '' : 'disabled'} title="Show / hide" aria-label="Show or hide the code">${icon('eye')}</button></div>
         ${this.fieldErr('connection.key')}<div class="hint">Up to 16 characters. It is stored only on this computer.</div></div></div></section>
     <section class="card"><h3>Channel-zero (recorder overview)</h3>
-      <p class="sub">Some Hikvision recorders also serve a single, low-bandwidth stream showing the recorder's own multi-camera layout — the same picture a monitor plugged straight into it would show. Turning this on makes it available; the live view's own "Overview" toggle then shows it as the first tile (off by default, on any device except a TV — TV mode (Settings → Display) always shows it, full screen, since that's its own point).</p>
+      <p class="sub">Some Hikvision recorders also serve a single, low-bandwidth stream showing the recorder's own multi-camera layout — the same picture a monitor plugged straight into it would show. Turning this on makes it available; the live view's own "Overview" toggle then switches straight to it, full screen (off by default, on any device except a TV — TV mode (Settings → Display) always starts there, since that's its own point).</p>
       <div class="toggle-row"><label class="switch"><input type="checkbox" data-b="connection.channel_zero" data-t="bool" ${c.channel_zero ? 'checked' : ''} aria-label="Channel-zero"><span></span></label>
         <span><b>${c.channel_zero ? 'On' : 'Off'}</b></span></div>
       <div class="form" style="margin-top:14px"><div class="field wide"><label for="f-c0path">Stream path (optional)</label>
