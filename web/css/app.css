@@ -432,14 +432,16 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    detail. Only .stat (the resolution/fps/codec line) keeps the old hover-reveal behavior below — that's
    real supplementary detail, and showing it for every tile in a full grid at once is genuinely noisy. */
 .ov.bottom { bottom: 0; padding-top: 28px; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); font-size: 12.5px; }
-.ov.bottom .stat { font-size: 11.5px; color: #cdd5df; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out-expo); }
+.ov.bottom .stat { font-size: 11.5px; color: #cdd5df; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out-expo);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; } /* gives way before the name does */
 .tile:hover .ov.bottom .stat, .focus:hover .ov.bottom .stat { opacity: 1; }
 /* Hover-to-reveal has no touch equivalent — a device that can't hover just never showed this at all, not a
    graceful degradation. (hover: none) is what actually distinguishes "no real pointing device that can
    hover" from "a mouse user whose cursor happens to be elsewhere," which no amount of touch event handling
    on the element itself can substitute for (there's nothing to "start touching" until the tap that would
    already be the action). Applies to every hover-reveal control below, not just this one. */
-@media (hover: none) { .ov.bottom .stat { opacity: 1; } }
+/* On a touch screen grid tiles are small, so the detail line shows in Focus only. */
+@media (hover: none) { .focus .ov.bottom .stat { opacity: 1; } .tile .ov.bottom .stat { display: none; } }
 .ov .name { font-weight: 600; text-shadow: 0 1px 2px #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ov .grow { flex: 1; }
 /* Top-left status pill (redesign v2 — was a bare dot inline with the name, which has since moved to the
@@ -1287,6 +1289,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .wall { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important; grid-template-rows: none !important; overflow-y: auto; align-content: start; }
   .wall .tile, .wall .tile.empty { grid-column: auto !important; grid-row: auto !important; aspect-ratio: 16 / 9; }
   .wall.fill .tile, .wall.fill .tile.empty { aspect-ratio: 4 / 3; } /* "Fill tile" mode: a touch shorter, still stable so the crop isn't extreme on a 2-up phone grid */
+  .wall .tile.empty { display: none; } /* a reflowed list has no fixed cells, so a spare one is just a gap */
 }
 
 /* Playback on a phone (redesign v2): the bar keeps back, title and Export on its first line and moves the
