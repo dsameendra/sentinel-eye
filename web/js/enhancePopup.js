@@ -63,8 +63,17 @@ export function openEnhancePopup(opts) {
       <div><h2>Select frames to enhance</h2><p class="enh2-cap"></p></div>
       <div class="enh2-frames">${burst.map((src, i) => `<div class="enh2-frame" data-i="${i}" role="checkbox" tabindex="0" aria-label="Frame ${i + 1}${i === paused ? ', the paused frame' : ''}">
         <img src="${src}" alt="" draggable="false"><span class="ck">${icon('check')}</span>${i === paused ? '<span class="enh2-here">Paused</span>' : ''}<span class="enh2-roi" hidden></span></div>`).join('')}</div>
-      <div class="enh2-tip">${icon('crop')}<span class="t">Optionally drag a box on any frame first to crop to a plate or face — every output pixel then goes to that subject instead of the whole scene.</span><button class="btn sm ghost" data-x="clear-roi" hidden>Clear region</button></div>
+      <div class="enh2-tip">${icon('crop')}<span class="t"></span>
+        <button class="btn sm ghost" data-x="clear-roi" hidden>Whole frame</button>
+        <button class="btn sm glass-btn" data-x="edit-roi">Select region…</button></div>
       <div><button class="btn primary enh2-go" data-x="go"></button></div>
+    </section>
+    <section class="enh2-crop" hidden>
+      <div><h2>Select a region</h2><p class="enh2-cap">Drag the box, or its corners, to fit a plate or a face. Only this part of the frame is enhanced — every output pixel goes to it. Drag anywhere outside the box to draw a new one.</p></div>
+      <div class="enh2-crop-stage"><div class="enh2-crop-wrap"><img src="${burst[paused]}" alt="The paused frame" draggable="false">
+        <div class="enh2-crop-box" tabindex="0" role="group" aria-label="Region — arrow keys move it, Shift for bigger steps">${['nw', 'ne', 'sw', 'se'].map((h) => `<span class="h" data-h="${h}"></span>`).join('')}<span class="dims"></span></div></div></div>
+      <div class="enh2-crop-actions"><button class="btn ghost" data-x="crop-whole">Whole frame</button><span class="spacer"></span>
+        <button class="btn glass-btn" data-x="crop-cancel">Cancel</button><button class="btn primary" data-x="crop-done">Use this region</button></div>
     </section>
     <section class="enh2-result" hidden>
       <div class="enh2-main">
@@ -110,6 +119,12 @@ export function openEnhancePopup(opts) {
   const zoomtag = $('.zoomtag');
 
   // ---------------------------------------------------------------- step 1: pick frames (+ optional region)
+  // Thumbnails take each frame's own shape (object-fit: fill on a box of the same aspect), so the region
+  // preview drawn over them in fractions lines up exactly with what the server crops.
+  root.querySelectorAll('.enh2-frame img, .enh2-crop-wrap img').forEach((img) => {
+    const set = () => { if (img.naturalWidth) img.parentElement.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); };
+    if (img.complete) set(); else img.addEventListener('load', set);
+  });
   const paintPick = () => {
     const n = picked.size;
     $('.enh2-cap').textContent = `1–${burst.length} frames, oldest to newest — more frames means better fusion, but only while the subject barely moves between them. ${n} selected.`;
@@ -122,42 +137,86 @@ export function openEnhancePopup(opts) {
       if (roi) Object.assign(box.style, { left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.w * 100}%`, height: `${roi.h * 100}%` });
     });
     $('[data-x=clear-roi]').hidden = !roi;
-    $('.enh2-tip .t').textContent = roi ? 'Region set — only this part of the frame is enhanced. Drag on any frame to redraw it.'
-      : 'Optionally drag a box on any frame first to crop to a plate or face — every output pixel then goes to that subject instead of the whole scene.';
+    $('[data-x=edit-roi]').textContent = roi ? 'Edit region…' : 'Select region…';
+    $('.enh2-tip .t').textContent = roi
+      ? `Region set — ${Math.round(roi.w * 100)}% × ${Math.round(roi.h * 100)}% of the frame. Only this part is enhanced, so all the detail goes to it.`
+      : 'Optionally select a region first — a plate or a face — so every output pixel goes to that subject instead of the whole scene.';
     $('.enh2-go').textContent = `Enhance ${n} frame${n === 1 ? '' : 's'}`;
     $('.enh2-go').disabled = n === 0 || running;
   };
   const toggleFrame = (i) => { if (picked.has(i)) picked.delete(i); else picked.add(i); paintPick(); };
   root.querySelectorAll('.enh2-frame').forEach((el) => {
     const i = +el.dataset.i;
-    let start = null;
-    const frac = (e) => { const r = el.getBoundingClientRect(); return { x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1) }; };
-    el.addEventListener('pointerdown', (e) => { start = { ...frac(e), cx: e.clientX, cy: e.clientY, drawing: false }; el.setPointerCapture(e.pointerId); });
-    el.addEventListener('pointermove', (e) => {
-      if (!start) return;
-      if (!start.drawing && Math.hypot(e.clientX - start.cx, e.clientY - start.cy) < 6) return;
-      start.drawing = true;
-      const c = frac(e);
-      roi = { x: Math.min(start.x, c.x), y: Math.min(start.y, c.y), w: Math.abs(c.x - start.x), h: Math.abs(c.y - start.y) };
-      paintPick();
-    });
-    el.addEventListener('pointerup', () => {
-      if (!start) return;
-      const drew = start.drawing;
-      start = null;
-      if (!drew) { toggleFrame(i); return; }
-      if (roi && (roi.w < 0.03 || roi.h < 0.03)) roi = null; // too small to be deliberate
-      paintPick();
-    });
-    el.addEventListener('pointercancel', () => { start = null; });
+    el.addEventListener('click', () => toggleFrame(i));
     el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleFrame(i); } });
   });
   $('[data-x=clear-roi]').addEventListener('click', () => { roi = null; paintPick(); });
+  $('[data-x=edit-roi]').addEventListener('click', () => openCrop());
+
+  // ---------------------------------------------------------------- the region editor
+  // The paused frame, large, with a box to move (drag inside), resize (drag a corner) or redraw (drag
+  // outside). Fractions are of the image's own box, which the wrapper hugs exactly.
+  const MIN = 0.03;
+  let draft = null;
+  const wrap = $('.enh2-crop-wrap'), cbox = $('.enh2-crop-box');
+  const paintCrop = () => {
+    Object.assign(cbox.style, { left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%` });
+    const img = wrap.querySelector('img');
+    const W = img.naturalWidth || 0, H = img.naturalHeight || 0;
+    cbox.querySelector('.dims').textContent = W ? `${Math.round(draft.w * W)} × ${Math.round(draft.h * H)} px` : '';
+  };
+  const openCrop = () => {
+    draft = roi ? { ...roi } : { x: 0.3, y: 0.3, w: 0.4, h: 0.4 };
+    showStep('crop');
+    paintCrop();
+    cbox.focus({ preventScroll: true });
+  };
+  const fracAt = (e) => { const r = wrap.getBoundingClientRect(); return { x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1) }; };
+  wrap.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    wrap.setPointerCapture(e.pointerId);
+    const p0 = fracAt(e), d0 = { ...draft };
+    const handle = e.target.closest('.h')?.dataset.h;
+    const inside = !handle && e.target.closest('.enh2-crop-box');
+    const move = (ev) => {
+      const p = fracAt(ev);
+      if (handle) {
+        // The corner opposite the one held stays put.
+        const ax = handle.includes('w') ? d0.x + d0.w : d0.x, ay = handle.includes('n') ? d0.y + d0.h : d0.y;
+        const bx = clamp(p.x, 0, 1), by = clamp(p.y, 0, 1);
+        draft = { x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.max(MIN, Math.abs(bx - ax)), h: Math.max(MIN, Math.abs(by - ay)) };
+      } else if (inside) {
+        draft = { ...d0, x: clamp(d0.x + p.x - p0.x, 0, 1 - d0.w), y: clamp(d0.y + p.y - p0.y, 0, 1 - d0.h) };
+      } else {
+        draft = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.max(MIN, Math.abs(p.x - p0.x)), h: Math.max(MIN, Math.abs(p.y - p0.y)) };
+      }
+      draft.w = Math.min(draft.w, 1 - draft.x); draft.h = Math.min(draft.h, 1 - draft.y);
+      paintCrop();
+    };
+    const up = () => { wrap.removeEventListener('pointermove', move); wrap.removeEventListener('pointerup', up); wrap.removeEventListener('pointercancel', up); };
+    wrap.addEventListener('pointermove', move); wrap.addEventListener('pointerup', up); wrap.addEventListener('pointercancel', up);
+  });
+  cbox.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 0.05 : 0.01;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!d) return;
+    e.preventDefault(); e.stopPropagation();
+    draft.x = clamp(draft.x + d[0], 0, 1 - draft.w); draft.y = clamp(draft.y + d[1], 0, 1 - draft.h);
+    paintCrop();
+  });
+  $('[data-x=crop-whole]').addEventListener('click', () => { roi = null; showStep('pick'); });
+  $('[data-x=crop-cancel]').addEventListener('click', () => showStep('pick'));
+  $('[data-x=crop-done]').addEventListener('click', () => {
+    // A box covering (nearly) everything is the whole frame — no crop at all.
+    roi = draft.w > 0.97 && draft.h > 0.97 ? null : { ...draft };
+    showStep('pick');
+  });
   $('[data-x=go]').addEventListener('click', () => { showStep('result'); run(); });
 
   const showStep = (s) => {
     step = s;
     $('.enh2-pick').hidden = s !== 'pick';
+    $('.enh2-crop').hidden = s !== 'crop';
     $('.enh2-result').hidden = s !== 'result';
     $('[data-x=back]').setAttribute('aria-label', s === 'pick' ? 'Close' : 'Back to frames');
     if (s === 'pick') paintPick();
@@ -395,7 +454,7 @@ export function openEnhancePopup(opts) {
   };
   // Back from the result goes to the frames (a run still in flight finishes behind it); back from the
   // frames closes.
-  const back = () => (step === 'result' ? showStep('pick') : close());
+  const back = () => (step === 'pick' ? close() : showStep('pick'));
   const onKey = (e) => {
     if (e.key !== 'Escape' || document.fullscreenElement || document.body._openPopover) return;
     e.preventDefault(); e.stopPropagation();
