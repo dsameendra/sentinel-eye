@@ -43,8 +43,8 @@ export class SettingsView {
 
   get dirty() { return JSON.stringify(this.draft) !== JSON.stringify(this.base) || !!this.draft.connection.password || !!this.draft.connection.key; }
 
-  /** Account is per person — only when signed in as one (a paired TV or sign-in-off install has none). */
-  _showAccount() { const me = this.ctx.me?.(); return me?.via === 'session' && me.user?.kind === 'person'; }
+  /** Account is always listed (Settings board); its page explains itself when sign-in is off. */
+  _showAccount() { return true; }
 
   setTab(tab) { if (this.tabs.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); } }
 

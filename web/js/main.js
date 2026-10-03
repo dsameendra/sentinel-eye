@@ -1,6 +1,6 @@
 // App shell: hash router (#/live[/id], #/settings/<tab>), theme, clock.
 import { api, authApi, authHooks, signInAgain } from './api.js';
-import { openAccount } from './account.js';
+import { AccountView, openAccount } from './account.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
@@ -125,18 +125,16 @@ async function route() {
     return route();
   }
   // leaving settings with unsaved edits?
-  if (state.kind === 'settings' && section !== 'settings' && section !== 'account' && state.view?.beforeLeave && !(await state.view.beforeLeave())) {
+  if (state.kind === 'settings' && section !== 'settings' && state.view?.beforeLeave && !(await state.view.beforeLeave())) {
     history.replaceState(null, '', state.hash);
     return;
   }
-  if (section !== 'account') state.hash = hash;
+  state.hash = hash;
   const host = document.getElementById('view');
   const navSection = section === 'search' ? 'events' : section;
   document.querySelectorAll('.tabbar .tab').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   if (section === 'account') {
-    // Account opens over whatever you were looking at (until it's its own page) — land back where you were.
-    history.replaceState(null, '', state.hash === '#/account' ? '#/live' : state.hash);
-    openAccount(ctx);
+    if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
     return;
   }
 

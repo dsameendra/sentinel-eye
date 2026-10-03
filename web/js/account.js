@@ -2,6 +2,7 @@
 // sign out. Opened from the topbar's account menu — and forced open for an admin who must set up 2FA before
 // anything else (Settings → Security → "Require two-factor for admins").
 import { authApi } from './api.js';
+import { barHTML, wireBar } from './bar.js';
 import { qrSvg } from './qr.js';
 import { confirmDialog, esc, icon, toast } from './ui.js';
 
@@ -163,4 +164,186 @@ export function openAccount(ctx, { force2fa = false } = {}) {
 
   paint();
   if (!(force2fa && !me.user.has_totp)) authApi.sessions().then((s) => { sessions = s; if (root.querySelector('.dialog')) paint(); }).catch(() => {});
+}
+
+// ------------------------------------------------------------------------------------------- Account page
+// "Your account" (Account board) as a screen of its own at #/account: who you are, change password,
+// two-factor, and everywhere you're signed in (plus paired screens, for an admin). The dialog above stays
+// for the one case that can't wait for the app to load: an admin forced to set up 2FA before anything else.
+const deviceIcon = (ua = '') => (/iPhone|Android.*Mobile/.test(ua) ? 'phone' : /SamsungBrowser|Tizen|SMART-TV|Web0S|AFT/.test(ua) ? 'tv' : 'laptop');
+const agoShort = (ts) => {
+  if (!ts) return 'never';
+  const s = Date.now() / 1000 - ts;
+  if (s < 120) return 'now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  if (s < 2 * 86400) return 'yesterday';
+  return new Date(ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+
+export class AccountView {
+  constructor(root, ctx) {
+    this.root = root;
+    this.ctx = ctx;
+    this.sessions = null; this.devices = null; this.enrol = null; this.codes = null; this.twofaOff = false;
+    this.paint();
+    this.load();
+  }
+
+  get user() { return this.ctx.me()?.user; }
+
+  async load() {
+    const me = this.ctx.me();
+    if (me?.via !== 'session' || this.user?.kind !== 'person') return;
+    try {
+      const [sessions, devices] = await Promise.all([authApi.sessions(), this.user.role === 'admin' ? authApi.devices().catch(() => []) : []]);
+      this.sessions = sessions; this.devices = devices;
+    } catch (e) { this.sessions = []; this.devices = []; toast(e.message, 'bad'); }
+    if (this.root.isConnected) this.paint();
+  }
+
+  paint() {
+    const me = this.ctx.me() || {};
+    const signOut = me.via === 'session' ? `<button class="btn glass-btn" data-a="logout">${icon('logout')} Sign out${this.user?.kind === 'device' ? ' this device' : ''}</button>` : '';
+    this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
+    wireBar(this.root, this.ctx);
+    this.wire();
+  }
+
+  body(me) {
+    // Not a person signed in: say why there's no account here, and the one thing to do about it.
+    if (!me.auth_enabled) {
+      return `<div class="acct-grid"><section class="card acct-id"><span class="acct-av">${icon('user')}</span><div><b>Sign-in is off</b><small>Anyone who can reach this address has full access — there are no accounts yet.</small></div></section>
+        ${this.ctx.can('admin') ? `<section class="card acct-row"><div><b>Turn on sign-in</b><small>Create the first admin account, then add people and pair TVs.</small></div><a class="btn primary" href="#/settings/security">Set up</a></section>` : ''}</div>`;
+    }
+    if (me.via === 'bypass') {
+      return `<div class="acct-grid"><section class="card acct-id"><span class="acct-av">${icon('user')}</span><div><b>Trusted network</b><small>You opened Sentinel Eye without signing in — this network is trusted, with ${esc(me.role)} access.</small></div></section>
+        <section class="card acct-row"><div><b>Sign in</b><small>Use your own account for everything it allows.</small></div><a class="btn primary" href="/login?next=${encodeURIComponent('/#/account')}">Sign in</a></section></div>`;
+    }
+    const u = this.user;
+    if (u?.kind === 'device') {
+      return `<div class="acct-grid"><section class="card acct-id"><span class="acct-av">${icon('tv')}</span><div><b>${esc(u.label || 'This device')}</b><small>Paired screen · ${esc(cap(u.role))}</small></div></section></div>`;
+    }
+    const initial = esc((u.username || '?').slice(0, 1).toUpperCase());
+    const cur = this.sessions?.find((s) => s.current);
+    return `<div class="acct-grid">
+      <div class="acct-col">
+        <section class="card acct-id"><span class="acct-av">${initial}</span><div><b>${esc(u.username)}</b><small>${esc(cap(u.role))}${cur ? ` · signed in ${agoShort(cur.created_ts)}` : ''}</small></div></section>
+        <section class="card"><h3>Change password</h3>
+          <form class="acct-form" data-f="pw" novalidate>
+            <div class="field"><label for="a-cur">Current password</label><input id="a-cur" type="password" autocomplete="current-password"></div>
+            <div class="field"><label for="a-new">New password</label><div class="input-row"><input id="a-new" type="password" autocomplete="new-password" minlength="10" placeholder="At least 10 characters">
+              <button class="btn icon ghost" type="button" data-reveal="a-new" title="Show / hide" aria-label="Show or hide the new password">${icon('eye')}</button></div></div>
+            <div><button class="btn glass-btn" type="submit">Update password</button></div>
+            <p class="acct-note">Keeps this session, signs your other devices out.</p></form></section>
+      </div>
+      <div class="acct-col">${this.twofa()}</div>
+    </div>
+    <section class="card acct-devices"><h3>Signed in on</h3>${this.sessionsList()}</section>`;
+  }
+
+  twofa() {
+    const u = this.user;
+    if (this.codes) {
+      return `<section class="card"><h3>Save your recovery codes</h3><p class="acct-note">If you lose your phone, each one signs you in once. They won't be shown again.</p>
+        ${codesBlock(this.codes)}<div class="acct-actions"><button class="btn primary" data-a="codes-done">I saved them</button></div></section>`;
+    }
+    if (this.enrol) {
+      return `<section class="card"><h3>Set up two-factor authentication</h3>
+        <p class="acct-note">Scan this with an authenticator app (Passwords, Google Authenticator, 1Password…), then enter the 6-digit code it shows.</p>
+        <div class="enrol">${qrSvg(this.enrol.uri, 'QR code for your authenticator app')}
+          <div class="enrol-side"><div class="hint">Can't scan? Enter this key:</div><div class="secret">${esc(this.enrol.secret.replace(/(.{4})/g, '$1 ').trim())}</div>
+          <form data-f="totp" novalidate><div class="field"><label for="a-code">Code</label><input id="a-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456"></div>
+          <div class="acct-actions"><button class="btn primary" type="submit">Turn on</button><button class="btn ghost" type="button" data-a="enrol-cancel">Cancel</button></div></form></div></div></section>`;
+    }
+    if (u.has_totp) {
+      return `<section class="card"><div class="acct-row-in"><div><b>Two-factor authentication</b><small><span class="dot armed"></span> On — signing in asks for a code from your authenticator app.</small></div></div>
+        ${this.twofaOff ? `<form data-f="totp-pw" novalidate class="acct-inline"><div class="field"><label for="a-pw2">Your password, to change this</label><input id="a-pw2" type="password" autocomplete="current-password"></div>
+          <div class="acct-actions"><button class="btn glass-btn" type="button" data-a="new-codes">New recovery codes</button><button class="btn danger" type="button" data-a="totp-off">Turn off</button><button class="btn ghost" type="button" data-a="twofa-cancel">Cancel</button></div></form>`
+          : '<div class="acct-actions"><button class="btn glass-btn" data-a="twofa-manage">Manage</button></div>'}</section>`;
+    }
+    return `<section class="card acct-row"><div><b>Two-factor authentication</b><small>Not set up yet.</small></div><button class="btn primary" data-a="enrol">Set up</button></section>`;
+  }
+
+  sessionsList() {
+    if (this.sessions === null) return '<p class="acct-note"><span class="spin sm"></span> Loading…</p>';
+    const rows = this.sessions.map((s) => `<div class="acct-dev"><span class="acct-dev-ico">${icon(deviceIcon(s.user_agent))}</span>
+      <div class="grow"><b>${esc(deviceName(s.user_agent).replace(' on macOS', ' on Mac'))}${s.current ? ' <span class="tag">This device</span>' : ''}</b>
+      <small>${s.current ? 'Active now' : `Last active ${agoShort(s.last_seen_ts)}`}${s.ip ? ` · ${esc(s.ip)}` : ''}</small></div>
+      ${s.current ? '' : `<button class="btn ghost" data-revoke="${esc(s.id)}">Sign out</button>`}</div>`);
+    const devs = (this.devices || []).map((d) => `<div class="acct-dev"><span class="acct-dev-ico">${icon('tv')}</span>
+      <div class="grow"><b>${esc(d.label || d.username)} <span class="tag">Device · ${esc(cap(d.role))}</span></b><small>${d.last_seen_ts ? `Last active ${agoShort(d.last_seen_ts)}` : 'Not seen yet'}</small></div>
+      <button class="btn ghost" data-d-del="${d.id}">Remove</button></div>`);
+    const others = this.sessions.filter((s) => !s.current).length;
+    return `<div class="acct-list">${rows.join('')}${devs.join('')}</div>
+      ${others > 1 ? '<div class="acct-actions"><button class="btn glass-btn" data-a="revoke-others">Sign out everywhere else</button></div>' : ''}`;
+  }
+
+  async run(btn, fn) {
+    if (btn) btn.disabled = true;
+    try { await fn(); } catch (e) { toast(e.message, 'bad', 6000); } finally { if (btn?.isConnected) btn.disabled = false; }
+  }
+
+  wire() {
+    const r = this.root, $ = (s) => r.querySelector(s);
+    $('[data-a=logout]')?.addEventListener('click', async () => { try { await authApi.logout(); } finally { location.assign('/login'); } });
+    r.querySelectorAll('[data-reveal]').forEach((b) => b.addEventListener('click', () => {
+      const i = r.querySelector('#' + b.dataset.reveal);
+      i.type = i.type === 'password' ? 'text' : 'password';
+      b.innerHTML = icon(i.type === 'password' ? 'eye' : 'eyeoff');
+    }));
+    $('[data-f=pw]')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const cur = $('#a-cur').value, n1 = $('#a-new').value;
+      if (!cur) { toast('Enter your current password', 'bad'); return; }
+      if (n1.length < 10) { toast('The new password needs at least 10 characters', 'bad'); return; }
+      this.run(e.submitter, async () => {
+        await authApi.changePassword(cur, n1);
+        toast('Password updated — your other devices were signed out.');
+        this.sessions = await authApi.sessions();
+        this.paint();
+      });
+    });
+    $('[data-a=enrol]')?.addEventListener('click', (e) => this.run(e.currentTarget, async () => { this.enrol = await authApi.totpBegin(); this.paint(); $('#a-code')?.focus(); }));
+    $('[data-a=enrol-cancel]')?.addEventListener('click', () => { this.enrol = null; this.paint(); });
+    $('[data-f=totp]')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.run(e.submitter, async () => {
+        const res = await authApi.totpConfirm($('#a-code').value.trim());
+        this.enrol = null; this.codes = res.recovery_codes;
+        await this.ctx.refreshMe();
+        this.paint();
+      });
+    });
+    $('[data-a=codes-done]')?.addEventListener('click', () => { this.codes = null; this.paint(); });
+    $('[data-a=twofa-manage]')?.addEventListener('click', () => { this.twofaOff = true; this.paint(); $('#a-pw2')?.focus(); });
+    $('[data-a=twofa-cancel]')?.addEventListener('click', () => { this.twofaOff = false; this.paint(); });
+    $('[data-a=new-codes]')?.addEventListener('click', (e) => this.run(e.currentTarget, async () => {
+      this.codes = (await authApi.totpRecovery($('#a-pw2').value)).recovery_codes; this.twofaOff = false; this.paint();
+    }));
+    $('[data-a=totp-off]')?.addEventListener('click', (e) => this.run(e.currentTarget, async () => {
+      const pw = $('#a-pw2').value;   // read first: the confirm dialog takes the modal root
+      if (!(await confirmDialog({ title: 'Turn off two-factor authentication?', body: 'Signing in will only need your password.', ok: 'Turn off', danger: true }))) return;
+      await authApi.totpDisable(pw);
+      await this.ctx.refreshMe();
+      this.twofaOff = false;
+      toast('Two-factor authentication is off.');
+      this.paint();
+    }));
+    r.querySelectorAll('[data-revoke]').forEach((b) => b.addEventListener('click', () => this.run(b, async () => {
+      await authApi.revokeSession(b.dataset.revoke); this.sessions = await authApi.sessions(); this.paint();
+    })));
+    r.querySelectorAll('[data-d-del]').forEach((b) => b.addEventListener('click', async () => {
+      const d = this.devices.find((x) => String(x.id) === b.dataset.dDel);
+      if (!(await confirmDialog({ title: `Remove ${d?.label || 'this screen'}?`, body: 'It stops showing the cameras right away, and has to be paired again.', ok: 'Remove', danger: true }))) return;
+      this.run(b, async () => { await authApi.deleteDevice(d.id); this.devices = await authApi.devices(); toast('Screen removed.'); this.paint(); });
+    }));
+    $('[data-a=revoke-others]')?.addEventListener('click', (e) => this.run(e.currentTarget, async () => {
+      const res = await authApi.revokeOtherSessions(); toast(`Signed out ${res.revoked} other session${res.revoked === 1 ? '' : 's'}.`); this.sessions = await authApi.sessions(); this.paint();
+    }));
+    wireCopy(r);
+  }
+
+  destroy() { this.root.innerHTML = ''; }
 }
