@@ -268,18 +268,36 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   // ran, the menu existed in the DOM, it just wasn't visible. Mount into the fullscreened element itself
   // when there is one.
   (document.fullscreenElement || document.body).appendChild(menu);
-  const r = anchorEl.getBoundingClientRect();
-  const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  let left = align === 'left' ? r.left : r.right - mw;
-  left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
-  let top = r.bottom + 6;
-  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6); // no room below — open above instead
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+  // Anchored to its button for as long as it's open — re-placed whenever its size changes (a group
+  // expanding or collapsing inside it), never left floating where it first opened. It opens below the
+  // button, or above when there's more room there, and its height is capped to the room it has, so a tall
+  // panel scrolls inside itself instead of running off the screen.
+  let side = null;
+  const place = () => {
+    const r = anchorEl.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 14, above = r.top - 14;
+    menu.style.maxHeight = '';
+    const natural = menu.scrollHeight;
+    side ||= natural <= below || below >= above ? 'below' : 'above';
+    const room = Math.max(120, side === 'below' ? below : above);
+    menu.style.maxHeight = `${room}px`;
+    const mw = menu.offsetWidth, mh = Math.min(natural, room);
+    let left = align === 'left' ? r.left : r.right - mw;
+    left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${side === 'below' ? r.bottom + 6 : r.top - mh - 6}px`;
+  };
+  place();
+  let raf = 0;
+  const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(place); });
+  [...menu.children].forEach((c) => ro.observe(c));
+  ro.observe(menu);
+  const onResize = () => place();
+  window.addEventListener('resize', onResize);
   const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== anchorEl) closePopover(); };
   const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
   setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
-  menu._cleanup = () => { document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
+  menu._cleanup = () => { ro.disconnect(); window.removeEventListener('resize', onResize); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
   menu._anchor = anchorEl;
   menu._onClose = onClose;
   document.body._openPopover = menu;
