@@ -355,6 +355,7 @@ export class LiveView {
 
   renderWall() {
     if (!this.wall) return;
+    this._closing?.finishNow();
     if (this.chan0Displayed) { this._renderChan0SingleView(); return; }
     this.disposeTiles();
     const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
@@ -535,6 +536,12 @@ export class LiveView {
     // (standard behaviour, not something this code controls), so without re-requesting it on the new
     // element below, every camera swap silently dropped out of fullscreen (found directly, not assumed).
     const wasFullscreen = this.focus && document.fullscreenElement === this.focus.el;
+    this._closing?.finishNow();
+    // How it arrives: switching cameras slides the new picture in over a still of the old one; opening
+    // from the grid flies the tile up to fill the screen (see _focusIn).
+    const stepping = !!this.focus, dir = this._stepDir || 1;
+    const ghost = stepping && this._motionOK() ? this.focus.tile.frameCanvas() : null;
+    this._stepDir = 0;
     this.closeFocus(true);
     this.toggleEdit(false);
     const cams = this.cams();
@@ -553,8 +560,16 @@ export class LiveView {
     // The focus bar is its own header, not the grid tile's own chrome (which is hidden while in focus —
     // see .tile.in-focus's own CSS comment), so the "filters active" pill needs its own copy kept in sync.
     tile.opts.onFxChange = (active) => { const t = this.focus?.el.querySelector('.tag.fx'); if (t) t.hidden = !active; };
+    const fromRect = !stepping && fromGrid && this._motionOK() ? fromGrid.el.getBoundingClientRect() : null;
+    let slot = null;
     if (fromGrid) {
-      tile.el.remove();               // detach from the wall; the tile/player object itself stays alive
+      // Detach from the wall (the tile/player object itself stays alive), leaving a hidden stand-in in its
+      // place: the grid doesn't reflow underneath (a phone's grid is a flowing list), and the tile comes
+      // back to exactly where it was.
+      slot = document.createElement('div');
+      slot.className = 'tile-slot';
+      slot.style.cssText = `grid-column:${tile.el.style.gridColumn};grid-row:${tile.el.style.gridRow}`;
+      tile.el.replaceWith(slot);
       tile.el.classList.add('in-focus');
     }
 
@@ -593,7 +608,7 @@ export class LiveView {
     f.querySelector('.stage-host').append(hit);
     tile.enableZoom(hit, { dbl: true });   // single click does nothing (never pauses); double click/tap toggles zoom
     this.live.append(f);
-    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
+    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, slot, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
     // Carry fullscreen across the swap (see the wasFullscreen comment above) — the old element's removal
     // above already dropped the browser out of fullscreen, so this is a fresh request, not a toggle.
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
@@ -614,6 +629,56 @@ export class LiveView {
     if (tile.kind !== kind) tile.setKind(kind);   // upgrade in place (gapless swap already built into Tile)
     this.paintFocus(tile);
     this._bindFocusAutoHide(f);
+    if (ghost) this._focusSwap(f, ghost, dir);
+    else if (fromRect) this._focusFly(f, tile, fromRect, true);
+    else if (!stepping && this._motionOK(true)) f.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+  }
+
+  // ---------------------------------------------------------------- focus transitions
+  // One continuous picture: the tile you clicked grows into Focus and shrinks back into its cell on the way
+  // out (a uniform scale of the stage plus a rounded clip, so the video is never stretched), and the
+  // previous/next camera slides in over a still of the one you left. Off for reduced motion, and on a TV
+  // (weak GPUs; a plain fade there instead).
+  _motionOK(fadeOnly = false) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !Element.prototype.animate) return false;
+    return fadeOnly || !this.tvMode;
+  }
+
+  /** The stage's keyframe for "shown where `rect` is": scale so the picture inside matches its size in the
+   * tile (fit or fill alike), centred on the tile, clipped to the tile's rounded shape. */
+  _flightFrame(stage, tile, rect, radius) {
+    const sr = stage.getBoundingClientRect(), W = sr.width, H = sr.height;
+    const v = tile.cur?.player.video, ar = v?.videoWidth ? v.videoWidth / v.videoHeight : 16 / 9;
+    const fill = this.fitMode() === 'cover';
+    const box = (w, h) => (fill ? Math.max(w, h * ar) : Math.min(w, h * ar));
+    const s = box(rect.width, rect.height) / box(W, H);
+    const dx = rect.left + rect.width / 2 - (sr.left + W / 2), dy = rect.top + rect.height / 2 - (sr.top + H / 2);
+    const ix = Math.max(0, (W - rect.width / s) / 2), iy = Math.max(0, (H - rect.height / s) / 2);
+    return { transform: `translate(${dx}px, ${dy}px) scale(${s})`, clipPath: `inset(${iy}px ${ix}px round ${radius / s}px)` };
+  }
+
+  _focusFly(f, tile, rect, opening, done) {
+    const stage = f.querySelector('.stage-host');
+    const radius = parseFloat(getComputedStyle(this.wall?.querySelector('.tile') || document.body).borderTopLeftRadius) || 12;
+    const at = this._flightFrame(stage, tile, rect, radius), full = { transform: 'none', clipPath: 'inset(0px 0px round 0px)' };
+    const ease = opening ? 'cubic-bezier(.2, .85, .25, 1)' : 'cubic-bezier(.4, 0, .2, 1)';
+    const ms = opening ? 420 : 340;
+    const fly = stage.animate(opening ? [at, full] : [full, at], { duration: ms, easing: ease, fill: 'both' });
+    f.animate(opening ? [{ backgroundColor: 'rgba(0,0,0,0)' }, { backgroundColor: '#000' }] : [{ backgroundColor: '#000' }, { backgroundColor: 'rgba(0,0,0,0)' }],
+      { duration: ms * 0.8, easing: 'ease-out', fill: 'both' });
+    f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow').forEach((el) => el.animate(opening ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
+      { duration: opening ? 260 : 160, delay: opening ? 160 : 0, easing: 'ease-out', fill: 'both' }));
+    fly.onfinish = () => { if (opening) f.getAnimations({ subtree: true }).forEach((a) => a.cancel?.()); done?.(); };
+    return fly;
+  }
+
+  /** Previous/next camera: the old picture (a still) slides out and fades as the new one slides in. */
+  _focusSwap(f, ghost, dir) {
+    ghost.className = 'focus-ghost';
+    f.querySelector('.stage-host').before(ghost);
+    const d = 6 * dir, opt = { duration: 300, easing: 'cubic-bezier(.2, .85, .25, 1)' };
+    ghost.animate([{ transform: 'translateX(0)', opacity: 1 }, { transform: `translateX(${-d}%)`, opacity: 0 }], { ...opt, fill: 'forwards' }).onfinish = () => ghost.remove();
+    f.querySelector('.stage-host').animate([{ transform: `translateX(${d}%)`, opacity: 0 }, { transform: 'none', opacity: 1 }], opt);
   }
 
   // Same show-on-activity/hide-while-idle cycle Playback's topline/controls use, not a :hover reveal — see
@@ -683,6 +748,7 @@ export class LiveView {
   stepFocus(dir) {
     const cams = this.cams();
     if (cams.length < 2 || !this.focus) return;
+    this._stepDir = dir;
     const i = (cams.findIndex((c) => c.id === this.focus.id) + dir + cams.length) % cams.length;
     this.ctx.go(`#/live/${cams[i].id}`);
   }
@@ -691,8 +757,25 @@ export class LiveView {
     if (!this.focus) return;
     // silent: this is openFocus() swapping to a different camera, not a genuine close — the caller decides
     // whether to carry fullscreen over to the new element (see openFocus's wasFullscreen), not this exit.
-    if (!silent && document.fullscreenElement === this.focus.el) document.exitFullscreen?.();
-    const { tile, fromGrid } = this.focus;
+    const fo = this.focus;
+    const wasFs = document.fullscreenElement === fo.el;
+    if (!silent && wasFs) document.exitFullscreen?.();
+    this.focus = null;
+    // A real close from a grid tile shrinks back into its cell first (the cell is empty meanwhile — the
+    // tile is still up here); the tile goes home when the flight lands. Anything else closes at once.
+    const cell = !silent && !wasFs && fo.slot?.isConnected && this.tiles.includes(fo.tile) && this._motionOK() ? fo.slot.getBoundingClientRect() : null;
+    if (cell) {
+      fo.el.style.pointerEvents = 'none';
+      const done = () => { if (this._closing === closing) this._closing = null; this._teardownFocus(fo, silent); };
+      const fly = this._focusFly(fo.el, fo.tile, cell, false, done);
+      const closing = this._closing = { finishNow: () => { fly.onfinish = null; fly.cancel(); done(); } };
+      return;
+    }
+    this._teardownFocus(fo, silent);
+  }
+
+  _teardownFocus(fo, silent) {
+    const { tile, fromGrid } = fo;
     if (fromGrid && this.tiles.includes(tile)) {
       // hand the still-running tile back to its grid cell — no reconnect, no black frame
       tile.zoom?.reset(false);
@@ -704,13 +787,13 @@ export class LiveView {
       if (cell) { tile.el.style.gridColumn = `${cell.c} / span ${cell.w}`; tile.el.style.gridRow = `${cell.r} / span ${cell.h}`; }
       const wantKind = this.qualityFor(cell || {}, tile.cam);
       if (tile.kind !== wantKind) tile.setKind(wantKind);
-      this.wall.append(tile.el);
+      if (fo.slot?.isConnected) fo.slot.replaceWith(tile.el); else this.wall.append(tile.el);
     } else {
       tile.dispose();
+      fo.slot?.remove();
     }
-    this.focus.hud?.destroy();
-    this.focus.el.remove();
-    this.focus = null;
+    fo.hud?.destroy();
+    fo.el.remove();
     if (!silent && !fromGrid) this.renderWall();   // the borrowed-tile case needs no rebuild — everything else kept running
   }
 

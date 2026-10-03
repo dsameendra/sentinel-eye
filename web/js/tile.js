@@ -389,8 +389,6 @@ export class Tile {
     el.innerHTML = [...kinds].map((k) => `<span class="ev-badge ${k}">${BADGE_LABEL[k] || k}</span>`).join('');
   }
 
-  /** Captures whichever picture is actually on screen — the L0-enhanced frame if enhancement is on, the
-   * original otherwise. That's "your choice" (spec 11.5): toggle enhancement, then snapshot. */
   /** A small JPEG of the picture on screen right now (event notifications), or null with nothing decoded. */
   thumbnail(w = 160) {
     const v = this.cur?.player.video;
@@ -403,6 +401,22 @@ export class Tile {
     } catch { return null; }
   }
 
+  /** A canvas holding the picture on screen right now (Focus's camera-switch crossfade), or null. */
+  frameCanvas() {
+    const enhanced = !this.enhCanvas.hidden, v = this.cur?.player.video;
+    const src = enhanced ? this.enhCanvas : v;
+    const w = enhanced ? src.width : v?.videoWidth, h = enhanced ? src.height : v?.videoHeight;
+    if (!w || !h) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(src, 0, 0);
+      return c;
+    } catch { return null; }
+  }
+
+  /** Captures whichever picture is actually on screen — the L0-enhanced frame if enhancement is on, the
+   * original otherwise. That's "your choice" (spec 11.5): toggle enhancement, then snapshot. */
   snapshot() {
     const enhanced = !this.enhCanvas.hidden;
     const v = this.cur?.player.video;
