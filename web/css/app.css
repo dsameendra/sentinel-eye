@@ -787,7 +787,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
    .cam-list Playback already uses, for one consistent picker pattern instead of a second, differently-
    shaped one. */
 .events-view { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-.pb-side select { height: 34px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 8px; width: 100%; }
+.pb-side select { height: 36px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 8px; width: 100%; }
 .events-presets { display: flex; flex-direction: column; gap: 4px; }
 .events-presets button { text-align: left; height: 32px; padding: 0 10px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--muted); }
 .events-presets button:hover { background: var(--panel-2); }
@@ -795,7 +795,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .events-custom { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
 .events-main { flex: 1; min-width: 0; overflow: auto; padding: 18px 22px 40px; }
 .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; max-width: 1400px; margin: 0 auto; }
-.ev-card { display: flex; flex-direction: column; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; content-visibility: auto; contain-intrinsic-size: 260px 290px; } /* skips layout/paint for off-screen cards — a real cost on a long results list, especially on mobile */
+.ev-card { display: flex; flex-direction: column; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; content-visibility: auto; contain-intrinsic-size: 260px 290px; transition: transform var(--dur-base) var(--ease-out-expo), box-shadow var(--dur-base) var(--ease-out-expo); } /* skips layout/paint for off-screen cards — a real cost on a long results list, especially on mobile */
+@media (hover: hover) { .ev-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-float); } }
 .ev-thumb { position: relative; aspect-ratio: 16/9; background: var(--tile); overflow: hidden; cursor: pointer; }
 .ev-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .15s; }
 .ev-thumb.loaded img { opacity: 1; }
@@ -812,7 +813,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 /* List view (thumbnails off) — one row per event, no image at all, so switching here also means zero
    /thumbnail requests and zero extra DVR playback-session pressure, not just a denser layout. */
 .events-list { display: flex; flex-direction: column; gap: 2px; max-width: 1100px; margin: 0 auto; }
-.ev-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: 100% 46px; }
+.ev-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: 100% 46px; transition: background var(--dur-fast) var(--ease-out-expo); }
+.ev-row:hover { background: var(--panel-2); }
 .ev-row .ev-badge { position: static; flex: none; }
 .ev-row-cam { font-weight: 600; flex: none; min-width: 130px; }
 .ev-row-date { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
