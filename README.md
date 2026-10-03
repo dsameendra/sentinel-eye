@@ -41,13 +41,13 @@ involved.
   on-screen controls — without ever pausing the picture.
 - Instant replay: jump back up to a configurable window on any live camera without leaving the grid.
 - Live event badges (motion, line-crossing, tamper, video loss) painted directly onto the relevant tile.
-- **Channel-zero** (Settings → Connection, on recorders that support it): the recorder's own single-stream
+- **Channel-zero** (Settings → Channel-zero overview, on recorders that support it): the recorder's own single-stream
   overview of every camera at once — the same picture a monitor plugged straight into it would show. A single
   "Overview" toggle in the live view switches straight to it, full screen — off by default on a phone, tablet,
   or laptop; TV mode always starts there, since a single low-bandwidth stream is exactly what a weak TV
   browser wants. It has no recording of its own, so there's no instant replay for it, and bookmarking it
   bookmarks every real camera at once instead.
-- **TV mode** (Settings → Display): a bigger, remote-friendly layout for watching from a smart TV's browser
+- **TV mode** (Settings → Display & layout): a bigger, remote-friendly layout for watching from a smart TV's browser
   or just a bigger screen — larger text, arrow-key camera selection, page switching and an exit button while
   full screen, and SD by default to keep a weaker TV browser smooth (HD is a real, working choice from the
   same quality control, not just cosmetic). Defaults straight into Channel-zero's single-stream view when
@@ -313,7 +313,7 @@ WebSocket automatically (slightly more latency, same picture).
 ## Sign-in (optional)
 
 Off by default: with no accounts, everyone who can reach the address is effectively an admin, exactly as
-before. It turns on the moment the first account exists, either from **Settings → Security → Turn on
+before. It turns on the moment the first account exists, either from **Settings → Security & sign-in → Turn on
 sign-in**, or at start-up with `SENTINEL_ADMIN_PASSWORD` (and optionally `SENTINEL_ADMIN_USER`, default
 `admin`) in the environment — used only while there are no accounts, so leaving it set never overwrites a
 password changed later.
@@ -333,7 +333,7 @@ viewer's copy of the settings doesn't include the recorder's address or login.
 - **TVs and shared screens:** on the TV, open the address and pick **Pair this device** (TV-mode browsers go
   straight there). It shows a code and a QR; an admin scans it or opens `/pair` on their phone, names the
   device and chooses Viewer or Operator. No password is typed on the TV, and it stays signed in for a year
-  of use. Removing it in Settings → Security cuts its streams right away.
+  of use. Removing it in Settings → Security & sign-in (or from Your account) cuts its streams right away.
 - **Sessions:** "Keep me signed in" lasts 30 days of use, otherwise 12 hours (both adjustable). Everyone can
   see and sign out their own devices; admins see all of them. Changing a password signs out your other
   devices.
@@ -368,7 +368,7 @@ your network — installing it changes nothing about how or where data moves.
 
 ### Channel-zero: the recorder's own overview
 
-If your recorder supports it, Settings → Connection → **Channel-zero** turns on a single stream showing the
+If your recorder supports it, Settings → **Channel-zero overview** turns on a single stream showing the
 recorder's own multi-camera layout — the same picture a monitor plugged straight into it would show, at
 whatever resolution the recorder itself encodes it at (confirmed directly against a real 8-channel NVR:
 704×576, distinct from any individual camera's own main or sub stream). Once it's on, a single **Overview**
@@ -381,7 +381,7 @@ no timeline of its own to find a bookmark on later.
 
 ### TV mode
 
-Settings → Display → **TV mode** switches to a bigger, remote-friendly layout for watching on a smart TV's
+Settings → Display & layout → **TV mode** switches to a bigger, remote-friendly layout for watching on a smart TV's
 browser (or just a bigger screen): larger text and camera names, arrow-key camera selection instead of a
 mouse, and SD by default — most smart TV browsers (this was built and tested against Samsung's Tizen
 browser) are far less capable than a phone or laptop and can lag under several simultaneous HD streams. HD
