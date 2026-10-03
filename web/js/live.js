@@ -65,7 +65,9 @@ export class LiveView {
   get s() { return this.ctx.settings(); }
   get d() { return this.s.display; }
   get channelZeroOn() { return !!this.s.connection.channel_zero; }   // the recorder actually offers it (Settings > Connection)
-  get chan0Displayed() { return this.channelZeroOn && (this.tvMode || this.overviewOn); }   // ...and this device is actually showing it
+  // ...and this device is showing it. TV mode starts in Overview (constructor) but its toggle still works —
+  // it used to force Overview whenever TV mode was on, leaving the TV's Grid button doing nothing.
+  get chan0Displayed() { return this.channelZeroOn && this.overviewOn; }
   fitMode() { return this.fitOverride || this.d.fit; }
   toggleFit() {
     this.fitOverride = this.fitMode() === 'cover' ? 'contain' : 'cover';
@@ -120,7 +122,9 @@ export class LiveView {
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
         <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
-      </div></main>`;
+      </div>${this.tvMode ? `<div class="tv-hints" aria-hidden="true">
+        <span><i>${icon('right')}</i>Arrows move between cameras</span><span><i>${icon('checkcircle')}</i>OK opens Focus</span>
+        <span><i>${icon('left')}</i>Back returns</span><span><i>F</i>Full screen</span></div>` : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
     this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
@@ -130,6 +134,7 @@ export class LiveView {
     this.live.querySelector('[data-a=pgprev]').addEventListener('click', () => this.goPage(this.page - 1));
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
+    if (this.tvMode) this._tvHintsWake();
     this.page = Math.min(this.page, this.pages() - 1);
     this.renderBar();
     this.renderWall();
@@ -185,6 +190,7 @@ export class LiveView {
 
   renderBar() {
     if (!this.bar) return;
+    if (this.tvMode) { this._renderTvBar(); return; }
     const layout = this.effLayout();
     // Channel-zero's Overview mode replaces the grid outright (its own stream, filling the wall), so the
     // layout picker gives way to the single Overview/Grid toggle — matching the Live board, where the layout
@@ -209,6 +215,46 @@ export class LiveView {
     if (this._lastEventRows) markBell(this.bar, this._lastEventRows);
     this._renderPager();
     this._syncFsControls();
+  }
+
+  /** TV mode's header (TV Mode board): the mark and name, a clock with the camera count, and only the
+   * controls a remote needs — Overview/Grid, layout, Settings — big enough to land on. */
+  _renderTvBar() {
+    const single = this.chan0Displayed;
+    const layout = this.effLayout();
+    const actions = `<span class="tv-clock"></span>
+      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}
+      <a class="btn icon ghost gbtn" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>`;
+    this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Sentinel Eye', actions, cls: 'live tv' });
+    this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
+    this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => {
+      this.overviewOn = !this.overviewOn;
+      this.ctx.setOverviewOn?.(this.overviewOn);
+      if (!this.wall) { this.build(); return; }
+      this.renderBar(); this.renderWall();
+    });
+    const clock = this.bar.querySelector('.tv-clock');
+    const tick = () => {
+      const d = new Date();
+      const day = d.toLocaleDateString(undefined, { weekday: 'short' });
+      const n = this.cams().length, pages = this.chan0Displayed ? 1 : this.pages();
+      clock.textContent = `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${n} camera${n === 1 ? '' : 's'}${pages > 1 ? ` · page ${this.page + 1} of ${pages}` : ''}`;
+    };
+    tick();
+    clearInterval(this.clockTimer);
+    this.clockTimer = setInterval(tick, 15000);
+    this._renderPager();
+    this._syncFsControls();
+  }
+
+  /** The remote hints fade after a few quiet seconds and come back on the next key press. */
+  _tvHintsWake() {
+    const el = this.live?.querySelector('.tv-hints');
+    if (!el) return;
+    el.classList.add('show');
+    clearTimeout(this.hintTimer);
+    this.hintTimer = setTimeout(() => el.classList.remove('show'), 8000);
   }
 
   /** The bar's quiet health indicator (States board: "lives permanently in the top bar's corner — never
@@ -676,6 +722,7 @@ export class LiveView {
       const rows = await getJSON(`/api/timeline/events?start_utc=${encodeURIComponent(since)}&limit=200`);
       const byChannel = new Map();
       for (const row of rows) {
+        if (row.kind === 'bookmark') continue;   // a person's note, not an alert — the bell lists it, tiles don't ring for it
         if (!byChannel.has(row.channel)) byChannel.set(row.channel, new Set());
         byChannel.get(row.channel).add(row.kind);
       }
@@ -797,7 +844,8 @@ export class LiveView {
   key(e) {
     if (!this.wall || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.getElementById('modal-root').firstChild) return;
-    const k = e.key;
+    // A TV remote's Back key arrives under several names depending on the set's browser.
+    const k = this.tvMode && /^(Backspace|BrowserBack|GoBack|XF86Back)$/.test(e.key) ? 'Escape' : e.key;
     if (k === '?') { shortcutsDialog(); return; }
     if (this.replay) { if (k === 'Escape') this.closeReplay(); return; }
     if (this.focus) {
@@ -818,6 +866,7 @@ export class LiveView {
     // Tizen's Chromium-based one included — there's no built-in "spatial navigation" to lean on), so this
     // drives it by hand rather than assuming the browser does it. Enter/Space then opens the selected tile
     // via the real keydown handler already on its .hit element (tile.js, under the same flag).
+    if (this.tvMode) this._tvHintsWake();
     if (this.tvMode && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown')) {
       e.preventDefault();
       const cols = LAYOUTS[this.effLayout()].cols || 1;
@@ -838,7 +887,14 @@ export class LiveView {
    * keyboard, since nothing here depends on the browser's own focus-traversal order. */
   _tvMove(delta) {
     if (!this.tiles.length) return;
-    this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, this.tvIndex + delta));
+    const next = this.tvIndex + delta;
+    // Past either end of the page, a left/right press turns the page (the remote has no other way to).
+    if ((next < 0 || next >= this.tiles.length) && Math.abs(delta) === 1 && this.pages() > 1) {
+      this.goPage(this.page + delta);
+      this.tvIndex = delta > 0 ? 0 : this.tiles.length - 1;
+    } else {
+      this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, next));
+    }
     this.tiles[this.tvIndex]?.el.querySelector('.hit')?.focus({ preventScroll: true });
   }
 
@@ -860,6 +916,8 @@ export class LiveView {
     document.removeEventListener('fullscreenchange', this.onFs);
     clearInterval(this.rotTimer);
     clearInterval(this.evTimer);
+    clearInterval(this.clockTimer);
+    clearTimeout(this.hintTimer);
     if (document.fullscreenElement) document.exitFullscreen?.();
     this.root.innerHTML = '';
   }

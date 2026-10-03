@@ -1302,7 +1302,26 @@ html.tv-mode .live-bar .topbar .btn.icon, html.tv-mode .focus-bar .btn.icon { wi
    (.tile:focus-within, which now includes TV-mode's own arrow-key selection below) — nothing TV-specific
    needed here, it was already input-agnostic. */
 html.tv-mode .tile .name { font-size: 1.15rem; }
-html.tv-mode .tile .hit:focus-visible { outline: 4px solid var(--accent); outline-offset: -4px; z-index: 6; }
+/* TV Mode board: the selected tile gets a white ring and lifts a touch, with a LIVE pill — the one thing
+   on screen a remote is pointing at, legible from the sofa. */
+html.tv-mode .tile .hit:focus-visible { outline: none; }
+html.tv-mode .tile { transition: transform var(--dur-base, .25s) var(--ease-out-expo, ease-out), box-shadow var(--dur-base, .25s); }
+html.tv-mode .tile:has(.hit:focus-visible) { box-shadow: 0 0 0 4px #fff, 0 18px 50px rgba(0, 0, 0, .6); transform: scale(1.025); z-index: 5; }
+html.tv-mode .tile:has(.hit:focus-visible) .name { font-size: 1.3rem; font-weight: 700; }
+html.tv-mode .tile:not(.is-off):not(.is-wait):has(.hit:focus-visible) .ov.bottom::after { content: "LIVE"; margin-left: auto; height: 26px; padding: 0 11px 0 22px; border-radius: var(--r-full); display: inline-flex; align-items: center; font-size: .8rem; font-weight: 700; letter-spacing: .04em; color: #ff6961; background: radial-gradient(circle at 12px 50%, #ff453a 3.5px, transparent 4.5px), rgba(255, 59, 48, .2); }
+html.tv-mode .liveview { --tv-pad: 44px; }
+html.tv-mode .live-bar .topbar.tv { height: auto; min-height: 92px; padding: 18px var(--tv-pad) 6px; background: transparent; border-bottom: 0; }
+html.tv-mode .topbar.tv .bar-title h1 { font-size: 1.3rem; font-weight: 700; }
+html.tv-mode .topbar.tv .brand-mark { width: 30px; height: 30px; }
+.tv-clock { font-size: .95rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 10px; white-space: nowrap; }
+html.tv-mode .wall { gap: 26px; padding: 18px var(--tv-pad) 96px; }
+html.tv-mode .pager-row { display: none; } /* arrows turn pages on a TV; the page number rides in the clock line */
+.tv-hints { position: absolute; left: 50%; bottom: 26px; z-index: 20; transform: translate(-50%, 8px); display: flex; align-items: center; gap: 0; padding: 8px 10px; border-radius: var(--r-full); background: rgba(28, 28, 32, .92); border: 1px solid rgba(255, 255, 255, .1); color: #d1d1d6; font-size: .72rem; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity var(--dur-chrome-out, .4s), transform var(--dur-chrome-out, .4s); }
+.tv-hints.show { opacity: 1; transform: translate(-50%, 0); transition-duration: var(--dur-chrome-in, .2s); }
+.tv-hints span { display: inline-flex; align-items: center; gap: 9px; padding: 0 16px; }
+.tv-hints span + span { border-left: 1px solid rgba(255, 255, 255, .14); }
+.tv-hints i { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .1); font-style: normal; font-weight: 700; font-size: .7rem; }
+.tv-hints i .i { width: 13px; height: 13px; }
 html.tv-mode .focus-bar, html.tv-mode .focus-bottom { min-height: 64px; padding: 10px 14px; }
 html.tv-mode .focus-bar h2 { font-size: 1.3rem; }
 html.tv-mode .focus-bar .btn { font-size: 1.05rem; height: 44px; padding: 0 18px; }
