@@ -102,6 +102,7 @@ export class SettingsView {
     clearInterval(this.statusTimer);
     const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', device: () => this.deviceTab() }[this.tab];
     this.pane.innerHTML = fn();
+    this.pane.classList.toggle('wide', this.tab === 'channels' || this.tab === 'status');
     if (this.tab === 'security') { this.bar.hidden = true; new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
     this.wire();
     this.refresh();
@@ -129,21 +130,23 @@ export class SettingsView {
   connectionTab() {
     const c = this.draft.connection, b = this.base.connection;
     const first = this.draft.channels.find((x) => x.enabled) || this.draft.channels[0];
-    return `<h1 class="sr-only">Recorder connection</h1>
-    <div class="form form-conn">
+    return `<header class="pane-head"><h1>Recorder connection</h1><p>How Sentinel Eye reaches your recorder (or a single IP camera).</p></header>
+    <section class="sgroup"><h2>Address &amp; login</h2><div class="card"><div class="form form-conn">
       <div class="field f-host"><label for="f-host">Host</label><input id="f-host" type="text" data-b="connection.host" value="${esc(c.host)}" placeholder="192.0.2.10" autocomplete="off" spellcheck="false">${this.fieldErr('connection.host')}</div>
       <div class="field"><label for="f-port">RTSP port</label><input id="f-port" type="number" min="1" max="65535" data-b="connection.rtsp_port" data-t="int" value="${esc(c.rtsp_port)}">${this.fieldErr('connection.rtsp_port')}</div>
       <div class="field"><label for="f-http">HTTP port</label><input id="f-http" type="number" min="1" max="65535" data-b="connection.http_port" data-t="int" value="${esc(c.http_port)}">${this.fieldErr('connection.http_port')}</div>
       <div class="field f-user"><label for="f-user">Username</label><input id="f-user" type="text" data-b="connection.username" value="${esc(c.username)}" autocomplete="off">${this.fieldErr('connection.username')}</div>
       <div class="field f-pass"><label for="f-pass">Password</label><input id="f-pass" type="password" data-b="connection.password" value="${esc(c.password)}" placeholder="${b.has_password ? '•••••••• saved — type to replace' : ''}" autocomplete="new-password">${this.fieldErr('connection.password')}</div>
-    </div>
-    <p class="pane-note">The recorder's (or a single IP camera's) address and login. Video is read over RTSP, usually port 554; the HTTP port, usually 80, is only used to read camera names.</p>
+    </div></div>
+    <p class="pane-note">Video is read over RTSP, usually port 554; the HTTP port, usually 80, is only used to read camera names.</p></section>
+    <section class="sgroup"><h2>Stream encryption</h2>
     ${this.srow('Stream Encryption', c.encrypted ? 'On for this recorder — video is decrypted on this computer before it is shown.' : 'Off — streams play as-is. Turn on if Stream Encryption is enabled on the recorder (Network → Platform Access).',
       this.switchHTML('connection.encrypted', c.encrypted, 'Stream is encrypted'))}
     <div class="field enc-key" ${c.encrypted ? '' : 'hidden'}><label for="f-key">Stream encryption verification code</label>
       <div class="input-row"><input id="f-key" type="password" data-b="connection.key" value="${esc(c.key)}" ${c.encrypted ? '' : 'disabled'} placeholder="${b.has_key ? '•••••••• saved — type to replace' : 'The code set on the recorder'}" autocomplete="off" spellcheck="false">
         <button class="btn icon ghost" type="button" data-reveal="f-key" ${c.encrypted ? '' : 'disabled'} title="Show / hide" aria-label="Show or hide the code">${icon('eye')}</button></div>
-      ${this.fieldErr('connection.key')}<div class="hint">Up to 16 characters, stored only on this computer.</div></div>
+      ${this.fieldErr('connection.key')}<div class="hint">Up to 16 characters, stored only on this computer.</div></div></section>
+    <section class="sgroup"><h2>Check the connection</h2>
     <div class="test-card">
       <button class="btn glass-btn" id="t-run" ${this.busy.has('conn') ? 'disabled' : ''}>Test connection</button>
       ${this.testStatus(this.conn, this.busy.has('conn'), 'Not tested yet this session')}
@@ -151,22 +154,24 @@ export class SettingsView {
       <select id="t-ch" aria-label="Channel to test">${this.draft.channels.map((x) => `<option value="${x.id}" ${first && x.id === first.id ? 'selected' : ''}>${esc(x.name || 'Channel ' + x.channel)}</option>`).join('') || '<option value="">Channel 1</option>'}</select>
       <div class="seg" role="group" aria-label="Stream"><button data-tk="sub" aria-pressed="${this.tk !== 'main'}">SD</button><button data-tk="main" aria-pressed="${this.tk === 'main'}">HD</button></div>
     </div>
-    <p class="pane-note">Connects with the values above — even before saving — reads a few seconds of video, and says what it found.</p>`;
+    <p class="pane-note">Connects with the values above — even before saving — reads a few seconds of video, and says what it found.</p></section>`;
   }
 
   /** Channel-zero gets its own pane (board): the recorder's own multi-camera picture, one light stream. */
   overviewTab() {
     const c = this.draft.connection;
-    return `<h1 class="sr-only">Channel-zero overview</h1>
+    return `<header class="pane-head"><h1>Channel-zero overview</h1><p>The recorder's own all-cameras picture, as one light stream.</p></header>
+    <section class="sgroup"><h2>Overview stream</h2>
     ${this.srow('Channel-zero overview', "The recorder's own multi-camera picture — what a monitor plugged straight into it shows — as one low-bandwidth stream. On, Live's Overview button switches to it, and TV mode starts there.",
       this.switchHTML('connection.channel_zero', c.channel_zero, 'Channel-zero overview'))}
     <div class="field" ${c.channel_zero ? '' : 'hidden'}><label for="f-c0path">Stream path</label>
       <input id="f-c0path" type="text" data-b="connection.channel_zero_path" value="${esc(c.channel_zero_path)}" ${c.channel_zero ? '' : 'disabled'} placeholder="${DEFAULT_CHANNEL_ZERO_PATH}" autocomplete="off" spellcheck="false">
-      ${this.fieldErr('connection.channel_zero_path')}<div class="hint">Leave blank for the usual Hikvision path. Some recorder models use a different one — test it below.</div></div>
+      ${this.fieldErr('connection.channel_zero_path')}<div class="hint">Leave blank for the usual Hikvision path. Some recorder models use a different one — test it below.</div></div></section>
+    <section class="sgroup"><h2>Check the stream</h2>
     <div class="test-card">
       <button class="btn glass-btn" id="t-c0run" ${!c.channel_zero || this.busy.has('c0') ? 'disabled' : ''}>Test channel-zero</button>
       ${this.testStatus(this.c0Test, this.busy.has('c0'), c.channel_zero ? 'Not tested yet this session' : 'Turn it on to test')}
-    </div>`;
+    </div></section>`;
   }
 
   channelsTab() {
@@ -196,8 +201,8 @@ export class SettingsView {
           ${t.sub?.fps || t.main?.fps ? `&nbsp; <button class="btn sm" data-usefps="${c.id}">Use measured fps</button>` : ''}</div></td></tr>` : ''}`;
     }).join('');
     const foundHtml = this.found ? this.foundHtml() : '';
-    return `<h1 class="sr-only">Cameras &amp; channels</h1>
-    <div class="pane-tools"><p class="pane-note">The cameras on Live. Names and order apply everywhere; frame rate is measured from the stream unless you set one.</p>
+    return `<header class="pane-head"><h1>Cameras &amp; channels</h1><p>The cameras on Live. Names and order apply everywhere; frame rate is measured from the stream unless you set one.</p></header>
+    <div class="pane-tools"><span class="spacer"></span>
       <button class="btn glass-btn" id="detect" ${this.busy.has('detect') ? 'disabled' : ''}>${this.busy.has('detect') ? '<span class="spin sm"></span> Detecting…' : `${icon('search')} Detect channels`}</button>
       <button class="btn primary" id="add-ch">${icon('plus')} Add channel</button></div>
     <section class="card card-flush">
@@ -223,7 +228,7 @@ export class SettingsView {
     const d = this.draft.display;
     const seg = (key, opts, label) => `<div class="seg" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-o="${key}:${v}" aria-pressed="${d[key] === v}">${l}</button>`).join('')}</div>`;
     const opt = (key, val, title, sub) => `<button class="opt" data-o="${key}:${val}" aria-pressed="${d[key] === val}"><b>${title}</b><small>${sub}</small></button>`;
-    return `<h1 class="sr-only">Display &amp; layout</h1>
+    return `<header class="pane-head"><h1>Display &amp; layout</h1><p>How Live looks and behaves on every screen — TV mode is per screen.</p></header>
     <section class="sgroup"><h2>Appearance</h2><div class="srows">
       ${this.srow('Theme', 'Auto follows this device’s light or dark setting.', seg('theme', [['auto', 'Auto'], ['dark', 'Dark'], ['light', 'Light']], 'Theme'))}
       ${this.srow('Picture', 'Fit never crops; Fill crops to fill each tile edge to edge. Live and Playback.', seg('fit', [['contain', 'Fit'], ['cover', 'Fill']], 'Fit'))}
@@ -257,7 +262,7 @@ export class SettingsView {
 
   /** What a non-admin can change: this browser's own options. */
   deviceTab() {
-    return `<h1 class="sr-only">This device</h1><p class="pane-note">Options for this browser only. Cameras, layout and everything else are set by an admin.</p>
+    return `<header class="pane-head"><h1>This device</h1><p>Options for this browser only. Cameras, layout and everything else are set by an admin.</p></header>
     <section class="sgroup"><div class="srows">
       ${this.srow('TV mode', 'A remote-friendly layout for watching from across the room — starts on the Overview, keeps the screen awake.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
       ${this.ctx.tvMode() ? this.srow('TV appearance', 'This TV only. Dark keeps the room dim and the picture the brightest thing on screen.', `<div class="seg" role="group" aria-label="TV appearance">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']].map(([v, l]) => `<button data-tvtheme="${v}" aria-pressed="${this.ctx.tvTheme?.() === v}">${l}</button>`).join('')}</div>`) : ''}
@@ -267,7 +272,7 @@ export class SettingsView {
 
   enhancementTab() {
     const d = this.draft.display;
-    return `<h1 class="sr-only">Enhancement</h1><p class="pane-note">Where the live filters and the frame enhancer start. Everything stays adjustable each time you use them.</p>
+    return `<header class="pane-head"><h1>Enhancement</h1><p>Where the live filters and the frame enhancer start. Everything stays adjustable each time.</p></header>
     <section class="sgroup"><h2>Live filters</h2><div class="srows">
       ${this.srow('Starting preset', 'For a newly opened tile or Playback pane. Off (recommended) starts every picture untouched.',
         `<select id="f-enh-preset" data-b="display.enhance_default_preset">${Object.entries(ENHANCE_PRESETS).filter(([k]) => k !== 'custom').map(([k, p]) => `<option value="${k}" ${d.enhance_default_preset === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>`)}
@@ -280,7 +285,7 @@ export class SettingsView {
   }
 
   statusTab() {
-    return `<h1 class="sr-only">Status</h1><p class="pane-note">What the video engine is doing right now. Updates every few seconds.</p><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
+    return `<header class="pane-head"><h1>Status</h1><p>What the video engine is doing right now. Updates every few seconds.</p></header><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
   }
 
   async startStatus() {

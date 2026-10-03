@@ -595,8 +595,13 @@ html.tv-mode .zctl button:focus-visible { outline: none; background: #fff; color
 .side a:hover { background: rgba(127, 127, 127, .1); color: var(--text); }
 .side a[aria-current="page"] { background: var(--panel-2); color: var(--text); }
 .pane { overflow: auto; padding: 24px 32px 110px; }
-.pane-inner { max-width: 1140px; display: flex; flex-direction: column; gap: 22px; }
-.pane-inner > h1 { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* the sidebar's selected row is the title */
+.pane-inner { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+.pane-inner.wide { max-width: 1100px; }   /* the channel table and the status list need the width */
+/* Each pane opens with its own title and one line on what it's for — a centred reading column, like the
+   detail side of a Mac's System Settings. */
+.pane-head h1 { margin: 6px 0 4px; font-size: 26px; font-weight: 700; letter-spacing: -.015em; }
+.pane-head p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.pane-head + .sgroup, .pane-head + .pane-tools { margin-top: -4px; }
 .card-flush .tbl th { padding-top: 12px; }
 .card-flush .tbl th:first-child, .card-flush .tbl td:first-child { padding-left: 20px; }
 .card-flush .tbl th:last-child, .card-flush .tbl td:last-child { padding-right: 20px; }
@@ -690,7 +695,7 @@ table.tbl { width: 100%; min-width: 640px; border-collapse: collapse; }
 .opt b { font-weight: 600; }
 .opt small { color: var(--muted); font-size: 12px; }
 .opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.laygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.laygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px; }
 .laygrid button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 6px 11px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 12.5px; }
 .laygrid button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .muted { color: var(--muted); }
