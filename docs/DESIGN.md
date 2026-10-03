@@ -269,7 +269,10 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 - **Event Badge:** solid, slightly translucent dark chip (`rgba(15,20,28,.82)` + blur) that floats over video — Ev Motion gold (with dark Ov Ink Dark text) for motion, Ov Danger red for tamper/video-loss, amber-orange for line-crossing. White text otherwise.
 - **Toggle Switch:** 44×26px full-round track, Line-2 when off, Accent Blue when on, white knob with a soft shadow.
 - **Row Card (`.srow`):** a titled row with its control on the right — the Settings board's "Stream Encryption" card. Grouped rows join into one inset list (`.srows`) with hairline dividers.
-- **Toast:** one glass pill dropping in at the top centre (newest on top, at most three, tap to dismiss), with an icon or an event-kind dot; an event toast opens that camera in Focus when tapped.
+- **Toast:** system messages only (saved, failed, copied) — one glass pill dropping in at the top centre with a filled status glyph; newest on top, at most three, tap to dismiss.
+- **Event notification (`notify()`):** something happened on a camera — a Mac-style glass banner under the bar's right end (top centre on a phone): a kind-coloured glyph tile, "Motion · Gate", and a thumbnail of the picture at that moment. Hover holds it, a tap opens the camera, × dismisses; at most three.
+- **Zoom HUD (`zoomhud.js`):** wherever a picture zooms (Focus, grid tiles, Playback panes), while zoomed: a minimap with a live thumbnail and the visible part outlined — click or drag it to pan there — and a − / % / + cluster where the percentage resets. Plain dark, not glass.
+- **Adjust picture (live filters):** Photos-style — status and Reset, a swipeable preset row, collapsible slider groups in inset cards; a slider's accent fill runs from its resting value to the thumb, and double-click resets it.
 
 ### Cards / Containers
 - **Corner Style:** 22px radius (redesign v2, was 12px).
@@ -288,6 +291,7 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 - **Screen bar:** brand mark (Live) or back chevron, title (+ optional subtitle), the screen's own context controls, then its actions; Live alone carries the global cluster (Playback, Events, notifications, Settings, account avatar — locked with an explanation for a viewer, never hidden).
 - **Sidebars:** plain icon+label rows; the current one takes a soft Panel-2 fill and primary text, not an accent tint.
 - **Tab bar (phones):** four glass tabs, Accent Blue Text on the current one; tab-root screens drop their back chevron.
+- **TV mode:** its own appearance (Dark by default). The stage is black and the Overview full-bleed; header and hints float over the picture and fade when idle. A remote moves focus spatially (`tvnav.js` — rows stay rows, the end of one turns the page), OK presses, Back steps out (Focus → grid → Overview), Play/Pause switches Overview and grid. Focus style is Apple TV's: the focused control turns white and lifts; the focused camera gets a white ring.
 
 ### Live-Grid Tile Anatomy
 Redesign-v2 foundation: identity moved from a single top bar to a top/bottom split, matching the mockups.
