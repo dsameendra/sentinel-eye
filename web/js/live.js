@@ -128,7 +128,7 @@ export class LiveView {
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
         <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
-      </div>${this.tvMode ? `<button class="tv-page prev" data-a="tvprev" aria-label="Previous page">${icon('left')}</button><button class="tv-page next" data-a="tvnext" aria-label="Next page">${icon('right')}</button>` : ''}</main>`;
+      </div>${this.tvMode ? `<button class="tv-page prev" data-a="tvprev" aria-label="Previous page">${icon('left')}</button><button class="tv-page next" data-a="tvnext" aria-label="Next page">${icon('right')}</button><div class="tv-ambient" aria-hidden="true"><span class="dot live"></span><span class="t"></span></div>` : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
     this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
@@ -249,7 +249,10 @@ export class LiveView {
       const d = new Date();
       const day = d.toLocaleDateString(undefined, { weekday: 'short' });
       const n = this.cams().length, pages = this.chan0Displayed ? 1 : this.pages();
-      clock.textContent = `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${n} camera${n === 1 ? '' : 's'}${pages > 1 ? ` · page ${this.page + 1} of ${pages}` : ''}`;
+      const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      clock.textContent = `${day} ${hm} · ${n} camera${n === 1 ? '' : 's'}${pages > 1 ? ` · page ${this.page + 1} of ${pages}` : ''}`;
+      const amb = this.live?.querySelector('.tv-ambient .t');
+      if (amb) amb.textContent = hm;
     };
     tick();
     clearInterval(this.clockTimer);

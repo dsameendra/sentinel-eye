@@ -1408,6 +1408,16 @@ html.tv-mode .focus .focus-bar:not(.show) { transform: translateY(-105%); }
 html.tv-mode .focus .focus-bottom:not(.show) { transform: translateY(105%); }
 html.tv-mode .focus .focus-bar, html.tv-mode .focus .focus-bottom { transition: transform var(--dur-chrome-in, .3s) ease, visibility 0s; }
 html.tv-mode :is(.focus-bar, .focus-bottom) :is(button, .btn):hover { background: #fff; color: #000; }
+/* The TV black-screen fix. With the controls hidden, nothing was left drawn above the Overview's video, and a
+   TV browser (Tizen's included) then hands a video that alone fills a full-screen page to its hardware
+   video plane — and that handover is what blanked the screen. So in TV mode something is always painted
+   above the picture: an all-but-invisible layer over the stage, Focus and Instant replay, plus a small
+   always-on clock in the corner (useful on a TV left running anyway). */
+html.tv-mode .liveview::after, html.tv-mode .focus::after, html.tv-mode .replay-overlay::after { content: ""; position: absolute; inset: 0; z-index: 9; pointer-events: none; background: rgba(0, 0, 0, .004); }
+.tv-ambient { display: none; }
+html.tv-mode .tv-ambient { position: absolute; right: 34px; bottom: 26px; z-index: 10; display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: var(--r-full); background: rgba(0, 0, 0, .45); color: rgba(255, 255, 255, .82); font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; }
+html.tv-mode .tv-ambient .dot { width: 7px; height: 7px; }
+html.tv-mode .liveview.tv-awake .tv-ambient, html.tv-mode .liveview:has(.focus) .tv-ambient { visibility: hidden; }
 /* Page arrows for a pointer remote, on the grid's edges. */
 .tv-page { display: none; }
 html.tv-mode .tv-page { position: absolute; top: 50%; z-index: 11; display: grid; place-items: center; width: 76px; height: 76px; margin-top: -38px; padding: 0; border: 0; border-radius: 50%; background: rgba(28, 28, 32, .86); color: #fff; box-shadow: 0 12px 34px rgba(0, 0, 0, .55); cursor: pointer; transition: transform var(--dur-fast, .18s) ease, background var(--dur-fast, .18s); }
