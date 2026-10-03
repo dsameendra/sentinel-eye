@@ -128,7 +128,7 @@ export class LiveView {
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
         <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
-      </div>${this.tvMode ? '<div class="tv-hints" aria-hidden="true"></div>' : ''}</main>`;
+      </div>${this.tvMode ? `<button class="tv-page prev" data-a="tvprev" aria-label="Previous page">${icon('left')}</button><button class="tv-page next" data-a="tvnext" aria-label="Next page">${icon('right')}</button>` : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
     this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
@@ -139,7 +139,10 @@ export class LiveView {
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
     if (this.tvMode) {
+      this.live.querySelector('[data-a=tvprev]').addEventListener('click', () => this.goPage(this.page - 1));
+      this.live.querySelector('[data-a=tvnext]').addEventListener('click', () => this.goPage(this.page + 1));
       this.live.addEventListener('mousemove', () => this._tvWake());
+      this.live.addEventListener('pointerdown', () => this._tvWake());
       this._tvWake();
       this._tvWakeLock();
     }
@@ -251,15 +254,9 @@ export class LiveView {
     tick();
     clearInterval(this.clockTimer);
     this.clockTimer = setInterval(tick, 15000);
-    // What the remote does right now, in this mode.
-    const hints = this.live?.querySelector('.tv-hints');
-    if (hints) {
-      const h = (glyph, text) => `<span><i>${glyph}</i>${text}</span>`;
-      const pp = '<b class="pp">▶︎❚❚</b>';
-      hints.innerHTML = single
-        ? `${h(pp, 'Camera grid')}${h(icon('dpad'), 'Controls')}`
-        : `${h(icon('dpad'), this.pages() > 1 ? 'Move · past the edge turns the page' : 'Move')}${h('OK', 'Open a camera')}${this.channelZeroOn ? h('Back', 'Overview') : ''}`;
-    }
+    // Pointer remotes (Samsung's is a cursor): big page arrows on the grid's edges, when there are pages.
+    const multi = !single && this.pages() > 1;
+    this.live?.querySelectorAll('.tv-page').forEach((el) => { el.hidden = !multi; });
     this._renderPager();
     this._syncFsControls();
     this._tvDefaultFocus();
@@ -576,7 +573,7 @@ export class LiveView {
         <button class="btn icon ghost" data-a="more" title="More" aria-label="More options" aria-haspopup="true">${icon('more')}</button>
       </div>
       <div class="focus-bottom">
-        ${c0 ? '<span></span>' : `<button class="btn replay-pill" data-a="replay" title="Instant replay">${icon('back2')}<b>Instant replay</b><span>· last 10s</span></button>`}
+        ${c0 ? '<span></span>' : `<button class="btn replay-pill" data-a="replay" title="Instant replay">${icon('back2')}<b>Instant replay</b><span>· last 15s</span></button>`}
         <span class="spacer"></span>
         ${c0 ? '' : `<button class="btn ghost" data-a="playback" title="${op ? 'Open this camera in Playback' : 'Playback needs an Operator or Admin account'}">${icon('calendar')}<b>Playback</b></button>`}
         <div class="menu-wrap enh-wrap"><button class="btn icon ghost" data-a="enhance" title="Picture adjustments" aria-label="Picture adjustments" aria-haspopup="true">${icon('sparkle')}</button></div>
@@ -812,7 +809,7 @@ export class LiveView {
   // starting ~10s in the past and playing forward at 1x, rather than a client-side ring buffer — this
   // reuses the already-verified DVR playback path instead of new plumbing. Counts against the DVR's
   // 4-session playback cap like any other playback stream; released the moment it's closed.
-  openReplay(cam, seconds = 10) {
+  openReplay(cam, seconds = 15) {
     this.closeReplay();
     const r = document.createElement('div');
     r.className = 'replay-overlay';
