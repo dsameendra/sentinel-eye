@@ -107,7 +107,7 @@ export class PlaybackView {
       actions: `<span class="pill pb-pool warn" hidden title="The recorder's shared playback-session budget is full"></span>
         <div class="seg speed-seg" role="group" aria-label="Speed">${SPEEDS.filter((sp) => ['0.5', '1', '4', '16'].includes(sp)).map((sp) => `<button data-sp="${sp}" aria-pressed="${sp === '1'}">${spLabel(sp)}</button>`).join('')}
           <button class="more-sp" data-a="speedmore" title="More speeds" aria-label="More speeds" aria-haspopup="true">${icon('down')}</button></div>
-        <button class="btn glass-btn" data-a="export">${icon('share')}Export clip<span class="clip-count" hidden>0</span></button>`,
+        <button class="btn glass-btn" data-a="export">${icon('share')}<span class="lbl">Export clip</span><span class="clip-count" hidden>0</span></button>`,
     })}
       <div class="pb-body">
         <div class="pb-stage"><div class="pb-panes"></div></div>
@@ -329,15 +329,32 @@ export class PlaybackView {
   /** ⋯ in the transport: the less-frequent controls — 5 s / 30 s skips, fit/fill, keyboard shortcuts. */
   _openMoreMenu(anchor) {
     const fill = this.fitMode() === 'cover';
+    // On a phone the bar's speed control and the select-range/fullscreen buttons are hidden for room —
+    // they surface here instead, so nothing is lost at any width.
+    const hidden = (sel) => { const el = this.root.querySelector(sel); return !!el && getComputedStyle(el).display === 'none'; };
+    const speedRow = hidden('.speed-seg') ? `<div class="pop-row"><span>Speed</span><div class="seg" role="group" aria-label="Speed">
+        ${['0.5', '1', '4', '16'].map((sp) => `<button data-s="${sp}" aria-pressed="${sp === this.speed}">${sp === '0.5' ? '½' : sp}×</button>`).join('')}</div></div>` : '';
+    const extra = [
+      hidden('[data-a=selectrange]') ? `<button class="pop-item" data-m="range">${icon('crop')}<span>Select a range to export</span></button>` : '',
+      hidden('[data-a=pbfs]') ? `<button class="pop-item" data-m="fs">${icon('expand')}<span>Full screen</span></button>` : '',
+    ].join('');
     const menu = openPopover(anchor, `<div class="view-menu">
+      ${speedRow}
       <div class="pop-row"><span>Skip</span><div class="seg" role="group" aria-label="Skip">
         <button data-j="-30">−30s</button><button data-j="-5">−5s</button><button data-j="5">+5s</button><button data-j="30">+30s</button></div></div>
       <div class="pop-row"><span>Picture</span><div class="seg" role="group" aria-label="Fit or fill">
         <button data-f="contain" aria-pressed="${!fill}">Fit</button><button data-f="cover" aria-pressed="${fill}">Fill</button></div></div>
       <div class="pop-sep"></div>
+      ${extra}
       <button class="pop-item" data-m="keys">${icon('layout')}<span>Keyboard shortcuts</span><kbd>?</kbd></button>
     </div>`, { className: 'view-pop' });
     if (!menu) return;
+    menu.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => {
+      this._pickSpeed(b.dataset.s);
+      menu.querySelectorAll('[data-s]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    menu.querySelector('[data-m=range]')?.addEventListener('click', () => { closePopover(); this._setSelectRangeMode(true); });
+    menu.querySelector('[data-m=fs]')?.addEventListener('click', () => { closePopover(); this.toggleFullscreen(); });
     menu.querySelectorAll('[data-j]').forEach((b) => b.addEventListener('click', () => this.seekTo(this.currentEpoch + +b.dataset.j)));
     menu.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
       if ((this.fitMode() === 'cover') !== (b.dataset.f === 'cover')) this.toggleFit();
@@ -787,7 +804,7 @@ export class PlaybackView {
   }
 
   _onPaneState(pane, s, msg) {
-    const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['live', 'Playing'],
+    const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
       paused: ['off', 'Paused'], error: ['off', msg || 'Error'], idle: ['off', 'Idle'] };
     const [cls, label] = labels[s] || ['off', s];
     if (s === 'connecting' || s === 'queued') { pane.veil.hidden = false; pane.veil.className = 'pb-veil is-wait'; pane.veil.innerHTML = `<div class="msg">${esc(label)}</div>`; }
@@ -798,7 +815,7 @@ export class PlaybackView {
   _onState(s, msg) {
     const dot = this.statusEl.querySelector('.dot');
     const txt = this.statusEl.querySelector('.txt');
-    const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['live', 'Playing'],
+    const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
       paused: ['off', 'Paused'], error: ['off', msg || 'Error'], idle: ['off', 'Idle'] };
     const [cls, label] = labels[s] || ['off', s];
     dot.className = `dot ${cls}`;
@@ -886,187 +903,254 @@ export class PlaybackView {
   }
 
   // ---------------------------------------------------------------- export (spec section 10)
-  // Single-range clip export for now (the spec's multi-cut batch clipper is a separate, larger UI —
-  // deferred rather than built half-way). Reuses a real DVR playback session per channel (the export
-  // engine runs through the same 4-session pool as any playback pane), so it can queue behind other
-  // playback/export activity exactly like opening a 5th pane would.
-  /** @param range optional [startEpoch, endEpoch] — e.g. from a timeline drag-select; defaults to ±15s around now. */
-  openExportDialog(range) {
+  // Export board: a full screen, not a dialog — the frame at the playhead, a Trim bar, the two package
+  // choices as cards, and the multi-cut clip list one tap away ("Clips N"). Every export reuses a real DVR
+  // playback session per channel (the same 4-session pool a pane uses), so it can queue like a 5th pane.
+  /** @param range optional [startEpoch, endEpoch] (a timeline drag-select); defaults to ±15s around the playhead. */
+  openExportDialog(range) { this._openExport(range, false); }
+
+  openClipListDialog() { this._openExport(null, true); }
+
+  _openExport(range, clipsMode) {
     if (!this.panes.length) return;
-    let startEpoch = range?.[0] ?? this.currentEpoch - 15;
-    let endEpoch = range?.[1] ?? this.currentEpoch + 15;
-    const root = document.getElementById('modal-root');
-    root.innerHTML = `<div class="scrim"><div class="dialog exp-dialog" style="width:min(620px,100%)" role="dialog" aria-modal="true" aria-label="Export clip">
-      <h3>${icon('download')} Export clip</h3>
-      <p>${this.panes.length} camera${this.panes.length > 1 ? 's' : ''}: ${esc(this.panes.map((p) => p.cam.name || 'Camera ' + p.cam.channel).join(', '))}. Up to 2 hours per export.</p>
-      <div class="exp-range">
-        <div class="dtp-host" id="exp-start-host"></div>
-        <div class="dtp-host" id="exp-end-host"></div>
-      </div>
-      <div class="form">
-        <div class="field wide"><label>Package</label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px"><input type="radio" name="exp-pkg" value="signed" checked> Signed evidence package — clip + manifest + Ed25519 signature + offline verifier (recommended)</label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="radio" name="exp-pkg" value="plain"> Plain video only, no signing</label>
-        </div>
-      </div>
-      <p class="hint" id="exp-eta"></p>
-      <p class="hint" id="exp-status"></p>
-      <div class="row"><button class="btn" data-x="cancel">Cancel</button><button class="btn" data-x="addclip">${icon('list')} Add to clip list</button><button class="btn primary" data-x="go">${icon('download')} Export</button></div>
-    </div></div>`;
-
-    const etaEl = root.querySelector('#exp-eta');
-    const goBtn = root.querySelector('[data-x=go]');
-    const updateEta = () => {
-      if (endEpoch <= startEpoch) { etaEl.textContent = 'End must be after start.'; goBtn.disabled = true; return; }
-      goBtn.disabled = false;
-      const span = endEpoch - startEpoch;
-      const etaSec = Math.max(10, span / EXPORT_SCALE); // the DVR delivers at ~16x during export — see app/export.py
-      const etaText = etaSec < 60 ? `${Math.ceil(etaSec)}s` : `${Math.ceil(etaSec / 60)}min`;
-      etaEl.textContent = `Exports at ~${EXPORT_SCALE}x — expect roughly ${etaText}. Don't close this while it runs.`;
+    const now = () => Date.now() / 1000;
+    let a = range?.[0] ?? this.currentEpoch - 15;
+    let b = Math.min(range?.[1] ?? this.currentEpoch + 15, now());
+    // The Trim bar's window: the selection with room either side to widen it by dragging.
+    let w0, w1;
+    const fitWindow = () => {
+      const pad = Math.max(30, (b - a) * 0.5);
+      w0 = a - pad; w1 = Math.min(b + pad, now());
+      if (w1 - w0 < (b - a) * 1.5) w0 = w1 - (b - a) * 1.5 - 1;
     };
-    const startPicker = new DateTimePicker(root.querySelector('#exp-start-host'), {
-      epoch: startEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'Start',
-      onChange: (e) => { startEpoch = e; updateEta(); },
-    });
-    const endPicker = new DateTimePicker(root.querySelector('#exp-end-host'), {
-      epoch: endEpoch, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'End',
-      onChange: (e) => { endEpoch = e; updateEta(); },
-    });
-    updateEta();
+    fitWindow();
+    let pkg = 'signed', running = false, mode = clipsMode ? 'clips' : 'single';
+    const cams = this.panes.map((p) => p.cam);
+    const camNames = cams.map((c) => c.name || 'Camera ' + c.channel);
+    const tp = (t) => partsFromEpoch(t, this.tzOffsetMin);
+    const hms = (t) => { const p = tp(t); return `${pad2(p.hh)}:${pad2(p.mi)}:${pad2(p.ss)}`; };
+    const md = (t) => { const p = tp(t); return `${MONTHS[p.mo]} ${p.da}`; };
+    const dur = (s) => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return h ? `${h}:${pad2(m)}:${pad2(x)}` : `${m}:${pad2(x)}`; };
+    const eta = (span) => { const s = Math.max(10, span / EXPORT_SCALE * cams.length); return s < 60 ? `about ${Math.ceil(s / 5) * 5} s` : `about ${Math.ceil(s / 60)} min`; };
+    const files = [...cams.map((c) => `clip_${(c.name || 'ch' + c.channel).replace(/[^A-Za-z0-9_-]/g, '_')}.mp4`), 'manifest.json', 'signature.json', 'verify.html'];
 
-    const close = () => { root.innerHTML = ''; };
-    root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
-    root.querySelector('[data-x=cancel]').addEventListener('click', close);
-    root.querySelector('[data-x=addclip]').addEventListener('click', () => {
-      if (endEpoch <= startEpoch) { root.querySelector('#exp-status').textContent = 'End must be after start.'; return; }
-      this._addClip(startEpoch, endEpoch);
-      close();
+    const root = document.getElementById('modal-root');
+    root.innerHTML = `<div class="xp" role="dialog" aria-modal="true" aria-label="Export clip">
+      ${barHTML({ lead: 'back', title: 'Export clip', sub: '<span class="xp-sub"></span>',
+        actions: `<button class="btn glass-btn xp-clips" data-x="clips" aria-pressed="false">${icon('list')} Clips <span class="count"></span></button>` })}
+      <div class="xp-body">
+        <div class="xp-left">
+          <div class="xp-preview"><canvas></canvas><div class="pb-pane-label"><b>${esc(camNames[0])}</b>${cams.length > 1 ? `<span class="tag kind">+${cams.length - 1}</span>` : ''}</div></div>
+          <div class="xp-trim-head"><h4>Trim</h4><span class="hint">Drag the handles, or set exact times</span></div>
+          <div class="xp-trim" tabindex="-1">
+            <div class="xp-track"><div class="xp-sel" role="group" aria-label="Clip range">
+              <button class="xp-h" data-h="a" aria-label="Clip start — arrow keys nudge 1 s"></button>
+              <span class="xp-dur"></span>
+              <button class="xp-h" data-h="b" aria-label="Clip end — arrow keys nudge 1 s"></button>
+            </div></div>
+            <div class="xp-ends"><span class="w0"></span><span class="w1"></span></div>
+          </div>
+          <div class="xp-exact"><button class="btn sm ghost" data-x="seta">Start <b class="ta"></b></button><button class="btn sm ghost" data-x="setb">End <b class="tb"></b></button></div>
+        </div>
+        <div class="xp-right">
+          <div class="xp-clipsview" hidden>
+            <div class="xp-clips-head"><h4>Clips</h4><button class="btn sm ghost" data-x="clear">Clear all</button></div>
+            <div class="clip-rows"></div>
+          </div>
+          <div class="xp-pkgs" role="radiogroup" aria-label="Package">
+            <label class="xp-pkg"><input type="radio" name="xp-pkg" value="signed" checked><span class="xp-radio"></span><span>
+              <b>Signed evidence package</b>
+              <small>Recommended — the clip, a manifest covering every file's SHA-256 hash and the exact time range, an Ed25519 signature, and an offline verify.html that checks it all with nothing installed.</small>
+              <span class="xp-files">${files.map((f) => `<span>${esc(f)}</span>`).join('')}</span></span></label>
+            <label class="xp-pkg"><input type="radio" name="xp-pkg" value="plain"><span class="xp-radio"></span><span>
+              <b>Plain MP4</b>
+              <small>Just the clip — a quick look, not an evidence package. Stream copy, no re-encoding, no quality loss either way.</small></span></label>
+          </div>
+          <span class="spacer"></span>
+          <div class="xp-meta"><span class="k">Takes</span><span class="v"></span></div>
+          <p class="xp-status" aria-live="polite" hidden></p>
+          <button class="btn xp-add" data-x="add">${icon('plus')} Add to clips, keep trimming</button>
+          <button class="btn primary xp-go" data-x="go"></button>
+        </div>
+      </div></div>`;
+    const el = root.querySelector('.xp');
+    const $ = (sel) => el.querySelector(sel);
+    const statusEl = $('.xp-status');
+    const setStatus = (txt, cls = '') => { statusEl.hidden = !txt; statusEl.className = `xp-status ${cls}`; statusEl.innerHTML = txt || ''; };
+
+    // The still at the playhead, copied from the primary pane (the board's preview).
+    try {
+      const src = this.panes[0].canvas, dst = $('.xp-preview canvas');
+      if (src.width && src.height) { dst.width = src.width; dst.height = src.height; dst.getContext('2d').drawImage(src, 0, 0); }
+    } catch { /* nothing decoded yet — the empty preview is fine */ }
+
+    const paint = () => {
+      const span = w1 - w0;
+      $('.xp-sub').textContent = `${camNames.join(', ')} · ${md(a)}, ${hms(a)} – ${md(b) !== md(a) ? md(b) + ', ' : ''}${hms(b)}`;
+      const sel = $('.xp-sel');
+      sel.style.left = `${((a - w0) / span) * 100}%`;
+      sel.style.width = `${((b - a) / span) * 100}%`;
+      $('.xp-dur').textContent = dur(b - a);
+      $('.w0').textContent = hms(w0); $('.w1').textContent = hms(w1);
+      $('.ta').textContent = hms(a); $('.tb').textContent = hms(b);
+      const tooLong = b - a > 2 * 3600;
+      $('.xp-meta .v').textContent = tooLong ? 'Up to 2 hours per export' : eta(mode === 'clips' ? this.clips.reduce((n, [x, y]) => n + y - x, 0) || b - a : b - a);
+      $('.xp-meta').classList.toggle('bad', tooLong);
+      const n = this.clips.length;
+      $('.xp-clips .count').textContent = n ? String(n) : '';
+      $('.xp-clips').hidden = !n && mode !== 'clips';
+      $('.xp-clips').setAttribute('aria-pressed', String(mode === 'clips'));
+      $('.xp-clipsview').hidden = mode !== 'clips';
+      const go = $('.xp-go');
+      if (!running) go.innerHTML = mode === 'clips' ? `Export all${n ? ` (${n})` : ''}` : 'Export clip';
+      go.disabled = running || (mode === 'clips' ? !n : tooLong);
+      $('.xp-add').disabled = running || tooLong;
+      $('[data-x=clear]').disabled = running || !n;
+      if (mode === 'clips') renderClips();
+    };
+    const renderClips = () => {
+      const rows = $('.clip-rows');
+      rows.innerHTML = this.clips.length ? this.clips.map(([x, y], i) => `
+        <div class="clip-row" data-i="${i}"><span class="clip-idx">${i + 1}</span><span class="clip-range">${esc(md(x))}, ${hms(x)} – ${hms(y)}</span><span class="clip-dur">${dur(y - x)}</span><span class="clip-status hint"></span><button class="btn icon sm ghost" data-x="rm" title="Remove" aria-label="Remove clip ${i + 1}" ${running ? 'disabled' : ''}>${icon('trash')}</button></div>`).join('')
+        : '<p class="hint">No clips yet — trim a range on the left and choose “Add to clips”.</p>';
+      rows.querySelectorAll('[data-x=rm]').forEach((btn) => btn.addEventListener('click', () => {
+        this.clips.splice(+btn.closest('.clip-row').dataset.i, 1); this._syncClipUi(); paint();
+      }));
+    };
+
+    // Trim: drag a handle, drag the selection to move it, arrow keys nudge a focused handle by a second.
+    const track = $('.xp-track');
+    const tAt = (clientX) => { const r = track.getBoundingClientRect(); return w0 + Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * (w1 - w0); };
+    const setRange = (na, nb) => { a = Math.max(w0, Math.min(na, nb - 1)); b = Math.min(w1, now(), Math.max(nb, a + 1)); paint(); };
+    track.addEventListener('pointerdown', (e) => {
+      if (running) return;
+      const h = e.target.closest('.xp-h')?.dataset.h;
+      const onSel = !h && e.target.closest('.xp-sel');
+      if (!h && !onSel) return;
+      e.preventDefault();
+      track.setPointerCapture(e.pointerId);
+      const t0 = tAt(e.clientX), a0 = a, b0 = b;
+      const move = (ev) => {
+        const t = tAt(ev.clientX);
+        if (h === 'a') setRange(Math.round(t), b);
+        else if (h === 'b') setRange(a, Math.round(t));
+        else { const d = Math.max(w0 - a0, Math.min(Math.min(w1, now()) - b0, t - t0)); setRange(Math.round(a0 + d), Math.round(b0 + d)); }
+      };
+      const up = () => { track.removeEventListener('pointermove', move); track.removeEventListener('pointerup', up); track.removeEventListener('pointercancel', up); };
+      track.addEventListener('pointermove', move); track.addEventListener('pointerup', up); track.addEventListener('pointercancel', up);
     });
-    goBtn.addEventListener('click', async () => {
-      const statusEl = root.querySelector('#exp-status');
-      if (endEpoch <= startEpoch) { statusEl.textContent = 'End must be after start.'; return; }
-      const pkg = root.querySelector('input[name=exp-pkg]:checked').value;
-      goBtn.disabled = true;
-      statusEl.textContent = 'Starting export…';
-      try {
-        const job_id = await this._runExportOne(startEpoch, endEpoch, pkg, (msg) => { statusEl.textContent = msg; });
-        const a = document.createElement('a');
-        a.href = `/api/export/${job_id}/download`;
-        a.click();
-        toast('Export ready — download started.', 'ok');
-        close();
-      } catch (e) {
-        statusEl.textContent = e.message || 'Export failed.';
-        goBtn.disabled = false;
+    el.querySelectorAll('.xp-h').forEach((btn) => btn.addEventListener('keydown', (e) => {
+      const d = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+      if (!d || running) return;
+      e.preventDefault();
+      const step = d * (e.shiftKey ? 10 : 1);
+      if (btn.dataset.h === 'a') { if (a + step < w0) w0 = a + step; setRange(a + step, b); } else { if (b + step > w1) w1 = Math.min(now(), b + step); setRange(a, b + step); }
+    }));
+    // Exact times: the shared picker in a popover; a time outside the window widens it.
+    const exact = (which, btn) => {
+      const menu = openPopover(btn, '<div class="xp-exact-pop"><div class="host"></div></div>', { className: 'cal-popover xp-exact-popover', align: 'left' });
+      if (!menu) return;
+      new DateTimePicker(menu.querySelector('.host'), {
+        epoch: which === 'a' ? a : b, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel,
+        onChange: (t) => {
+          t = Math.min(t, now());
+          if (which === 'a') { a = t; if (b <= a) b = Math.min(now(), a + 30); } else { b = t; if (a >= b) a = b - 30; }
+          if (a < w0 || b > w1) fitWindow();
+          paint();
+        },
+      });
+    };
+    $('[data-x=seta]').addEventListener('click', (e) => exact('a', e.currentTarget));
+    $('[data-x=setb]').addEventListener('click', (e) => exact('b', e.currentTarget));
+
+    el.querySelectorAll('input[name=xp-pkg]').forEach((r) => r.addEventListener('change', () => { pkg = r.value; }));
+    $('[data-x=clips]').addEventListener('click', () => { mode = mode === 'clips' ? 'single' : 'clips'; setStatus(''); paint(); });
+    $('[data-x=clear]').addEventListener('click', () => { this.clips = []; this._syncClipUi(); paint(); });
+    $('[data-x=add]').addEventListener('click', () => {
+      this._addClip(a, b);
+      // Keep trimming: step past the clip just added so the next one starts where it ended.
+      const span = b - a;
+      if (b + 1 < now()) { a = b; b = Math.min(now(), a + span); if (b > w1) fitWindow(); }
+      paint();
+    });
+
+    const close = () => {
+      if (running) toast('Export continues in the background — it downloads when ready.', 'ok', 5000);
+      document.removeEventListener('keydown', onKey, true);
+      root.innerHTML = '';
+    };
+    const onKey = (e) => { if (e.key === 'Escape' && !document.body._openPopover) { e.preventDefault(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    $('[data-bar=back]').addEventListener('click', close);
+
+    const go = $('.xp-go');
+    const busy = (txt) => { go.innerHTML = `<span class="spin sm"></span> ${esc(txt)}`; };
+    go.addEventListener('click', async () => {
+      running = true; paint();
+      if (mode === 'single') {
+        setStatus('');
+        busy('Starting export…');
+        try {
+          const jobId = await this._runExportOne(a, b, pkg, (msg) => busy(msg));
+          const link = document.createElement('a');
+          link.href = `/api/export/${jobId}/download`; link.click();
+          toast('Export ready — download started.', 'ok');
+          setStatus(`${icon('checkcircle')} Exported. <a href="/api/export/${jobId}/download">Download again</a>${pkg === 'signed' ? ' · open verify.html inside to check it' : ''}`, 'ok');
+        } catch (e) {
+          setStatus(esc(e.message || 'Export failed.'), 'bad');
+        }
+      } else {
+        const rows = [...el.querySelectorAll('.clip-row')];
+        const done = [];
+        for (let i = 0; i < this.clips.length; i++) {
+          const [x, y] = this.clips[i];
+          const cell = rows[i]?.querySelector('.clip-status');
+          busy(`Clip ${i + 1} of ${this.clips.length}…`);
+          if (cell) cell.textContent = 'Starting…';
+          try {
+            const jobId = await this._runExportOne(x, y, pkg, (msg) => { if (cell) cell.textContent = msg; });
+            if (cell) cell.innerHTML = `<a href="/api/export/${jobId}/download">Download</a>`;
+            done.push(i);
+          } catch (e) {
+            if (cell) cell.textContent = e.message || 'Failed';
+          }
+        }
+        // Finished clips leave the pending list, but their rows (each with its download link) stay on screen
+        // until the next change — redrawing now would drop the links before anyone could click them.
+        this.clips = this.clips.filter((_, i) => !done.includes(i));
+        this._syncClipUi();
+        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported.`, done.length === rows.length ? 'ok' : 'bad');
+        running = false;
+        $('.xp-clips .count').textContent = this.clips.length ? String(this.clips.length) : '';
+        go.innerHTML = `Export all${this.clips.length ? ` (${this.clips.length})` : ''}`;
+        go.disabled = !this.clips.length;
+        $('.xp-add').disabled = false;
+        return;
       }
+      running = false; paint();
     });
+    paint();
+    $('.xp-go').focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------- multi-cut clipper (spec 10/15)
-  // A non-destructive list of pending ranges — built from repeated timeline drag-selects ("Add to clip
-  // list" in the single-export dialog) or typed in directly — exported as one batch. Each clip still goes
-  // through the existing single-range /api/export job one at a time: the DVR's 4-session budget is a hard
-  // ceiling shared with live playback (spec 2.2/7.3), so running them one after another — never in
-  // parallel — is what keeps a big batch from starving whatever else is using the recorder at the time.
+  // A non-destructive list of pending ranges, exported as one batch from the export screen's Clips view.
+  // Each clip still goes through the single-range /api/export job one at a time: the DVR's 4-session
+  // budget is a hard ceiling shared with live playback (spec 2.2/7.3), so running them one after another —
+  // never in parallel — keeps a big batch from starving whatever else is using the recorder.
   _addClip(startEpoch, endEpoch) {
     if (endEpoch <= startEpoch) return;
     this.clips.push([startEpoch, endEpoch]);
     this._syncClipUi();
-    toast(`Added to clip list (${this.clips.length} pending).`, 'ok');
+    toast(`Added to clips (${this.clips.length} pending).`, 'ok');
   }
 
   _syncClipUi() {
-    // Pending multi-cut clips ride on the Export button itself (Export board's "Clips N"): with any pending,
-    // Export opens the clip list instead of a fresh single-range export.
+    // Pending clips ride on Playback's Export button (Export board's "Clips N"): with any pending, Export
+    // opens straight into the Clips view.
     const n = this.root.querySelector('[data-a=export] .clip-count');
     if (n) { n.hidden = this.clips.length === 0; n.textContent = String(this.clips.length); }
     this.timeline?.setClips(this.clips);
-  }
-
-
-  openClipListDialog() {
-    const root = document.getElementById('modal-root');
-    const fmt = (t) => new Date(t * 1000).toLocaleString(undefined, { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const durStr = (a, b) => { const s = Math.round(b - a); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
-    const render = () => `<div class="scrim"><div class="dialog exp-dialog" style="width:min(640px,100%)" role="dialog" aria-modal="true" aria-label="Clip list">
-      <h3>${icon('list')} Clip list — ${this.clips.length} pending</h3>
-      <p>${this.panes.length} camera${this.panes.length > 1 ? 's' : ''}: ${esc(this.panes.map((p) => p.cam.name || 'Camera ' + p.cam.channel).join(', '))}, applied to every clip below.</p>
-      <div class="clip-rows">${this.clips.length ? this.clips.map(([a, b], i) => `
-        <div class="clip-row" data-i="${i}"><span class="clip-idx">${i + 1}</span><span class="clip-range">${esc(fmt(a))} → ${esc(fmt(b))}</span><span class="clip-dur">${durStr(a, b)}</span><span class="clip-status hint"></span><button class="btn icon sm ghost" data-x="rm" title="Remove">${icon('trash')}</button></div>`).join('')
-        : '<p class="hint">No clips yet — drag a range on the timeline (Select range) and choose "Add to clip list", or add one below.</p>'}</div>
-      <div class="exp-range">
-        <div class="dtp-host" id="clip-start-host"></div>
-        <div class="dtp-host" id="clip-end-host"></div>
-      </div>
-      <div class="row"><button class="btn sm" data-x="addrange">${icon('plus')} Add this range</button></div>
-      <div class="form">
-        <div class="field wide"><label>Package for the whole batch</label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px"><input type="radio" name="clip-pkg" value="signed" checked> Signed evidence package — clip + manifest + Ed25519 signature + offline verifier (recommended)</label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="radio" name="clip-pkg" value="plain"> Plain video only, no signing</label>
-        </div>
-      </div>
-      <p class="hint" id="clip-status"></p>
-      <div class="row"><button class="btn" data-x="close">Close</button><button class="btn" data-x="clear" ${this.clips.length ? '' : 'disabled'}>Clear all</button><button class="btn primary" data-x="exportall" ${this.clips.length ? '' : 'disabled'}>${icon('download')} Export all (${this.clips.length})</button></div>
-    </div></div>`;
-
-    let rangeStart = this.currentEpoch - 15, rangeEnd = this.currentEpoch + 15;
-    const close = () => { root.innerHTML = ''; };
-    const draw = () => {
-      root.innerHTML = render();
-      root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
-      root.querySelector('[data-x=close]').addEventListener('click', close);
-      root.querySelector('[data-x=clear]')?.addEventListener('click', () => { this.clips = []; this._syncClipUi(); draw(); });
-      root.querySelectorAll('[data-x=rm]').forEach((b) => b.addEventListener('click', () => {
-        const i = +b.closest('.clip-row').dataset.i;
-        this.clips.splice(i, 1);
-        this._syncClipUi();
-        draw();
-      }));
-      new DateTimePicker(root.querySelector('#clip-start-host'), {
-        epoch: rangeStart, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'Start',
-        onChange: (e) => { rangeStart = e; },
-      });
-      new DateTimePicker(root.querySelector('#clip-end-host'), {
-        epoch: rangeEnd, tzOffsetMin: this.tzOffsetMin, coverageChannel: this.primary.channel, label: 'End',
-        onChange: (e) => { rangeEnd = e; },
-      });
-      root.querySelector('[data-x=addrange]').addEventListener('click', () => {
-        if (rangeEnd <= rangeStart) { root.querySelector('#clip-status').textContent = 'End must be after start.'; return; }
-        this._addClip(rangeStart, rangeEnd);
-        draw();
-      });
-      root.querySelector('[data-x=exportall]')?.addEventListener('click', async () => {
-        const pkg = root.querySelector('input[name=clip-pkg]:checked').value;
-        const exportBtn = root.querySelector('[data-x=exportall]');
-        const clearBtn = root.querySelector('[data-x=clear]');
-        exportBtn.disabled = true; clearBtn.disabled = true;
-        const rows = [...root.querySelectorAll('.clip-row')];
-        const done = [];
-        for (let i = 0; i < this.clips.length; i++) {
-          const [a, b] = this.clips[i];
-          const statusCell = rows[i]?.querySelector('.clip-status');
-          if (statusCell) statusCell.textContent = 'Starting…';
-          try {
-            const job_id = await this._runExportOne(a, b, pkg, (msg) => { if (statusCell) statusCell.textContent = msg; });
-            if (statusCell) statusCell.innerHTML = `<a href="/api/export/${job_id}/download">${esc('Ready — download')}</a>`;
-            done.push(i);
-          } catch (e) {
-            if (statusCell) statusCell.textContent = e.message || 'Failed';
-          }
-        }
-        // Clips that exported cleanly come off the pending list, but this dialog keeps showing their rows
-        // (with a live download link each) rather than redrawing — a full re-render would rebuild the row
-        // list from the now-shorter this.clips and the just-finished download links would vanish before
-        // anyone got to click them. Only the header/count/button labels are patched in place.
-        this.clips = this.clips.filter((_, i) => !done.includes(i));
-        this._syncClipUi();
-        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported.`, done.length === rows.length ? 'ok' : 'bad');
-        root.querySelector('h3').innerHTML = `${icon('list')} Clip list — ${this.clips.length} pending`;
-        exportBtn.innerHTML = `${icon('download')} Export all (${this.clips.length})`;
-        exportBtn.disabled = this.clips.length === 0; clearBtn.disabled = this.clips.length === 0;
-      });
-    };
-    draw();
   }
 
   /** Runs one export job to completion (create + poll) and resolves to its job_id. Shared by the single-
