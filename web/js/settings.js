@@ -1,9 +1,10 @@
 // Settings (Settings board): Recorder connection, Cameras & channels, Display & layout, Channel-zero overview,
 // Enhancement, Status (edit a draft copy; nothing is applied until Save), Security & sign-in (security.js,
-// saves as it goes) and Account (its own screen, #/account). Non-admins get "This device" and Account.
+// saves as it goes) and Account (account.js, shown in the pane at #/settings/account). Non-admins get "This device" and Account.
 import { barHTML, wireBar } from './bar.js';
 import { api } from './api.js';
 import { SecurityPanel } from './security.js';
+import { AccountView } from './account.js';
 import { LAYOUTS, layoutIds, layoutIcon } from './layouts.js';
 import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { confirmDialog, esc, icon, shortcutsDialog, toast } from './ui.js';
@@ -32,7 +33,7 @@ export class SettingsView {
     this.root = root;
     this.ctx = ctx;
     this.tabs = ctx.can('admin') ? TABS : DEVICE_TABS;
-    this.tab = this.tabs.some((t) => t[0] === tab) ? tab : this.tabs[0][0];
+    this.tab = this.hasTab(tab) ? tab : this.tabs[0][0];
     // On a phone, Settings is a tab root: #/settings alone shows the list of sections (iOS-style), and a
     // section opens full width with a back chevron to that list. Wider screens keep the sidebar.
     this.listMode = !tab && phone();
@@ -50,10 +51,12 @@ export class SettingsView {
   /** Account is always listed (Settings board); its page explains itself when sign-in is off. */
   _showAccount() { return true; }
 
+  hasTab(tab) { return tab === 'account' || this.tabs.some((t) => t[0] === tab); }
+
   setTab(tab) {
     const list = !tab && phone();
     if (list !== this.listMode) { this.listMode = list; if (tab) this.tab = tab; this.build(); return; }
-    if (this.tabs.some((t) => t[0] === tab) && tab !== this.tab) { this.tab = tab; this.build(); }
+    if (this.hasTab(tab) && tab !== this.tab) { this.tab = tab; this.build(); }
   }
 
   // ------------------------------------------------------------- validation
@@ -87,10 +90,10 @@ export class SettingsView {
   // ------------------------------------------------------------- rendering
   build() {
     const inSection = phone() && !this.listMode;
-    this.root.innerHTML = `${barHTML({ lead: 'back', title: inSection ? (this.tabs.find((t) => t[0] === this.tab)?.[1] || 'Settings') : 'Settings', size: 'title', cls: this.listMode ? 'tabroot' : '' })}<div class="settings${this.listMode ? ' list-mode' : ''}">
+    this.root.innerHTML = `${barHTML({ lead: 'back', title: inSection ? (this.tab === 'account' ? 'Account' : this.tabs.find((t) => t[0] === this.tab)?.[1] || 'Settings') : 'Settings', size: 'title', cls: this.listMode ? 'tabroot' : '' })}<div class="settings${this.listMode ? ' list-mode' : ''}">
       <nav class="side" aria-label="Settings sections">${this.tabs.map(([id, label, ic]) =>
         `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(label)}</span></a>`).join('')}
-        ${this._showAccount() ? `<a href="#/account" class="side-account">${icon('user')}<span>Account</span></a>` : ''}</nav>
+        ${this._showAccount() ? `<a href="#/settings/account" class="side-account" ${this.tab === 'account' ? 'aria-current="page"' : ''}>${icon('user')}<span>Account</span></a>` : ''}</nav>
       <main class="pane"><div class="pane-inner"></div></main></div><div class="savebar" hidden></div>`;
     wireBar(this.root, this.ctx, { back: inSection ? '#/settings' : '#/live' });
     this.pane = this.root.querySelector('.pane-inner');
@@ -100,10 +103,12 @@ export class SettingsView {
 
   render() {
     clearInterval(this.statusTimer);
-    const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', device: () => this.deviceTab() }[this.tab];
+    this.account?.destroy(); this.account = null;
+    const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', account: () => '', device: () => this.deviceTab() }[this.tab];
     this.pane.innerHTML = fn();
     this.pane.classList.toggle('wide', this.tab === 'channels' || this.tab === 'status');
     if (this.tab === 'security') { this.bar.hidden = true; new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
+    if (this.tab === 'account') { this.bar.hidden = true; this.account = new AccountView(this.pane, this.ctx, { embedded: true }); return; }
     this.wire();
     this.refresh();
     if (this.tab === 'status') this.startStatus();
@@ -526,6 +531,7 @@ export class SettingsView {
 
   destroy() {
     clearInterval(this.statusTimer);
+    this.account = null;
     this.ctx.applyTheme(this.ctx.settings().display.theme);   // drop any unsaved theme preview
     this.root.innerHTML = '';
   }

@@ -91,6 +91,7 @@ const P = {
   laptop: '<rect x="4" y="3" width="16" height="14" rx="2"/><line x1="4" y1="20" x2="20" y2="20"/>',
   phone: '<rect x="7" y="2" width="10" height="20" rx="2.4"/><line x1="11" y1="18.3" x2="13" y2="18.3"/>',
   tv: '<rect x="2" y="3" width="20" height="13" rx="1.6"/><path d="M9 20.5h6M12 16.5v4"/>',
+  pencil: '<path d="M17.2 3.6a2.1 2.1 0 0 1 3 3L8.3 18.5l-4.3 1.2 1.2-4.3Z"/><path d="m15 5.8 3 3"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   clips: '<path d="M4 6h16M4 12h10M4 18h7"/>',
 };

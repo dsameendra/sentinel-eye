@@ -3,6 +3,7 @@
 // since each action is a separate server-side change (and most can't be "discarded" anyway).
 import { authApi } from './api.js';
 import { deviceName, fmtWhen, wireCopy } from './account.js';
+import { avatarInner } from './avatar.js';
 import { confirmDialog, esc, icon, toast } from './ui.js';
 
 const ROLE_LABEL = { viewer: 'Viewer', operator: 'Operator', admin: 'Admin' };
@@ -75,7 +76,7 @@ export class SecurityPanel {
       (kind === 'device' ? ['viewer', 'operator'] : ['viewer', 'operator', 'admin']).map((r) => `<option value="${r}" ${r === role ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>`;
 
     const userRows = users.map((u) => `<tr class="${u.disabled ? 'off' : ''}">
-        <td><b>${esc(u.username)}</b>${u.id === me.user?.id ? ' <span class="badge">you</span>' : ''}</td>
+        <td><span class="who"><span class="av-mini" aria-hidden="true">${avatarInner(u)}</span><b>${esc(u.username)}</b>${u.id === me.user?.id ? ' <span class="badge">you</span>' : ''}</span></td>
         <td>${roleSelect(u.id, u.role)}</td>
         <td>${u.has_totp ? '<span class="badge ok">2FA</span>' : '<span class="badge">No 2FA</span>'}</td>
         <td class="muted">${fmtWhen(u.last_seen_ts)}</td>

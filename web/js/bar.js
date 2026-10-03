@@ -4,6 +4,7 @@
 // view renders its own bar inside its own root (so a fullscreened view keeps it — Playback floats its bar
 // over the video in fullscreen), then calls wireBar() once.
 import { authApi, getJSON } from './api.js';
+import { avatarInner as personAvatar } from './avatar.js';
 import { closePopover, esc, icon, openPopover, toast } from './ui.js';
 
 /**
@@ -64,7 +65,7 @@ function avatarInner(ctx) {
   if (me?.via === 'session' && me.user) {
     const u = me.user;
     if (u.kind === 'device') return icon('tv');
-    return esc((u.username || '?').slice(0, 1).toUpperCase());
+    return personAvatar(u);
   }
   return icon('user');
 }

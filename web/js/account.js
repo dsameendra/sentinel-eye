@@ -2,6 +2,7 @@
 // sign out. Opened from the topbar's account menu — and forced open for an admin who must set up 2FA before
 // anything else (Settings → Security → "Require two-factor for admins").
 import { authApi } from './api.js';
+import { AVATAR_COLORS, AVATAR_COLOR_NAMES, AVATAR_PRESETS, avatarInner, compressPhoto, defaultColor } from './avatar.js';
 import { barHTML, wireBar } from './bar.js';
 import { qrSvg } from './qr.js';
 import { confirmDialog, esc, icon, toast } from './ui.js';
@@ -167,9 +168,11 @@ export function openAccount(ctx, { force2fa = false } = {}) {
 }
 
 // ------------------------------------------------------------------------------------------- Account page
-// "Your account" (Account board) as a screen of its own at #/account: who you are, change password,
-// two-factor, and everywhere you're signed in (plus paired screens, for an admin). The dialog above stays
-// for the one case that can't wait for the app to load: an admin forced to set up 2FA before anything else.
+// "Your account" (Account board): who you are (your picture and username, editable), change password,
+// two-factor, and everywhere you're signed in (plus paired screens, for an admin). Two ways in: the avatar
+// menu opens it as a screen of its own at #/account (back chevron, no sidebar); Settings shows the same page
+// in its pane at #/settings/account, with the Settings sidebar beside it (`embedded`). The dialog above
+// stays for the one case that can't wait for the app to load: an admin forced to set up 2FA first.
 const deviceIcon = (ua = '') => (/iPhone|Android.*Mobile/.test(ua) ? 'phone' : /SamsungBrowser|Tizen|SMART-TV|Web0S|AFT/.test(ua) ? 'tv' : 'laptop');
 const agoShort = (ts) => {
   if (!ts) return 'never';
@@ -182,11 +185,17 @@ const agoShort = (ts) => {
 };
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
+const AV_TABS = [['initial', 'Initial'], ['preset', 'Designed'], ['photo', 'Photo']];
+const sameAvatar = (a, b) => JSON.stringify({ ...a, v: 0 }) === JSON.stringify({ ...b, v: 0 });
+
 export class AccountView {
-  constructor(root, ctx) {
+  /** @param opts { embedded: inside Settings' pane — no bar of its own, Settings' sidebar beside it } */
+  constructor(root, ctx, opts = {}) {
     this.root = root;
     this.ctx = ctx;
+    this.embedded = !!opts.embedded;
     this.sessions = null; this.devices = null; this.enrol = null; this.codes = null; this.twofaOff = false;
+    this.editing = false;   // the profile editor (picture + username) is open
     this.paint();
     this.load();
   }
@@ -206,9 +215,129 @@ export class AccountView {
   paint() {
     const me = this.ctx.me() || {};
     const signOut = me.via === 'session' ? `<button class="btn glass-btn" data-a="logout">${icon('logout')} Sign out${this.user?.kind === 'device' ? ' this device' : ''}</button>` : '';
-    this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
-    wireBar(this.root, this.ctx, { back: 'history' });
+    if (this.embedded) {
+      this.root.innerHTML = `<header class="pane-head"><h1>Account</h1><p>Your profile, password and sign-in, and where you're signed in.</p></header>
+        <div class="acct acct-embed">${this.body(me)}${signOut ? `<section class="card acct-row"><div><b>Sign out</b><small>Of this browser. Your other devices stay signed in.</small></div>${signOut}</section>` : ''}</div>`;
+    } else {
+      this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
+      wireBar(this.root, this.ctx, { back: 'history' });
+    }
     this.wire();
+  }
+
+  // ----------------------------------------------------------------------------------------- profile
+  /** Who you are: your picture and name; Edit opens the picture styles and the username in place. */
+  profileCard(u, cur) {
+    const meta = `${esc(cap(u.role))}${cur ? ` · signed in ${agoShort(cur.created_ts)}` : ''}${u.has_totp ? ' · 2FA on' : ''}`;
+    return `<section class="card acct-prof${this.editing ? ' editing' : ''}">
+      <div class="acct-id">
+        ${this.editing ? `<span class="acct-av big">${this.previewAv(u)}</span>`
+          : `<button class="acct-av big" type="button" data-a="edit" title="Change your picture" aria-label="Change your picture">${avatarInner(u)}<span class="acct-av-badge" aria-hidden="true">${icon('pencil')}</span></button>`}
+        <div class="grow"><b>${esc(this.editing ? this.nameDraft || u.username : u.username)}</b><small>${meta}</small></div>
+        ${this.editing ? '' : '<button class="btn glass-btn" type="button" data-a="edit">Edit</button>'}
+      </div>${this.editing ? this.editor(u) : ''}</section>`;
+  }
+
+  previewAv(u) {
+    if (this.photoData) return `<img class="av-photo" src="${this.photoData}" alt="">`;
+    return avatarInner({ ...u, username: this.nameDraft || u.username }, this.avDraft);
+  }
+
+  editor(u) {
+    return `<div class="prof-ed">
+      <div class="prof-sec"><span class="prof-lbl">Picture</span>
+        <div class="seg" role="group" aria-label="Picture style">${AV_TABS.map(([k, l]) => `<button type="button" data-avtab="${k}" aria-pressed="${this.avTab === k}">${l}</button>`).join('')}</div>
+        <div class="prof-panel">${this.avPanel(u)}</div></div>
+      <form class="acct-form prof-form" data-f="profile" novalidate>
+        <div class="field"><label for="a-uname">Username</label><input id="a-uname" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" value="${esc(this.nameDraft)}">
+          <div class="hint">What you sign in with. Changing it keeps you signed in everywhere.</div></div>
+        <div class="field" data-need-pw ${this.nameDraft.trim() === u.username ? 'hidden' : ''}><label for="a-upw">Your password, to change your username</label><input id="a-upw" type="password" autocomplete="current-password"></div>
+        <div class="acct-actions"><button class="btn primary" type="submit">Save</button><button class="btn ghost" type="button" data-a="edit-cancel">Cancel</button></div>
+      </form></div>`;
+  }
+
+  avPanel(u) {
+    const letter = esc(((this.nameDraft || u.username || '?')[0] || '?').toUpperCase());
+    const d = this.avDraft || {};
+    if (this.avTab === 'initial') {
+      return `<div class="av-choices" role="radiogroup" aria-label="Colour">${AVATAR_COLORS.map((c, i) =>
+        `<button type="button" class="av-pick" role="radio" aria-checked="${d.kind === 'initial' && d.color === c}" data-color="${c}" title="${AVATAR_COLOR_NAMES[i]}" aria-label="${AVATAR_COLOR_NAMES[i]}">${avatarInner({ username: letter }, { kind: 'initial', color: c })}</button>`).join('')}</div>`;
+    }
+    if (this.avTab === 'preset') {
+      return `<div class="av-choices" role="radiogroup" aria-label="Designed avatars">${Object.keys(AVATAR_PRESETS).map((id) =>
+        `<button type="button" class="av-pick" role="radio" aria-checked="${d.kind === 'preset' && d.id === id}" data-preset="${id}" aria-label="Avatar ${id.slice(1)}">${avatarInner(u, { kind: 'preset', id })}</button>`).join('')}</div>`;
+    }
+    const has = this.photoData || d.kind === 'photo';
+    return `<div class="av-upload"><label class="btn glass-btn">${icon('upload')} ${has ? 'Choose another photo' : 'Choose a photo'}<input type="file" accept="image/*" data-photo hidden></label>
+      <small class="acct-note">It's cropped to a square and made small before it's saved, so it loads instantly everywhere.</small></div>`;
+  }
+
+  openEditor() {
+    const u = this.user;
+    this.editing = true;
+    this.nameDraft = u.username;
+    this.avDraft = u.avatar || { kind: 'initial', color: defaultColor(u.username) };
+    this.avTab = this.avDraft.kind;
+    this.photoData = null;
+    this.paint();
+    this.root.querySelector('.acct-prof')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  /** Repaint just the picture parts (keeps the typing in the username and password fields). */
+  syncEditor() {
+    const u = this.user, card = this.root.querySelector('.acct-prof');
+    if (!card) return;
+    card.querySelector('.acct-av').innerHTML = this.previewAv(u);
+    card.querySelector('.acct-id b').textContent = this.nameDraft || u.username;
+    card.querySelectorAll('[data-avtab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.avtab === this.avTab)));
+    card.querySelector('.prof-panel').innerHTML = this.avPanel(u);
+  }
+
+  wireEditor() {
+    const card = this.root.querySelector('.acct-prof');
+    card?.querySelectorAll('[data-a=edit]').forEach((b) => b.addEventListener('click', () => this.openEditor()));
+    if (!this.editing || !card) return;
+    const ed = card.querySelector('.prof-ed');
+    ed.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-avtab], [data-color], [data-preset]');
+      if (!t) return;
+      if (t.dataset.avtab) this.avTab = t.dataset.avtab;
+      else if (t.dataset.color) { this.avDraft = { kind: 'initial', color: t.dataset.color }; this.photoData = null; }
+      else { this.avDraft = { kind: 'preset', id: t.dataset.preset }; this.photoData = null; }
+      this.syncEditor();
+    });
+    ed.addEventListener('change', async (e) => {
+      if (!e.target.matches('[data-photo]') || !e.target.files[0]) return;
+      try {
+        this.photoData = await compressPhoto(e.target.files[0]);
+        this.avDraft = { kind: 'photo' };
+        this.syncEditor();
+      } catch (err) { toast(err.message, 'bad'); }
+    });
+    const name = card.querySelector('#a-uname');
+    name.addEventListener('input', () => {
+      this.nameDraft = name.value;
+      card.querySelector('[data-need-pw]').hidden = name.value.trim() === this.user.username;
+      card.querySelector('.acct-id b').textContent = name.value.trim() || this.user.username;
+      if (this.avTab === 'initial' || this.avDraft?.kind === 'initial') this.syncEditor();
+    });
+    card.querySelector('[data-a=edit-cancel]').addEventListener('click', () => { this.editing = false; this.photoData = null; this.paint(); });
+    card.querySelector('[data-f=profile]').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const u = this.user, newName = this.nameDraft.trim(), pw = card.querySelector('#a-upw')?.value || '';
+      const renamed = newName !== u.username;
+      const reAv = !!this.photoData || !sameAvatar(this.avDraft, u.avatar || { kind: 'initial', color: defaultColor(u.username) }) || (!u.avatar && this.avDraft?.kind === 'initial' && renamed);
+      if (renamed && !newName) { toast('Enter a username', 'bad'); return; }
+      if (renamed && !pw) { toast('Enter your password to change your username', 'bad'); card.querySelector('#a-upw').focus(); return; }
+      this.run(e.submitter, async () => {
+        if (renamed) await authApi.rename(newName, pw);   // first: a wrong password shouldn't leave half a change
+        if (reAv) await authApi.setAvatar(this.photoData ? { kind: 'photo', photo: this.photoData } : this.avDraft);
+        await this.ctx.refreshMe();
+        this.editing = false; this.photoData = null;
+        toast(renamed || reAv ? 'Profile updated' : 'Nothing to change');
+        this.paint();
+      });
+    });
   }
 
   body(me) {
@@ -225,11 +354,9 @@ export class AccountView {
     if (u?.kind === 'device') {
       return `<div class="acct-grid"><section class="card acct-id"><span class="acct-av">${icon('tv')}</span><div><b>${esc(u.label || 'This device')}</b><small>Paired screen · ${esc(cap(u.role))}</small></div></section></div>`;
     }
-    const initial = esc((u.username || '?').slice(0, 1).toUpperCase());
     const cur = this.sessions?.find((s) => s.current);
-    return `<div class="acct-grid">
+    return `${this.profileCard(u, cur)}<div class="acct-grid">
       <div class="acct-col">
-        <section class="card acct-id"><span class="acct-av">${initial}</span><div><b>${esc(u.username)}</b><small>${esc(cap(u.role))}${cur ? ` · signed in ${agoShort(cur.created_ts)}` : ''}</small></div></section>
         <section class="card"><h3>Change password</h3>
           <form class="acct-form" data-f="pw" novalidate>
             <div class="field"><label for="a-cur">Current password</label><input id="a-cur" type="password" autocomplete="current-password"></div>
@@ -287,6 +414,7 @@ export class AccountView {
 
   wire() {
     const r = this.root, $ = (s) => r.querySelector(s);
+    this.wireEditor();
     $('[data-a=logout]')?.addEventListener('click', async () => { try { await authApi.logout(); } finally { location.assign('/login'); } });
     r.querySelectorAll('[data-reveal]').forEach((b) => b.addEventListener('click', () => {
       const i = r.querySelector('#' + b.dataset.reveal);
