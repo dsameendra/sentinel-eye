@@ -654,8 +654,6 @@ table.tbl { width: 100%; min-width: 640px; border-collapse: collapse; }
 .laygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
 .laygrid button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 6px 11px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 12.5px; }
 .laygrid button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
-.kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .muted { color: var(--muted); }
 kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line-2); background: var(--panel-2); font: 12px ui-monospace, monospace; }
 
@@ -952,33 +950,9 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
    comment), so a top-row pane's video — and this label — genuinely reaches the true top of the screen,
    including an iPad's status-bar/notch safe area, which it never did before that change. Found directly
    (real fullscreen, not simulated): the camera name rendered right under the iPad's own status bar. */
-/* Second, separate collision: right when fullscreen opens (or on any activity), the topline is *also*
-   floating and shown at the same time — both it and this label anchor to the same top-left corner, so their
-   text visibly overlapped (found directly). .pb-topline and .pb-stage are siblings under .pb-center, so the
-   general sibling combinator can push every pane's label down by the topline's own height, no JS needed —
-   only while the topline is actually visible; it settles back to the corner once the topline auto-hides. */
 .pb-pane .pb-veil { padding: 10px; z-index: 4; }
 .pb-pane .pb-veil .msg { font-size: 12px; }
-/* True fullscreen means no chrome permanently on screen for a 16:9 stream, not just a transparent bar still
-   taking up its own layout row — this now leaves the .pb-stage below it exactly as before (still flex:1),
-   floats over the top of the video instead, and joins the same show-on-activity/hide-while-idle cycle
-   .pb-controls already has (_bindAutoHideControls), rather than a separate hover-only reveal. */
-/* Same contrast treatment .pb-controls already needed for the same reason: this floats over live video of
-   unpredictable brightness now, instead of sitting on the app's own solid panel background. */
-/* .pb-stage is just the video viewport now — the transport lives inside it as an overlay (below) so the
-   video gets the full height instead of losing a fixed strip to a permanently-visible control bar. */
-.pb-canvas { max-width: 100%; max-height: 100%; display: block; }
 .pb-veil { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; text-align: center; padding: 16px; }
-/* Controls float over the bottom of the video (spec: "give maximum to the video") instead of taking a
-   permanent strip below it — a gradient scrim, visible while paused or the pointer is near the bottom of
-   the video, fading out otherwise so the picture gets the space back. Same idea as any video player's
-   auto-hiding transport bar. */
-/* Three zones so the transport (play/step/rewind) reads as the visual center of the bar regardless of how
-   much is in the side groups — the 1fr/auto/1fr columns keep it centered rather than just "left-aligned
-   after whatever came before it", which is what a single flex row gives you. */
-/* Every button in this row reads as one control bar regardless of which size class it happens to use
-   elsewhere in the app ("Jump to now"/"Select range"/"Export clip" were .btn.sm at 28px sitting next to
-   36px icon buttons in the same row) — force the same height and icon-button width across the whole bar. */
 .tl-tip { position: absolute; z-index: 10; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: var(--r-sm); background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); pointer-events: none; white-space: nowrap; }
 .tl-tip b { font-size: 12.5px; }
 .tl-tip span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -989,15 +963,6 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .tl-jumpph:hover { filter: brightness(1.1); }
 .tl-jumpph.left { left: 6px; }
 .tl-jumpph.right { right: 6px; }
-/* Fullscreen: playback.js moves .pb-timeline to be the first child of .pb-controls (and back out again on
-   exit) instead of leaving it in its normal-flow spot below .pb-body, which fullscreen never renders (no
-   room below the video once the view fills the screen). Nested there, it's already part of the same
-   floating bottom overlay as the transport row and picks up its existing show/hide-on-activity behaviour
-   for free — no separate auto-hide wiring needed. Cosmetic-only override: its own opaque panel background
-   would show as a hard-edged box against .pb-controls' gradient, so blend it in instead. */
-
-/* calendar + time jump panel */
-.pb-cal { display: flex; flex-direction: column; gap: 6px; }
 .dtp { display: flex; flex-direction: column; gap: 6px; }
 .dtp-label { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 /* Multi-cut clipper (spec 10/15): the pending clip list dialog and its toolbar badge. */
@@ -1348,7 +1313,7 @@ html.tv-mode a:focus-visible { outline: 4px solid var(--accent); outline-offset:
 html.tv-mode .nav-arrow { width: 56px; height: 56px; }
 
 /* Full screen on the live grid, on any device (not TV mode specifically — see the .tv- prefixes' own note
-   below): hide the subbar entirely — every stream tile is the point of this screen, not the toolbar above
+   below): hide the bar entirely — every stream tile is the point of this screen, not the toolbar above
    it — and leave a single floating cluster in its place (page prev/next, when there's more than one page,
    plus an indicator, plus exit), positioned over the video and hidden until the cursor/finger/remote moves
    (live.js's _bindWallFsAutoHide, same idle-hide cycle .focus-bar/.nav-arrow already use in the
@@ -1362,7 +1327,7 @@ html.tv-mode .nav-arrow { width: 56px; height: 56px; }
    nothing else living there in the grid — same reasoning the single-camera focus view's own nav-arrows
    already use for exactly this edge.
    Named .tv-fs-* / built for TV mode first (page-switching + exit while full screen, on a screen with no
-   normal way back to the subbar), but nothing about full-bleed full screen is actually TV-specific — a
+   normal way back to the bar), but nothing about full-bleed full screen is actually TV-specific — a
    laptop, iPad, or iPhone wants exactly the same "maximum space for the cameras" once it's full screen too,
    so these rules apply generically rather than staying gated to html.tv-mode. The class names stayed as-is;
    renaming them touches nothing behavioral. */
@@ -1381,13 +1346,13 @@ html.tv-mode .nav-arrow { width: 56px; height: 56px; }
 .tv-fs-page { padding: 0 4px; color: #fff; font-size: 1rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Same idle cycle, extended to every tile's own identifying chrome — name, live dot, SD/HD tag, the
-   tile-actions menu, the zoom-reset pill — not just the subbar and the floating exit/page cluster above.
+   tile-actions menu, the zoom-reset pill — not just the bar and the floating exit/page cluster above.
    Without this, a tile that's currently hovered, touched, or (TV mode) arrow-key-selected left its own
    .tile-actions visibly revealed forever (:hover/:focus-within, the same rules that reveal it everywhere
    else in the app — neither stops being true just because nothing moved), which defeated the point of a
    full screen with nothing but the cameras on it. live.js's _bindWallFsAutoHide toggles the same .show it
    already used for .tv-fs-controls, on .liveview itself so it survives renderWall()/renderBar() rebuilding
-   .wall's and .subbar's own contents (unlike a class on .wall, which those calls reset on every
+   .wall's and the bar's own contents (unlike a class on .wall, which those calls reset on every
    layout/page/quality change). !important because this has to beat :hover/:focus-within's own reveal rules
    outright while idle, not merely tie with them on specificity — the same technique the mobile grid reflow
    already uses a bit further down for the same reason (an unconditional override, not one more rule in the

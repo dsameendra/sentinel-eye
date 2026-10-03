@@ -169,11 +169,6 @@ export class SettingsView {
     </div>`;
   }
 
-  resultHtml(r, label = '') {
-    const bits = [r.codec, r.width ? `${r.width}×${r.height}` : '', r.fps ? `${r.fps} fps` : '', r.stream_encrypted ? 'encrypted' : ''].filter(Boolean).join(' · ');
-    return `<div class="result ${r.ok ? 'ok' : 'bad'}" role="status">${icon(r.ok ? 'check' : 'alert')}<div><b>${label}${esc(r.message || (r.ok ? 'OK' : 'Failed'))}</b>${bits ? `<div class="muted">${esc(bits)}</div>` : ''}</div></div>`;
-  }
-
   channelsTab() {
     const d = this.draft, order = d.display.order;
     const rows = order.map((id) => d.channels.find((c) => c.id === id)).filter(Boolean);

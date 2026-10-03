@@ -158,12 +158,6 @@ export class Timeline {
     this.reload();
   }
 
-  /** Visible [start, end] in epoch seconds. */
-  viewRange() {
-    const w = this.canvas.clientWidth || 800;
-    return [this.center - w / 2 / this.pxPerSec, this.center + w / 2 / this.pxPerSec];
-  }
-
   /** Nearest event start within SNAP_PX of time `t`, else `t` itself (board: "snaps to the nearest event"). */
   _snap(t) {
     let best = t, bestPx = SNAP_PX;
