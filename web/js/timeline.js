@@ -18,13 +18,15 @@ const MAX_PX_PER_SEC = 200;                   // ~5ms/px at max zoom (frame-leve
 // read via getComputedStyle in draw() the same way --line/--muted/--accent already are just below. Kept
 // here only so a missing stylesheet degrades instead of throwing (same defensive pattern as line/text/
 // accent's own `|| '#333'`-style fallbacks).
-const KIND_COLOR_FALLBACK = { motion: '#eab308', line: '#f87171', intrusion: '#f87171', tamper: '#f87171', videoloss: '#6b7280', bookmark: '#22d3ee' };
+const KIND_COLOR_FALLBACK = { motion: '#ff9f0a', line: '#0a84ff', intrusion: '#0a84ff', tamper: '#bf5af2', videoloss: '#8e8e93', bookmark: '#e5e5ea' };
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
 
 const dayStr = (d) => d.toISOString().slice(0, 10);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
-const LANE_H = 14, LANE_GAP = 3;   // per-camera event lane height/gap — matches the original single-lane size exactly when there's only one camera, so the common case looks unchanged
+// Board geometry: ruler labels on top, then the lane area. One camera = one tall lane (coverage + event
+// ticks share it); every extra camera adds its own short tick row underneath, keyed by its lane colour.
+const RULER_H = 18, LANE_TOP = 26, COV_H = 26, LANE_H = 14, LANE_GAP = 6, SNAP_PX = 10;
 const CAM_COLORS_FALLBACK = ['#60a5fa', '#f472b6', '#34d399', '#fb923c'];   // per-camera lane accent (left edge + label), up to MAX_PANES=4
 
 export class Timeline {
@@ -44,7 +46,7 @@ export class Timeline {
     this.jumpBtn.addEventListener('click', () => { if (this.playhead != null) this.goTo(this.playhead); });
     this.hovered = null;
     this.center = Date.now() / 1000;   // epoch seconds at the horizontal center
-    this.pxPerSec = 1440 / (24 * 3600);
+    this.pxPerSec = 1 / 18;   // ~8 h across a desktop-width panel (the board's 12:00–20:00 view)
     this.cursorTime = null;
     this.coverage = new Map();   // day -> spans (primary channel only)
     this.events = [];            // events for every channel in opts.channels, each row carries its own .channel
@@ -59,6 +61,13 @@ export class Timeline {
     this.reload();
   }
 
+
+  /** [top, height] of camera lane i — lane 0 is the tall coverage lane, the rest short tick rows below. */
+  _laneBox(i) {
+    if (i === 0) return [LANE_TOP, COV_H];
+    return [LANE_TOP + COV_H + LANE_GAP + (i - 1) * (LANE_H + LANE_GAP), LANE_H];
+  }
+
   /** Index of a channel's lane (0 = primary/top), or -1 if it's not currently shown. */
   _laneIndex(channel) { return this.opts.channels.findIndex((c) => c.channel === channel); }
 
@@ -66,8 +75,7 @@ export class Timeline {
    * cameras, so the single-camera case — by far the common one — renders pixel-identical to before). */
   _sizeForLanes() {
     const n = Math.max(1, this.opts.channels.length);
-    const needed = 28 + n * LANE_H + (n - 1) * LANE_GAP + 24;
-    this.el.style.height = n > 1 ? `${Math.max(90, needed)}px` : '';
+    this.el.style.height = `${LANE_TOP + COV_H + 30 + (n - 1) * (LANE_H + LANE_GAP)}px`;
   }
 
   /** Turns select-to-export drag mode on/off. While on, dragging the timeline draws a range instead of
@@ -135,8 +143,37 @@ export class Timeline {
   }
 
   goTo(epochSec, animate = false) {
-    this.center = epochSec;
+    // Centre on the moment, but never leave the right half of the lane empty future: near "now" the live
+    // edge sits just inside the right end (board), so the past fills the view.
+    const half = (this.canvas.clientWidth || 800) / 2 / this.pxPerSec;
+    const edge = Date.now() / 1000 + half * 0.06;
+    this.center = Math.min(epochSec, edge - half);
+    if (epochSec > this.center + half * 0.94) this.center = epochSec;
     this.reload();
+  }
+
+  /** Zoom around the centre (the panel's −/+ buttons). */
+  zoomBy(factor) {
+    this.pxPerSec = clamp(this.pxPerSec * factor, MIN_PX_PER_SEC, MAX_PX_PER_SEC);
+    this.reload();
+  }
+
+  /** Visible [start, end] in epoch seconds. */
+  viewRange() {
+    const w = this.canvas.clientWidth || 800;
+    return [this.center - w / 2 / this.pxPerSec, this.center + w / 2 / this.pxPerSec];
+  }
+
+  /** Nearest event start within SNAP_PX of time `t`, else `t` itself (board: "snaps to the nearest event"). */
+  _snap(t) {
+    let best = t, bestPx = SNAP_PX;
+    for (const ev of this.events) {
+      if (this._laneIndex(ev.channel) < 0) continue;
+      const s = new Date(ev.start_utc).getTime() / 1000;
+      const px = Math.abs(s - t) * this.pxPerSec;
+      if (px < bestPx) { bestPx = px; best = s; }
+    }
+    return best;
   }
 
   // ---------------------------------------------------------------- input
@@ -159,7 +196,10 @@ export class Timeline {
         c.setPointerCapture(e.pointerId);
         return;
       }
-      drag = { x: e.clientX, center: this.center, moved: 0 };
+      const y = e.clientY - c.getBoundingClientRect().top;
+      // Board: drag anywhere on the lane to scrub; the ruler above it is the handle for panning the view.
+      drag = { x: e.clientX, center: this.center, moved: 0, scrub: y >= LANE_TOP - 4 };
+      if (drag.scrub) { this.scrubTime = timeAt(e.clientX); this.draw(); }
       c.setPointerCapture(e.pointerId);
     });
     c.addEventListener('pointermove', (e) => {
@@ -168,6 +208,11 @@ export class Timeline {
         const t = timeAt(e.clientX);
         this.selection = [Math.min(drag.startTime, t), Math.max(drag.startTime, t)];
         this.draw();
+      } else if (drag && drag.scrub) {
+        drag.moved += Math.abs(e.clientX - drag.x);
+        this.scrubTime = timeAt(e.clientX);
+        this.draw();
+        this._hideTip();
       } else if (drag) {
         const dx = e.clientX - drag.x;
         drag.moved += Math.abs(dx);
@@ -190,14 +235,17 @@ export class Timeline {
         this.draw();
         return;
       }
-      if (drag && drag.moved < 4) {
-        const t = timeAt(e.clientX);
+      if (drag && (drag.scrub || drag.moved < 4)) {
+        const t = this._snap(timeAt(e.clientX));
+        this.scrubTime = null;
+        this.playhead = t;
         this.opts.onSeek?.(new Date(t * 1000).toISOString());
       }
       drag = null;
       this._hideTip(); // pointerleave doesn't fire during a captured drag — release must clear it explicitly
     });
     c.addEventListener('pointerleave', () => { this.cursorTime = null; this.draw(); this._hideTip(); });
+    c.addEventListener('pointercancel', () => { drag = null; this.scrubTime = null; this.draw(); });
     c.addEventListener('gesturestart', (e) => { e.preventDefault(); this._gbase = this.pxPerSec; });
     c.addEventListener('gesturechange', (e) => { e.preventDefault(); this._zoomTo(this._gbase * e.scale, e); });
   }
@@ -235,129 +283,119 @@ export class Timeline {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const style = getComputedStyle(document.documentElement);
-    const line = style.getPropertyValue('--line').trim() || '#333';
-    const text = style.getPropertyValue('--muted').trim() || '#888';
-    const accent = style.getPropertyValue('--accent').trim() || '#34d399';
-    const danger = style.getPropertyValue('--danger').trim() || KIND_COLOR_FALLBACK.line;
+    const v = (name, fb) => style.getPropertyValue(name).trim() || fb;
+    const text = v('--muted', '#a1a1a6');
+    const accent = v('--accent', '#0074e8');
+    const laneBase = v('--panel-2', '#222226');
+    const laneRec = v('--tl-rec', '#2a2a2f');
     const kindColor = {
-      motion: style.getPropertyValue('--ev-motion').trim() || KIND_COLOR_FALLBACK.motion,
-      line: danger, intrusion: danger, tamper: danger,
-      videoloss: style.getPropertyValue('--ev-videoloss').trim() || KIND_COLOR_FALLBACK.videoloss,
-      bookmark: style.getPropertyValue('--ev-bookmark').trim() || KIND_COLOR_FALLBACK.bookmark,
+      motion: v('--ev-motion', KIND_COLOR_FALLBACK.motion), line: v('--ev-line', KIND_COLOR_FALLBACK.line),
+      intrusion: v('--ev-line', KIND_COLOR_FALLBACK.intrusion), tamper: v('--tamper', KIND_COLOR_FALLBACK.tamper),
+      videoloss: v('--ev-videoloss', KIND_COLOR_FALLBACK.videoloss), bookmark: v('--ev-bookmark', KIND_COLOR_FALLBACK.bookmark),
     };
-    const camColors = ['--cam-1', '--cam-2', '--cam-3', '--cam-4'].map((v, i) => style.getPropertyValue(v).trim() || CAM_COLORS_FALLBACK[i]);
-
+    const camColors = ['--cam-1', '--cam-2', '--cam-3', '--cam-4'].map((n, i) => v(n, CAM_COLORS_FALLBACK[i]));
     const t0 = this.center - w / 2 / this.pxPerSec;
+    const X = (t) => (t - t0) * this.pxPerSec;
     const chans = this.opts.channels;
-    const covY = 6, covH = 16, evY = 28, gridY = h - 20;
-    const laneY = (i) => evY + i * (LANE_H + LANE_GAP);
+    const nLanes = Math.max(1, chans.length);
+    const lanesBottom = this._laneBox(nLanes - 1)[0] + this._laneBox(nLanes - 1)[1];
 
-    // coverage lane (primary channel only — it's what seeking/jump-to-date act on)
-    for (const [day, spans] of this.coverage) {
-      for (const [s, e] of spans) {
-        const x1 = (new Date(s).getTime() / 1000 - t0) * this.pxPerSec;
-        const x2 = (new Date(e).getTime() / 1000 - t0) * this.pxPerSec;
-        if (x2 < 0 || x1 > w) continue;
-        ctx.fillStyle = accent + '55';
-        ctx.fillRect(x1, covY, Math.max(1, x2 - x1), covH);
-      }
+    // ruler — labels on top (board), a hairline tick under each
+    const spanSec = w / this.pxPerSec;
+    const MIN_LABEL_PX = 92;
+    const step = niceStep(spanSec / Math.max(3, Math.floor(w / MIN_LABEL_PX)));
+    ctx.font = '12px -apple-system, system-ui, sans-serif'; ctx.textBaseline = 'top'; ctx.fillStyle = text;
+    ctx.strokeStyle = v('--line', 'rgba(255,255,255,.09)');
+    for (let t = Math.floor(t0 / step) * step; t < t0 + spanSec + step; t += step) {
+      const x = X(t);
+      ctx.fillText(fmtTick(t, step, this.opts.tzOffsetMin), x, 0);
+      ctx.beginPath(); ctx.moveTo(x + .5, RULER_H - 2); ctx.lineTo(x + .5, RULER_H + 2); ctx.stroke();
     }
-    // event lanes — one per selected camera (chans[0] on top), each its own row so events from several
-    // cameras never overlap or hide each other the way a single shared lane would.
-    for (let i = 0; i < chans.length; i++) {
-      if (chans.length > 1) {
-        // small fixed colour key at the left edge of the lane, ties this row to a camera regardless of
-        // scroll position; hovering an event also names its camera in the tooltip.
-        ctx.fillStyle = camColors[i % camColors.length];
-        ctx.fillRect(2, laneY(i) + (LANE_H - 6) / 2, 6, 6);
-      }
+
+    // coverage lane: neutral rounded bar, recorded spans a step lighter, gaps hatched (nothing recorded)
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(0, LANE_TOP, w, COV_H, 6); ctx.clip();
+    ctx.fillStyle = laneBase; ctx.fillRect(0, LANE_TOP, w, COV_H);
+    ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 6;
+    for (let x = -COV_H - ((t0 * this.pxPerSec) % 12); x < w + COV_H; x += 12) { ctx.beginPath(); ctx.moveTo(x, LANE_TOP + COV_H); ctx.lineTo(x + COV_H, LANE_TOP); ctx.stroke(); }
+    ctx.lineWidth = 1;
+    ctx.fillStyle = laneRec;
+    for (const [, spans] of this.coverage) for (const [s0, e0] of spans) {
+      const x1 = X(new Date(s0).getTime() / 1000), x2 = X(new Date(e0).getTime() / 1000);
+      if (x2 < 0 || x1 > w) continue;
+      ctx.fillRect(x1, LANE_TOP, Math.max(1, x2 - x1), COV_H);
     }
+    ctx.restore();
+    // extra camera rows
+    for (let i = 1; i < nLanes; i++) {
+      const [top, hh] = this._laneBox(i);
+      ctx.fillStyle = laneBase; ctx.beginPath(); ctx.roundRect(0, top, w, hh, 4); ctx.fill();
+    }
+    if (nLanes > 1) for (let i = 0; i < nLanes; i++) {
+      const [top, hh] = this._laneBox(i);
+      ctx.fillStyle = camColors[i % camColors.length];
+      ctx.beginPath(); ctx.roundRect(4, top + hh / 2 - 3, 6, 6, 2); ctx.fill();
+    }
+
+    // event ticks (board: thin coloured bars through the lane); spans wider than a tick keep their length
     for (const ev of this.events) {
       const i = this._laneIndex(ev.channel);
-      if (i < 0) continue;   // event for a camera no longer in the selected set (e.g. a slow request that resolved after a deselect)
-      const y = laneY(i);
-      const x1 = (new Date(ev.start_utc).getTime() / 1000 - t0) * this.pxPerSec;
-      const x2 = (new Date(ev.end_utc).getTime() / 1000 - t0) * this.pxPerSec;
-      if (x2 < -2 || x1 > w + 2) continue;
-      if (ev.kind === 'bookmark') {
-        // a small flag above the lane rather than a bar — bookmarks are an instant, not a span
-        ctx.fillStyle = kindColor.bookmark;
-        ctx.beginPath(); ctx.moveTo(x1, y - 12); ctx.lineTo(x1 + 9, y - 8); ctx.lineTo(x1, y - 4); ctx.closePath(); ctx.fill();
-        ctx.fillRect(x1 - 1, y - 12, 2, LANE_H + 12);
-        continue;
-      }
+      if (i < 0) continue;
+      const [top, hh] = this._laneBox(i);
+      const x1 = X(new Date(ev.start_utc).getTime() / 1000), x2 = X(new Date(ev.end_utc).getTime() / 1000);
+      if (x2 < -3 || x1 > w + 3) continue;
       ctx.fillStyle = kindColor[ev.kind] || accent;
-      ctx.fillRect(x1, y, Math.max(2, x2 - x1), LANE_H);
+      const y0 = i === 0 ? top - 4 : top, y1 = i === 0 ? (nLanes > 1 ? top + hh + 4 : lanesBottom + 26) : top + hh;
+      ctx.globalAlpha = i === 0 && nLanes === 1 ? 1 : .95;
+      ctx.beginPath(); ctx.roundRect(x1 - 1, y0, Math.max(3, x2 - x1), y1 - y0, 1.5); ctx.fill();
+      ctx.globalAlpha = 1;
     }
-    // time grid + labels
-    const spanSec = w / this.pxPerSec;
-    // Ticks 8 across the visible span sounds width-independent but isn't: on a narrow canvas that's still
-    // ~w/8 px apart, which a label like "27 Sep, 05:00" (needs ~90-100px) doesn't fit into on a phone —
-    // found directly, labels overlapped/ran together below ~700px wide. Targeting a fixed *pixel* spacing
-    // and deriving the tick count from that (never fewer than 3, so a very narrow canvas still shows some
-    // structure) scales properly with the canvas's own actual width instead of just the current zoom span.
-    const MIN_LABEL_PX = 92;
-    const targetTicks = Math.max(3, Math.floor(w / MIN_LABEL_PX));
-    const step = niceStep(spanSec / targetTicks);
-    ctx.strokeStyle = line; ctx.fillStyle = text; ctx.font = '11px system-ui'; ctx.textBaseline = 'top';
-    const first = Math.floor(t0 / step) * step;
-    for (let t = first; t < t0 + spanSec + step; t += step) {
-      const x = (t - t0) * this.pxPerSec;
-      ctx.beginPath(); ctx.moveTo(x, gridY); ctx.lineTo(x, h); ctx.stroke();
-      ctx.fillText(fmtTick(t, step, this.opts.tzOffsetMin), x + 3, gridY + 3);
-    }
-    // now marker
-    const nowX = (Date.now() / 1000 - t0) * this.pxPerSec;
-    if (nowX >= 0 && nowX <= w) { ctx.strokeStyle = '#f87171'; ctx.beginPath(); ctx.moveTo(nowX, 0); ctx.lineTo(nowX, h); ctx.stroke(); }
-    // cursor
-    if (this.cursorTime != null) {
-      const x = (this.cursorTime - t0) * this.pxPerSec;
-      ctx.strokeStyle = text; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-    }
-    // multi-cut clipper: pending clips as cyan brackets (spec 7.1's palette, distinct from the accent-
-    // coloured in-progress selection below so a clip you've already committed to the list doesn't look
-    // like an active drag)
-    const CLIP_COLOR = '#22d3ee';
-    for (const [a, b] of this.clips) {
-      const x1 = (a - t0) * this.pxPerSec, x2 = (b - t0) * this.pxPerSec;
-      if (x2 < -2 || x1 > w + 2) continue;
-      ctx.strokeStyle = CLIP_COLOR; ctx.lineWidth = 2;
-      const bw = 5;
-      ctx.beginPath();
-      ctx.moveTo(x1 + bw, 1); ctx.lineTo(x1, 1); ctx.lineTo(x1, h - 1); ctx.lineTo(x1 + bw, h - 1);
-      ctx.moveTo(x2 - bw, 1); ctx.lineTo(x2, 1); ctx.lineTo(x2, h - 1); ctx.lineTo(x2 - bw, h - 1);
-      ctx.stroke();
+
+    // pending clips (multi-cut list) and the selection being dragged — the board's blue range with handles
+    const range = (a, b, strong) => {
+      const x1 = X(a), x2 = X(b);
+      if (x2 < -6 || x1 > w + 6) return;
+      ctx.fillStyle = accent + (strong ? '33' : '22');
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(x1, LANE_TOP - 4, Math.max(2, x2 - x1), COV_H + 8, 6); ctx.fill(); ctx.stroke();
       ctx.lineWidth = 1;
-      ctx.fillStyle = CLIP_COLOR + '22';
-      ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
+      ctx.fillStyle = accent;
+      for (const x of [x1, x2]) { ctx.beginPath(); ctx.roundRect(x - 5, LANE_TOP + COV_H / 2 - 10, 10, 20, 3); ctx.fill(); }
+    };
+    for (const [a, b] of this.clips) range(a, b, false);
+    if (this.selection) range(this.selection[0], this.selection[1], true);
+
+    // live edge
+    const nowX = X(Date.now() / 1000);
+    if (nowX >= 0 && nowX <= w) {
+      const live = v('--live', '#ff3b30');
+      ctx.fillStyle = live; ctx.fillRect(nowX - 1, LANE_TOP - 6, 2, h - LANE_TOP + 6);
+      ctx.font = '700 10px -apple-system, system-ui, sans-serif';
+      const tw = ctx.measureText('LIVE').width + 14;
+      const lx = Math.max(0, Math.min(w - tw, nowX - tw - 4)), ly = lanesBottom + 6;
+      ctx.fillStyle = 'rgba(255,59,48,.18)'; ctx.beginPath(); ctx.roundRect(lx, ly, tw, 16, 8); ctx.fill();
+      ctx.fillStyle = '#ff6a5f'; ctx.textBaseline = 'middle'; ctx.fillText('LIVE', lx + 7, ly + 8.5); ctx.textBaseline = 'top';
     }
-    // in-progress or just-finished range selection
-    if (this.selection) {
-      const [a, b] = this.selection;
-      const x1 = (a - t0) * this.pxPerSec, x2 = (b - t0) * this.pxPerSec;
-      ctx.fillStyle = accent + '33';
-      ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
-      ctx.strokeStyle = accent;
-      ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, h); ctx.moveTo(x2, 0); ctx.lineTo(x2, h); ctx.stroke();
+
+    // hover cursor
+    if (this.cursorTime != null && this.scrubTime == null) {
+      const x = X(this.cursorTime);
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x, LANE_TOP - 4, 1, lanesBottom - LANE_TOP + 8);
     }
-    // playhead
-    if (this.playhead != null) {
-      const x = (this.playhead - t0) * this.pxPerSec;
-      if (x >= -5 && x <= w + 5) {
-        ctx.strokeStyle = accent; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-        // Handle: a small white rounded chip (redesign v2) rather than an accent-colored flag — it needs to
-        // read as "the scrubbable grip" against every lane color the line crosses underneath it, not just
-        // against the ruler's own background, which a same-hue-as-the-line flag didn't guarantee.
+
+    // playhead (or the scrub preview while dragging): white line + the white chip
+    const ph = this.scrubTime ?? this.playhead;
+    if (ph != null) {
+      const x = X(ph);
+      if (x >= -8 && x <= w + 8) {
+        ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, LANE_TOP - 6, 2, h - LANE_TOP + 6);
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, .5)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
-        ctx.fillStyle = '#fff';
-        ctx.beginPath(); ctx.roundRect(x - 7, 0, 14, 14, 4); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(x - 7, LANE_TOP - 14, 14, 14, 4); ctx.fill();
         ctx.restore();
         this.jumpBtn.hidden = true;
       } else {
-        // Off-screen either side — point back to it rather than leaving the user to guess which way to
-        // pan/zoom out. before/after also covers the "not loaded yet" state (playhead null) via the hidden
-        // default above, so this only ever shows when we actually know where it went.
+        // Off-screen either side — point back to it rather than leaving the user to guess which way to pan.
         this.jumpBtn.hidden = false;
         this.jumpBtn.classList.toggle('left', x < 0);
         this.jumpBtn.classList.toggle('right', x >= 0);
@@ -367,6 +405,7 @@ export class Timeline {
     } else {
       this.jumpBtn.hidden = true;
     }
+    this.opts.onView?.(t0, t0 + spanSec, ph);
   }
 
   setPlayhead(epochSec) { this.playhead = epochSec; this.draw(); }
@@ -377,23 +416,21 @@ export class Timeline {
   _hitTest(clientX, clientY) {
     const r = this.canvas.getBoundingClientRect();
     const x = clientX - r.left, y = clientY - r.top;
-    const evY = 28;
     const nLanes = Math.max(1, this.opts.channels.length);
-    const lanesBottom = evY + nLanes * LANE_H + (nLanes - 1) * LANE_GAP;
-    if (y < evY - 14 || y > lanesBottom + 3) return null; // above all lanes (generous for the bookmark flag) or below the last one
-    const laneAtY = Math.max(0, Math.min(nLanes - 1, Math.floor((y - evY) / (LANE_H + LANE_GAP))));
+    let laneAtY = -1;
+    for (let i = 0; i < nLanes; i++) { const [top, hh] = this._laneBox(i); if (y >= top - 4 && y <= top + hh + 4) laneAtY = i; }
+    if (laneAtY < 0) return null;
     const t0 = this.center - r.width / 2 / this.pxPerSec;
     for (let i = this.events.length - 1; i >= 0; i--) {
       const ev = this.events[i];
       if (this._laneIndex(ev.channel) !== laneAtY) continue;
       const x1 = (new Date(ev.start_utc).getTime() / 1000 - t0) * this.pxPerSec;
       const x2 = (new Date(ev.end_utc).getTime() / 1000 - t0) * this.pxPerSec;
-      const isBookmark = ev.kind === 'bookmark';
-      const left = isBookmark ? x1 - 3 : x1 - 1, right = isBookmark ? x1 + 10 : Math.max(x1 + 2, x2) + 1;
-      if (x >= left && x <= right) return ev;
+      if (x >= x1 - 3 && x <= Math.max(x1 + 3, x2) + 3) return ev;
     }
     return null;
   }
+
 
   _updateTip(e) {
     const ev = this._hitTest(e.clientX, e.clientY);
@@ -455,8 +492,9 @@ function fmtTick(epochSec, step, tzOffsetMin) {
   const p = partsFromEpoch(epochSec, tzOffsetMin);
   const hh = String(p.hh).padStart(2, '0'), mi = String(p.mi).padStart(2, '0'), ss = String(p.ss).padStart(2, '0');
   if (step >= 3600) {
+    // Board ruler: plain "13:00" — the date only where a day actually begins (or at day-scale zoom).
     const datePart = `${p.da} ${MONTH_ABBR[p.mo]}`;
-    return step >= 86400 ? datePart : `${datePart}, ${hh}:00`;
+    return step >= 86400 || p.hh === 0 ? datePart : `${hh}:00`;
   }
   if (step >= 60) return `${hh}:${mi}`;
   return `${hh}:${mi}:${ss}`;

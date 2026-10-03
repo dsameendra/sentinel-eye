@@ -41,7 +41,7 @@ export function wireBar(root, ctx, { back = '#/live' } = {}) {
 // "shown, not hidden, so nobody wonders why a tab is missing").
 const BELL_SEEN_KEY = 'sentinel-eye-bell-seen';
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
-const KIND_DOT = { motion: 'var(--ev-motion)', line: 'var(--ov-danger)', intrusion: 'var(--ov-danger)', tamper: 'var(--tamper)', videoloss: 'var(--faint)', bookmark: 'var(--ev-bookmark)' };
+const KIND_DOT = { motion: 'var(--ev-motion)', line: 'var(--ev-line)', intrusion: 'var(--ev-line)', tamper: 'var(--tamper)', videoloss: 'var(--ev-videoloss)', bookmark: 'var(--ev-bookmark)' };
 
 export function globalActionsHTML(ctx) {
   const op = ctx.can('operator');
