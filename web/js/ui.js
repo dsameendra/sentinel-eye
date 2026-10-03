@@ -131,6 +131,53 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
   });
 }
 
+// Keyboard shortcuts reference (redesign v2) — the real bindings from live.js's key() and playback.js's
+// _key(), copied here by hand rather than generated from them, so this is a snapshot of what's documented
+// (and README.md's own table), not a live introspection of whichever handler happens to be bound. Keep the
+// three in sync if a binding changes.
+const SHORTCUT_GROUPS = [
+  { title: 'Live view — grid', rows: [
+    [['1', '–', '9'], 'Open that camera'],
+    [['←', '→'], 'Previous / next page'],
+    [['E'], 'Toggle arrange mode'],
+    [['F'], 'Full screen'],
+    [['Esc'], 'Leave arrange mode'],
+  ] },
+  { title: 'Focus view & Playback', rows: [
+    [['Space'], 'Play / pause (Playback)'],
+    [['←', '→'], 'Previous / next camera (Live)'],
+    [[',', '.'], 'Step one frame back / forward (Playback)'],
+    [['+', '–', '0'], 'Zoom in / out / reset (Live)'],
+    [['Shift', '1', '2', '3'], 'Back 5s / 10s / 30s (Playback)'],
+    [['Shift', '4', '5', '6'], 'Forward 5s / 10s / 30s (Playback)'],
+    [['S'], 'Snapshot (Live)'],
+    [['B'], 'Bookmark this moment'],
+    [['H'], 'Toggle SD/HD (Live)'],
+    [['F'], 'Full screen'],
+    [['Esc'], 'Reset zoom, then close'],
+  ] },
+];
+
+/** The "?" overlay (Live and Playback) — a read-only keyboard-shortcuts reference. No return value; just
+ * shows until Escape, an outside click, or the close button. */
+export function shortcutsDialog() {
+  const root = document.getElementById('modal-root');
+  const group = (g) => `<div class="card shortcuts-card"><h3>${esc(g.title)}</h3>${g.rows.map(([keys, label]) =>
+    `<div class="shortcuts-row">${keys.map((k) => `<kbd class="key">${esc(k)}</kbd>`).join('')}<span class="shortcuts-label">${esc(label)}</span></div>`).join('')}</div>`;
+  root.innerHTML = `<div class="scrim"><div class="dialog shortcuts-dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="row" style="justify-content:space-between;margin-bottom:4px"><h3 style="margin:0">${icon('layout')} Keyboard shortcuts</h3><button class="btn icon ghost" data-x="1" aria-label="Close">${icon('close')}</button></div>
+    <p>Works on any Live or Playback screen.</p>
+    <div class="shortcuts-grid">${SHORTCUT_GROUPS.map(group).join('')}</div>
+    <p class="hint" style="margin:10px 0 0">Overview (channel-zero) bookmarks every camera at once — there's no per-camera bind to show there.</p>
+  </div></div>`;
+  const done = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape' || e.key === '?') { e.stopPropagation(); done(); } else trapTab(e, root.querySelector('.dialog')); };
+  document.addEventListener('keydown', onKey, true);
+  root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(); });
+  root.querySelector('[data-x="1"]').addEventListener('click', done);
+  root.querySelector('[data-x="1"]').focus();
+}
+
 /** Opens a small popover menu anchored to `anchorEl`, appended to <body> so it's never clipped by an
  * ancestor's `overflow: hidden` (grid tiles, panes, etc. all clip — a menu positioned relative to an
  * element inside one gets cut off or renders garbled, which is what the live tile's enhance dropdown did

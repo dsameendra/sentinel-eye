@@ -1,7 +1,8 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
+import { bookmarkDialog, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
+import { onboardingDialog } from './onboarding.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api, getJSON } from './api.js';
 import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
@@ -93,7 +94,9 @@ export class LiveView {
     if (!s.connection.host && !s.connection.configured) {   // configured: the redacted form non-admins get
       this.root.innerHTML = `<main class="liveview"><div class="center-card"><div class="cc-icon">${icon('plug')}</div>
         ${this.ctx.can('admin') ? `<h2>Connect your recorder</h2><p>Enter the IP address and login of your DVR or camera to see the live video.</p>
-        <a class="btn primary" href="#/settings/connection">Open settings</a>` : '<h2>No recorder yet</h2><p>An admin needs to connect the recorder before the cameras show up here.</p>'}</div></main>`;
+        <div style="display:flex;gap:8px;justify-content:center"><button class="btn primary" data-a="setup">Set up now</button><a class="btn ghost" href="#/settings/connection">Open settings</a></div>`
+          : '<h2>No recorder yet</h2><p>An admin needs to connect the recorder before the cameras show up here.</p>'}</div></main>`;
+      this.root.querySelector('[data-a=setup]')?.addEventListener('click', () => onboardingDialog(this.ctx));
       return;
     }
     if (!this.cams().length) {
@@ -709,6 +712,7 @@ export class LiveView {
     if (!this.wall || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.getElementById('modal-root').firstChild) return;
     const k = e.key;
+    if (k === '?') { shortcutsDialog(); return; }
     if (this.replay) { if (k === 'Escape') this.closeReplay(); return; }
     if (this.focus) {
       if (k === 'Escape' && !document.fullscreenElement) { if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }

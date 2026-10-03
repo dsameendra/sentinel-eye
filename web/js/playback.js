@@ -2,7 +2,7 @@
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
 import { Timeline } from './timeline.js';
-import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
+import { bookmarkDialog, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
@@ -824,6 +824,11 @@ export class PlaybackView {
 
   _key(e) {
     if (e.target.closest('input, select, textarea')) return;
+    // A dialog (export, bookmark, the shortcuts overlay itself) already owns the keyboard while it's open —
+    // without this, e.g. the shortcuts overlay's own Escape/Tab handling raced against this handler's own
+    // key bindings underneath it (confirmed directly: Space toggled playback behind an open dialog).
+    if (document.getElementById('modal-root').firstChild) return;
+    if (e.key === '?') { shortcutsDialog(); return; }
     if (e.key === ' ') { e.preventDefault(); this.togglePlay(); }
     else if (e.key === '.') this.stepFrame(1);
     else if (e.key === ',') this.stepFrame(-1);
