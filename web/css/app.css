@@ -149,25 +149,64 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 
 /* ---------- shell ---------- */
 #app { height: 100%; display: flex; flex-direction: column; }
-/* Glass (redesign v2 foundation) — was a solid --panel fill; see the .glass-fallback/tv-mode/
-   reduced-transparency guard rules near the end of this file for what happens when blur isn't available or
-   isn't wanted. */
-.topbar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
-/* Live/Playback: main.js's route() toggles this once .subbar/.pb-topline is about to render directly
-   beneath — same Glass fill, so the two read as one continuous combined nav band (redesign v2, matching
-   the mockups) with its hairline at the true bottom (.subbar/.pb-topline's own border-bottom) instead of a
-   visible seam between two stacked panels. */
-.topbar.seamless { border-bottom: 0; }
-.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .01em; }
-.brand-mark { width: 26px; height: 26px; border-radius: var(--r-sm); background: #111827; display: grid; place-items: center; }
-.brand-mark::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--accent); box-shadow: inset 0 0 0 2px #111827, inset 0 0 0 5px var(--accent); }
-.nav { display: flex; gap: 2px; margin-left: 6px; }
-.nav a { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: var(--r-sm); color: var(--muted); text-decoration: none; font-weight: 500; }
-.nav a:hover { background: var(--panel-2); color: var(--text); }
-.nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-text); }
+/* ---------- the bar (bar.js) ----------
+   One bar per screen (redesign v2), matching the design boards: Live leads with the brand mark and carries
+   the global cluster on the right; every other screen leads with a back chevron. Glass — see the guardrail
+   rules near TV mode for the no-blur/reduced-transparency fallbacks. */
+.topbar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); position: relative; z-index: 10; }
+.topbar.big { height: auto; min-height: 72px; padding-top: 14px; padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
+.bar-back { margin-left: -8px; }
+.bar-brand { display: grid; place-items: center; }
+.bar-title { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.bar-title h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.005em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar.big .bar-title h1 { font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+.bar-sub { font-size: 12.5px; color: var(--muted); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.bar-ctx { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bar-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.bar-sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
+.btn.ghost.view-toggle, .btn.ghost.lay-btn { color: var(--text); font-weight: 600; gap: 7px; padding: 0 12px; }
+.btn.ghost.view-toggle[aria-pressed="true"] { background: var(--glass-fill); border-color: var(--glass-border); }
+.lay-btn .i:last-child { width: 13px; height: 13px; color: var(--muted); }
+.lay-btn svg:first-child { color: var(--text); }
+/* The brand mark — the boards' identity: a white iris on a dark continuous-corner square, with the one red
+   "recording" dot. Same artwork as the app icon. */
+.brand-mark { width: 26px; height: 26px; flex: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect x='2' y='2' width='104' height='104' rx='30' fill='%23141417'/%3E%3Ccircle cx='54' cy='54' r='30' fill='none' stroke='%23f5f5f7' stroke-width='5'/%3E%3Ccircle cx='54' cy='54' r='12' fill='%23f5f5f7'/%3E%3Ccircle cx='80' cy='28' r='7' fill='%23ff3b30'/%3E%3C/svg%3E") center / contain no-repeat; border-radius: 8px; }
 .spacer { flex: 1; }
-.tools { display: flex; align-items: center; gap: 8px; }
-.clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; min-width: 190px; text-align: right; white-space: nowrap; }
+/* Global cluster */
+.gbtn { position: relative; color: var(--text); }
+.gbtn .lock-badge { position: absolute; right: 4px; bottom: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--panel-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1a6' stroke-width='3' stroke-linecap='round'%3E%3Crect x='5' y='11' width='14' height='10' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E") center / 8px no-repeat; box-shadow: 0 0 0 1.5px var(--bg); }
+.bell-dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 1.5px var(--bg); }
+.avatar { width: 32px; height: 32px; margin-left: 6px; border-radius: 50%; display: grid; place-items: center; flex: none; border: 1px solid var(--line); background: linear-gradient(145deg, #3a3a3f, #1c1c1f); color: #f5f5f7; font-size: 12.5px; font-weight: 700; cursor: pointer; padding: 0; }
+.avatar .i { width: 16px; height: 16px; }
+:root[data-theme="light"] .avatar { background: linear-gradient(145deg, #f2f2f5, #d9d9de); color: var(--text); }
+.pill.health { height: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pill.health.degraded { color: var(--text); }
+/* Popovers off the bar */
+.notif-pop { width: 320px; padding: 0; overflow: hidden; }
+.notif-head { padding: 13px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 14px; }
+.notif-body { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
+.nitem { display: flex; gap: 11px; padding: 12px 16px; align-items: flex-start; text-align: left; background: transparent; border: 0; color: var(--text); width: 100%; }
+.nitem + .nitem { border-top: 1px solid var(--line); }
+.nitem:hover:not(:disabled) { background: var(--panel-2); }
+.nitem .dot { margin-top: 5px; }
+.nitem b { display: block; font-size: 12.5px; font-weight: 600; }
+.nitem small { display: block; color: var(--muted); font-size: 12px; }
+.notif-empty { padding: 22px 16px; color: var(--muted); font-size: 13px; text-align: center; display: grid; place-items: center; }
+.notif-all { display: block; text-align: center; padding: 11px; border-top: 1px solid var(--line); color: var(--accent-text); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.view-pop { width: 330px; padding: 12px; }
+.pop-label { font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: 4px 6px 8px; }
+.pop-sep { height: 1px; background: var(--line); margin: 10px 0; }
+.pop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 6px; font-size: 13px; color: var(--muted); }
+.pop-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 6px; margin-top: 4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: 13px; text-align: left; }
+.pop-item:hover { background: var(--panel-2); }
+.pop-item span { flex: 1; }
+.view-menu .lay { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.view-menu .lay button { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 10px 6px; border: 1.5px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: 12.5px; }
+.view-menu .lay button:hover { background: var(--panel-2); color: var(--text); }
+.view-menu .lay button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.acct-pop { min-width: 240px; }
+/* Phone tab bar (Mobile board): glass, bottom, four tabs. Only ≤640px — desktop/iPad navigate from Live's bar. */
+.tabbar { display: none; }
 
 /* ---------- buttons & controls ---------- */
 /* Height 36px (was 34, redesign v2) — the one sizing change approved alongside the blue accent and
@@ -264,26 +303,68 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .menu .lay button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 
 /* ---------- live view ---------- */
-.liveview { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-/* Glass (redesign v2 foundation), same reasoning as .topbar right above it — reads as one continuous
-   material surface with the topbar now instead of a flat strip blending into the page. */
-.subbar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--glass-border); background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); flex-wrap: wrap; }
-/* Unlike Playback's topline/Live's focus-bar, this stays in normal flow even in fullscreen (never floats) —
-   but the .liveview it's the first child of still reaches the true top of a fullscreened screen, so it
-   needs the same safe-area push the others get, for the same reason. */
-.liveview:fullscreen .subbar { padding-top: max(8px, env(safe-area-inset-top)); }
-.pager { display: flex; align-items: center; gap: 8px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.pager .dots { display: flex; gap: 5px; }
-.pager .dots button { width: 8px; height: 8px; padding: 0; border-radius: 50%; border: 0; background: var(--line-2); }
-.pager .dots button[aria-current="true"] { background: var(--accent); }
-.wall { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; }
-.tile { position: relative; min-width: 0; min-height: 0; background: var(--tile); border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--line); transition: transform var(--dur-base) var(--ease-out-expo), box-shadow var(--dur-base) var(--ease-out-expo); }
+.liveview { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; background: #000; }
+:root[data-theme="light"] .liveview { background: var(--bg); }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .liveview { background: var(--bg); } }
+.live-bar { flex: none; }
+.liveview:fullscreen .live-bar .topbar { padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); }
+/* Pager under the wall (Live board 1×1: ‹ 1 / 8 ›) */
+.pager-row { flex: none; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 0 0 16px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.pager-row[hidden] { display: none; }
+.glass-btn { background: var(--glass-fill); border-color: var(--glass-border); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: var(--text); }
+.glass-btn:hover { background: var(--panel-2); }
+.pager-rot { position: relative; }
+/* Designed empty/error states (States board) */
+.state-card { margin: auto; max-width: 420px; padding: 32px 28px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.state-card h2 { margin: 6px 0 0; font-size: 16px; font-weight: 600; }
+.state-card p { margin: 0; color: var(--muted); font-size: 13px; }
+.state-ico { color: var(--muted); }
+.state-ico .i { width: 24px; height: 24px; }
+.state-ico.danger { color: var(--danger); }
+.state-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+/* Live board: 20px around the wall, 14px between tiles, true black stage behind them. Rows still fill the
+   viewport (live.js sets the grid tracks) so 4×4 and 1+7 fit without scrolling. */
+.wall { flex: 1; min-height: 0; display: grid; gap: 14px; padding: 20px; }
+.tile { position: relative; min-width: 0; min-height: 0; background: var(--tile); border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--line); box-shadow: inset 0 0 0 0 transparent; transition: border-color var(--dur-base) var(--ease-out-expo),  transform var(--dur-base) var(--ease-out-expo), box-shadow var(--dur-base) var(--ease-out-expo); }
 /* Hover-lift (redesign v2) — the grid's one departure from the Flat-By-Default Rule. Scoped to :hover (a
  * real pointer resting on a specific tile), not :focus-within or touch's always-on equivalent, since a lift
  * that can't settle back down mid-interaction would read as broken rather than responsive — see the
  * hover-reveal media query right below, which this intentionally does NOT join. */
 .editing .tile:hover, .tile.in-focus:hover { transform: none; box-shadow: none; }
 @media (hover: hover) { .tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-float); z-index: 2; } }
+/* An active event colours the tile's edge (Live board: the motion tile's 2px ring) — inset, so the grid
+   never reflows when one starts or stops. */
+.tile[data-ev] { border-color: transparent; }
+.tile[data-ev]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 2px var(--ev-motion); pointer-events: none; z-index: 4; }
+.tile[data-ev="tamper"]::after { box-shadow: inset 0 0 0 2px var(--tamper); }
+.tile[data-ev="videoloss"]::after, .tile[data-ev="line"]::after, .tile[data-ev="intrusion"]::after { box-shadow: inset 0 0 0 2px var(--live); }
+/* Offline (States board): desaturated, never removed — it comes back the instant the stream does. */
+.tile.is-off .stage { filter: grayscale(1); opacity: .35; }
+.tile.is-off .veil { background: rgba(6, 6, 8, .72); }
+.tile.is-off .ov .name { color: var(--muted); text-shadow: none; }
+.tile.is-off .ov .tag.kind, .tile.is-off .pill.tile-status { display: none; }
+.offline-label { display: none; font-size: 12.5px; color: var(--faint); }
+.tile.is-off .offline-label { display: inline; }
+.veil-ico { color: var(--faint); }
+.veil-ico .i { width: 26px; height: 26px; }
+/* Connecting (States board): a shimmer, not a spinner standing in for every state. */
+.tile.is-wait .veil { background: linear-gradient(90deg, #111114 25%, #1a1a1e 37%, #111114 63%); background-size: 400% 100%; animation: shimmer 1.6s ease-in-out infinite; }
+.tile.is-wait .veil .msg { font-size: 12px; color: var(--muted); max-width: 30ch; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+/* Overview (Live board): full-bleed, its own caption chrome instead of a camera tile's. */
+.wall.chan0-single { padding: 0; gap: 0; }
+.tile.overview-tile { border: 0; border-radius: 0; }
+.tile.overview-tile:hover { transform: none; box-shadow: none; }
+.tile.overview-tile .ov { display: none; }
+.overview-cap { position: absolute; left: 20px; right: 20px; z-index: 3; display: flex; align-items: center; gap: 10px; color: rgba(255, 255, 255, .7); font-size: 12.5px; pointer-events: none; }
+.overview-cap.top { top: 18px; }
+.overview-cap.bottom { bottom: 18px; align-items: flex-end; justify-content: space-between; }
+.overview-cap.bottom::before { content: ""; position: absolute; left: -20px; right: -20px; bottom: -18px; height: 160px; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); z-index: -1; }
+.overview-cap b { display: block; color: #fff; font-size: 16px; font-weight: 600; }
+.overview-cap small { display: block; color: rgba(255, 255, 255, .65); font-size: 12.5px; }
+.overview-cap .btn { pointer-events: auto; gap: 8px; color: #fff; }
+.ov-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: var(--r-full); background: linear-gradient(var(--live-soft), var(--live-soft)), rgba(10, 10, 12, .6); color: #ff6a5f; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.ov-pill .dot { width: 6px; height: 6px; box-shadow: none; }
 .tile.empty { display: grid; place-items: center; color: var(--faint); border-style: dashed; background: transparent; }
 /* a grid tile on loan to the large view: its own chrome (click-to-focus hitzone, name bar, buttons) is
    replaced by the focus view's — the tile itself (and its live connection) keeps running underneath */
@@ -313,13 +394,13 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .18); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
 .spin.sm { width: 14px; height: 14px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.ov { position: absolute; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 7px 9px; color: #fff; pointer-events: none; }
-.ov.top { top: 0; background: linear-gradient(#000a, transparent); }
+.ov { position: absolute; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 10px 11px; color: #fff; pointer-events: none; }
+.ov.top { top: 0; }
 /* Bottom bar (redesign v2 foundation) — identity (name + quality) is always visible now, matching the
    mockups' tile anatomy: a camera's name and HD/SD state are facts you need at a glance, not a hover
    detail. Only .stat (the resolution/fps/codec line) keeps the old hover-reveal behavior below — that's
    real supplementary detail, and showing it for every tile in a full grid at once is genuinely noisy. */
-.ov.bottom { bottom: 0; background: linear-gradient(transparent, #000a); font-size: 13px; }
+.ov.bottom { bottom: 0; padding-top: 28px; background: linear-gradient(transparent, rgba(0, 0, 0, .72)); font-size: 12.5px; }
 .ov.bottom .stat { font-size: 11.5px; color: #cdd5df; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out-expo); }
 .tile:hover .ov.bottom .stat, .focus:hover .ov.bottom .stat { opacity: 1; }
 /* Hover-to-reveal has no touch equivalent — a device that can't hover just never showed this at all, not a
@@ -332,7 +413,11 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .ov .grow { flex: 1; }
 /* Top-left status pill (redesign v2 — was a bare dot inline with the name, which has since moved to the
    bottom bar). Compact: a pill sized around just the dot, not the roomier text-bearing pills elsewhere. */
-.ov .pill.tile-status { height: 20px; padding: 0 7px; background: rgba(15, 20, 28, .55); pointer-events: none; }
+/* Live board: the at-rest status is a small red-tinted pill around the live dot; it gives way to the event
+   pill(s) when something fires. Tinted over a dark backing so it reads on bright daytime footage too. */
+.ov .pill.tile-status { height: 20px; padding: 0 7px; background: linear-gradient(var(--live-soft), var(--live-soft)), rgba(10, 10, 12, .55); pointer-events: none; }
+.tile[data-ev] .pill.tile-status { display: none; }
+.ov .pill.tile-status .dot.wait { box-shadow: none; }
 .ov .pill.tile-status .dot { width: 7px; height: 7px; }
 .tag { padding: 1px 6px; border-radius: var(--r-xs); background: var(--ov-btn-bg-hover); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
 /* HD used to get the accent color here, which is now purely interactive-selection blue — a resolution tag
@@ -340,7 +425,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
  * selection color for attention. */
 /* The bottom bar's quality identity tag — fully round (redesign v2), matching the mockups' own pill-neutral
  * HD/SD treatment now that it sits beside the camera name rather than inline in the old top bar. */
-.ov .tag.kind { border-radius: var(--r-full); padding: 1px 8px; }
+.ov .tag.kind { border-radius: var(--r-full); padding: 2px 7px; font-size: 10px; background: rgba(255, 255, 255, .12); color: #e5e5ea; }
 /* Small "a live filter is active here" indicator — same pill style as HD/SD so it reads as part of the
    same family of at-a-glance badges, icon-only + accent-colored so it's distinct at this size. */
 .tag.fx { display: inline-flex; align-items: center; padding: 2px 5px; color: var(--accent-text); }
@@ -353,12 +438,13 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    laid-out position regardless of who ends up visually clipping it — the fix is giving the layout itself a
    real ceiling, not just hoping overflow catches it). justify-content keeps the toggle pinned to the right
    edge whether collapsed or expanded, same as before. */
-.tile-actions { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 4px; opacity: 0; transform: translateY(-3px); pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out-expo), transform var(--dur-fast) var(--ease-out-expo); }   /* hidden buttons must not swallow clicks */
+.tile-actions { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 4px; opacity: 0; transform: translateY(-3px); pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out-expo), transform var(--dur-fast) var(--ease-out-expo); }   /* hidden buttons must not swallow clicks */
 .tile:hover .tile-actions, .tile:focus-within .tile-actions { opacity: 1; transform: translateY(0); pointer-events: auto; }
 @media (hover: none) { .tile-actions { opacity: 1; transform: none; pointer-events: auto; } }
-.tile-actions button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-xs); border: 0; background: rgba(15, 20, 28, .82); color: #fff; backdrop-filter: blur(6px); flex: none; }
-.tile-actions button:hover { background: var(--accent); color: var(--accent-ink); }
-.tile-actions button.txt { width: auto; padding: 0 8px; font-size: 11.5px; font-weight: 700; }
+.tile-actions button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .1); background: rgba(28, 28, 31, .72); color: #fff; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); flex: none; }
+.tile-actions button .i { width: 14px; height: 14px; }
+.tile-actions button:hover { background: rgba(255, 255, 255, .2); }
+.tile-actions button.txt { width: auto; padding: 0 9px; border-radius: var(--r-full); font-size: 11px; font-weight: 700; }
 /* Collapsed by default (see tile.js's own comment on why: a grid's worth of tiles each showing all 7
    action buttons at once, permanently on touch, reads as cluttered) — the toggle sits at the tile's fixed
    top-right corner (last in flex order, so its own position never moves), the group expands to its left.
@@ -377,8 +463,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    instead of spilling across the tile boundary into whatever's next to it. */
 .tile-actions.expanded .tile-actions-group { grid-template-columns: 1fr; opacity: 1; }
 .tile-actions-toggle svg { transition: transform .2s ease; }
-.tile-actions.expanded .tile-actions-toggle svg { transform: rotate(180deg); }
-.tile-actions.expanded .tile-actions-toggle { background: var(--accent); color: var(--accent-ink); }
+.tile-actions.expanded .tile-actions-toggle svg { transform: rotate(90deg); }
+.tile-actions.expanded .tile-actions-toggle { background: rgba(255, 255, 255, .24); }
 .tile .hit { position: absolute; inset: 0; z-index: 1; cursor: pointer; }
 .editing .tile { cursor: grab; outline: 2px dashed var(--line-2); outline-offset: -2px; }
 .editing .tile .hit { cursor: grab; }
@@ -389,16 +475,19 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .grip { display: none; align-items: center; justify-content: center; padding: 2px 6px; border-radius: var(--r-xs); background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; gap: 4px; }
 /* top: 42px (was 34px) — the top bar's own content changed shape (redesign v2: a 20px status pill with its
    own padding, not a bare inline dot), so it reads a couple px taller; stacks directly under it either way. */
-.ev-badges { position: absolute; left: 8px; top: 42px; z-index: 5; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; pointer-events: none; }
-.ev-badge { padding: 2px 8px; border-radius: var(--r-full); font-size: 11px; font-weight: 700; letter-spacing: .02em; color: #fff; background: rgba(15, 20, 28, .82); backdrop-filter: blur(6px); box-shadow: 0 2px 8px var(--ov-scrim-soft); }
+.ev-badges { display: flex; gap: 4px; pointer-events: none; }
+/* Event pills (Live board's "● Motion"): tinted soft fill + bright label, on a dark backing for legibility
+   over any footage. Theme-invariant like the rest of the on-video family. */
+.ev-badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: var(--r-full); font-size: 11.5px; font-weight: 600; color: #ffb340; background: linear-gradient(rgba(255, 159, 10, .2), rgba(255, 159, 10, .2)), rgba(10, 10, 12, .7); }
+.ev-badge::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 /* --ev-motion against white (the base .ev-badge text color) measures 1.92:1 — badly fails — so this is the
  * one ev-badge that also overrides text color, to --ov-ink-dark (7.71:1 here). Theme-invariant like the rest
  * of the --ov-* family, not --armed-ink, since that flips to white in light theme and would fail the same
  * way. Matches the timeline's own motion-span color exactly, now that --accent no longer doubles as
  * "motion" the way it briefly did pre-redesign. */
-.ev-badge.motion { background: var(--ev-motion); color: var(--ov-ink-dark); }
-.ev-badge.tamper, .ev-badge.videoloss { background: var(--ov-danger); }
-.ev-badge.line { background: #d97706; }
+.ev-badge.motion { color: #ffb340; }
+.ev-badge.tamper { color: #d59bf6; background: linear-gradient(rgba(191, 90, 242, .22), rgba(191, 90, 242, .22)), rgba(10, 10, 12, .7); }
+.ev-badge.videoloss, .ev-badge.line, .ev-badge.intrusion { color: #ff6a5f; background: linear-gradient(rgba(255, 59, 48, .2), rgba(255, 59, 48, .2)), rgba(10, 10, 12, .7); }
 
 /* focus view */
 .focus { position: absolute; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; }
@@ -613,7 +702,6 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
   .side { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; padding-inline: 0; }
   .side a { margin-inline: 4px; } .side a:first-child { margin-inline-start: 10px; } .side a:last-child { margin-inline-end: 10px; }
   .savebar { left: 0; } .form { grid-template-columns: 1fr; } .pane { padding: 16px 14px 90px; }
-  .nav a span, .brand span { display: none; } .clock { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
@@ -990,9 +1078,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .btn:not(.icon):not(.sm) { min-height: 44px; }
   .seg button { min-height: 40px; min-width: 40px; }
   .tile-actions button { width: 38px; height: 38px; }
-  .nav a { min-height: 44px; }
   .side a { min-height: 44px; }
-  .pager .dots button { width: 12px; height: 12px; } /* page dots: 8px is a real miss-tap target on touch */
   .cal-day { min-height: 36px; }
   .enh-menu button, .events-presets button { min-height: 40px; }
   .enh2-presets button { min-height: 34px; padding: 0 12px; } /* stays a compact pill row (many presets, one line) — nudged, not pushed to 40+ */
@@ -1041,39 +1127,39 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
    3. prefers-reduced-transparency — an explicit accessibility signal, same spirit as
       prefers-reduced-motion above; honored the same way, by removing the effect rather than lessening it. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .topbar, .savebar > div, .focus-bar, .subbar, .pb-topline { background: var(--panel); }
+  .topbar, .savebar > div, .focus-bar, .pb-topline { background: var(--panel); }
   .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side, .auth-card { background: var(--panel-2); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .topbar, .menu, .dialog, .toast, .savebar > div, .evp-dialog, .pb .pb-side, .events-view .pb-side, .focus-bar, .subbar, .pb-topline, .auth-card {
+  .topbar, .menu, .dialog, .toast, .savebar > div, .evp-dialog, .pb .pb-side, .events-view .pb-side, .focus-bar, .pb-topline, .auth-card {
     backdrop-filter: none; -webkit-backdrop-filter: none;
   }
-  .topbar, .savebar > div, .focus-bar, .subbar, .pb-topline { background: var(--panel); }
+  .topbar, .savebar > div, .focus-bar, .pb-topline { background: var(--panel); }
   .menu, .dialog, .toast, .evp-dialog, .pb .pb-side, .events-view .pb-side, .auth-card { background: var(--panel-2); }
 }
-html.tv-mode .topbar, html.tv-mode .menu, html.tv-mode .savebar > div, html.tv-mode .focus-bar, html.tv-mode .subbar {
+html.tv-mode .topbar, html.tv-mode .menu, html.tv-mode .savebar > div, html.tv-mode .focus-bar {
   backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--panel);
 }
 html.tv-mode { font-size: 19px; }   /* basis for the rem sizes below; nothing outside .liveview uses rem, so shared chrome elsewhere is untouched */
-html.tv-mode .subbar { min-height: 60px; gap: 10px; padding: 10px 14px; }
+html.tv-mode .live-bar .topbar { min-height: 60px; gap: 10px; padding: 10px 14px; }
 /* .btn and .pill both come with their own fixed height (36px / 24px) from their base rules — padding alone
    doesn't grow a fixed-height box, it just eats into its content area, so every one of these needs its
    height overridden explicitly alongside the bigger padding, not just the padding. .btn/.pill already
    center their content via flex (display:inline-flex;align-items:center in their base rules), so once the
    height is actually bigger there's nothing else to fix for them. */
-html.tv-mode .subbar .btn, html.tv-mode .subbar .pill { font-size: 1.05rem; height: 44px; padding: 0 18px; }
+html.tv-mode .live-bar .topbar .btn, html.tv-mode .live-bar .topbar .pill { font-size: 1.05rem; height: 44px; padding: 0 18px; }
 /* .seg button has NEITHER: no flex (default inline-block), and its centering relies entirely on
    line-height matching its fixed 28px height — the actual "not aligned, not properly rendered" bug
    reported live: forcing bigger padding without a matching height left content overflowing a box too
    short for it, line-height included, with nothing to re-center it once flex isn't there to do that job. */
-html.tv-mode .subbar .seg { padding: 3px; }
-html.tv-mode .subbar .seg button { font-size: 1.05rem; height: 40px; padding: 0 18px; display: flex; align-items: center; justify-content: center; }
+html.tv-mode .live-bar .topbar .seg { padding: 3px; }
+html.tv-mode .live-bar .topbar .seg button { font-size: 1.05rem; height: 40px; padding: 0 18px; display: flex; align-items: center; justify-content: center; }
 /* .btn.icon (fullscreen, zoom, snapshot, etc.) is a fixed 36px square with zero padding by design (the SVG
    IS the content) — inheriting the text button's padding above put a 36px-border-box button through 16px
    of horizontal padding alone, squeezing its 18px icon into a sliver of content box. Same specificity as the
    base .btn.icon rule (two classes each), so being later in the file was enough to win; this restores its
    own sizing instead of the text-button treatment, just bigger. */
-html.tv-mode .subbar .btn.icon, html.tv-mode .focus-bar .btn.icon { width: 44px; height: 44px; padding: 0; }
+html.tv-mode .live-bar .topbar .btn.icon, html.tv-mode .focus-bar .btn.icon { width: 44px; height: 44px; padding: 0; }
 /* Per-tile quick actions stay reachable exactly the way they already are everywhere else in the app — a
    mouse hovering the tile (laptop/desktop, see .tile:hover) or the tile's hit-target having keyboard focus
    (.tile:focus-within, which now includes TV-mode's own arrow-key selection below) — nothing TV-specific
@@ -1084,8 +1170,8 @@ html.tv-mode .focus-bar { min-height: 64px; padding: 10px 14px; }
 html.tv-mode .focus-bar h2 { font-size: 1.3rem; }
 html.tv-mode .focus-bar .btn { font-size: 1.05rem; height: 44px; padding: 0 18px; }
 html.tv-mode .focus-bar .btn:focus-visible,
-html.tv-mode .nav a:focus-visible,
-html.tv-mode .subbar .btn:focus-visible,
+html.tv-mode .bar-actions .btn:focus-visible,
+html.tv-mode .live-bar .topbar .btn:focus-visible,
 html.tv-mode .savebar .btn:focus-visible,
 html.tv-mode button:focus-visible,
 html.tv-mode a:focus-visible { outline: 4px solid var(--accent); outline-offset: 2px; }
@@ -1110,7 +1196,7 @@ html.tv-mode .nav-arrow { width: 56px; height: 56px; }
    laptop, iPad, or iPhone wants exactly the same "maximum space for the cameras" once it's full screen too,
    so these rules apply generically rather than staying gated to html.tv-mode. The class names stayed as-is;
    renaming them touches nothing behavioral. */
-.liveview:fullscreen .subbar { display: none; }
+.liveview:fullscreen .live-bar { display: none; }
 .tv-fs-controls { display: none; }
 .liveview:fullscreen .tv-fs-controls {
   display: flex; align-items: center; gap: 4px; position: absolute; z-index: 8;
@@ -1178,10 +1264,6 @@ html.tv-mode .auth-card .btn { height: 48px; font-size: 18px; }
 html.tv-mode .auth-card input[type=text], html.tv-mode .auth-card input[type=password] { height: 48px; font-size: 18px; }
 
 /* ---------- account menu (topbar) ---------- */
-.who { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border-radius: var(--r-full); border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 13px; max-width: 220px; }
-.who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.who .role { color: var(--muted); font-size: 12px; }
-.who.lan { color: var(--muted); }
 .acct-menu { min-width: 200px; display: flex; flex-direction: column; }
 .acct-menu button, .acct-menu a { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); text-decoration: none; text-align: left; }
 .acct-menu button:hover, .acct-menu a:hover { background: var(--panel-2); }
@@ -1247,7 +1329,6 @@ kbd.key { display: inline-flex; align-items: center; justify-content: center; mi
 .sess .grow small { color: var(--muted); font-size: 12.5px; }
 table.tbl.sec-tbl { min-width: 560px; }
 .warnbox { margin-top: 12px; padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid var(--warn); font-size: 13px; }
-@media (max-width: 800px) { .who .role { display: none; } }
 /* A viewer (sign-in on, watch-only account) can't add bookmarks; the server refuses them anyway. */
 html.role-viewer [data-a=bookmark] { display: none !important; }
 a.btn { text-decoration: none; }

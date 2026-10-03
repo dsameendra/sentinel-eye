@@ -1,11 +1,12 @@
-// App shell: top bar, hash router (#/live[/id], #/settings/<tab>), theme, clock.
+// App shell: hash router (#/live[/id], #/settings/<tab>), theme, clock.
 import { api, authApi, authHooks, signInAgain } from './api.js';
 import { openAccount } from './account.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
 import { SettingsView } from './settings.js';
-import { closePopover, esc, icon, openPopover, toast } from './ui.js';
+import { esc, icon, toast } from './ui.js';
+import { tabBarHTML } from './bar.js';
 import { layoutIds } from './layouts.js';
 
 const state = { settings: null, me: null, view: null, kind: null, hash: '#/live' };
@@ -82,7 +83,7 @@ const ctx = {
   settings: () => state.settings,
   me: () => state.me,
   can,
-  async refreshMe() { state.me = await authApi.me(); paintWho(); return state.me; },
+  async refreshMe() { state.me = await authApi.me(); return state.me; },
   applyTheme,
   tvMode: getTvMode,
   setTvMode,
@@ -109,50 +110,10 @@ const ctx = {
 };
 
 function shell() {
-  app.innerHTML = `<header class="topbar">
-      <div class="brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>
-      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a>${can('operator') ? `<a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/events" data-n="events">${icon('search')}<span>Events</span></a>` : ''}<a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
-      <div class="spacer"></div>
-      <div class="tools"><span class="clock" id="clock"></span><span id="who"></span></div></header>
-    <div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>`;
-  const tick = () => {
-    const c = document.getElementById('clock');
-    if (!c) return;
-    const now = new Date();
-    const date = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    const time = now.toLocaleTimeString([], { hour12: false });
-    c.textContent = `${date} · ${time}`;
-  };
-  tick(); setInterval(tick, 1000);
-}
-
-/** Topbar account chip: who you are and the account menu, when sign-in is on. */
-function paintWho() {
-  const el = document.getElementById('who');
-  const me = state.me;
-  if (!el || !me?.auth_enabled) { if (el) el.innerHTML = ''; return; }
-  if (me.via === 'bypass') {
-    el.innerHTML = `<a class="who lan" href="/login?next=${encodeURIComponent(location.pathname + location.hash)}" title="Opened without signing in because you're on a trusted network">${icon('user')}<span>Local network</span><span class="role">· Sign in</span></a>`;
-    return;
-  }
-  if (me.via !== 'session') { el.innerHTML = ''; return; }
-  const u = me.user;
-  const name = u.kind === 'device' ? (u.label || 'This device') : u.username;
-  el.innerHTML = `<button class="who" aria-haspopup="menu">${icon(u.kind === 'device' ? 'monitor' : 'user')}<span>${esc(name)}</span><span class="role">${esc(u.role)}</span></button>`;
-  el.querySelector('button').addEventListener('click', (e) => {
-    const person = u.kind === 'person';
-    const menu = openPopover(e.currentTarget, `<div class="acct-menu" role="menu">
-      <div class="head"><b>${esc(name)}</b>${esc(u.role)}${person && u.has_totp ? ' · 2FA on' : ''}</div>
-      ${person ? `<button data-m="account" role="menuitem">${icon('user')} Your account</button>` : ''}
-      ${person && u.role === 'admin' ? `<a href="/pair" role="menuitem">${icon('monitor')} Pair a TV or screen</a><a href="#/settings/security" role="menuitem">${icon('shield')} Users &amp; security</a>` : ''}
-      <button data-m="logout" role="menuitem">${icon('logout')} Sign out${person ? '' : ' this device'}</button></div>`, { className: 'acct-pop' });
-    menu?.querySelector('[data-m=account]')?.addEventListener('click', () => { closePopover(); openAccount(ctx); });
-    menu?.querySelectorAll('a').forEach((a) => a.addEventListener('click', closePopover));
-    menu?.querySelector('[data-m=logout]').addEventListener('click', async () => {
-      closePopover();
-      try { await authApi.logout(); } finally { location.assign('/login'); }
-    });
-  });
+  // No global header (redesign v2): every screen renders its own bar via bar.js, matching the design
+  // boards (Live is home with the global cluster; everything else leads with a back chevron). The phone tab
+  // bar is the one piece of chrome that outlives view swaps, so it lives here.
+  app.innerHTML = `<div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>${tabBarHTML(ctx)}`;
 }
 
 async function route() {
@@ -164,20 +125,20 @@ async function route() {
     return route();
   }
   // leaving settings with unsaved edits?
-  if (state.kind === 'settings' && section !== 'settings' && state.view?.beforeLeave && !(await state.view.beforeLeave())) {
+  if (state.kind === 'settings' && section !== 'settings' && section !== 'account' && state.view?.beforeLeave && !(await state.view.beforeLeave())) {
     history.replaceState(null, '', state.hash);
     return;
   }
-  state.hash = hash;
+  if (section !== 'account') state.hash = hash;
   const host = document.getElementById('view');
   const navSection = section === 'search' ? 'events' : section;
-  document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.n === navSection));
-  document.querySelectorAll('.nav a[aria-current]').forEach((a) => a.setAttribute('aria-current', 'page'));
-  // Live and Playback each have their own second glass bar (.subbar / .pb-topline) directly beneath this
-  // one — dropping the topbar's own bottom hairline there lets the two read as one combined nav band
-  // (redesign v2, matching the mockups) instead of two stacked panels with a visible seam. Settings/Events
-  // have nothing directly below the topbar, so they keep the hairline as the band's real bottom edge.
-  document.querySelector('.topbar')?.classList.toggle('seamless', navSection === 'live' || navSection === 'playback');
+  document.querySelectorAll('.tabbar .tab').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+  if (section === 'account') {
+    // Account opens over whatever you were looking at (until it's its own page) — land back where you were.
+    history.replaceState(null, '', state.hash === '#/account' ? '#/live' : state.hash);
+    openAccount(ctx);
+    return;
+  }
 
   if (section === 'settings') {
     if (state.kind === 'settings') { state.view.setTab(arg || 'connection'); return; }
@@ -215,7 +176,6 @@ async function boot() {
   authHooks.needs2fa = () => { if (!document.querySelector('#modal-root .dialog')) openAccount(ctx, { force2fa: true }); };
   document.documentElement.classList.toggle('role-viewer', !can('operator'));   // hides review-only buttons (app.css)
   shell();
-  paintWho();
   if (state.me.limited) { openAccount(ctx, { force2fa: true }); return; }
   // Registered from the app shell (not inline in index.html) so it only ever runs after the real app has
   // loaded — irrelevant to whether the settings fetch below succeeds, so it doesn't block or gate on it.

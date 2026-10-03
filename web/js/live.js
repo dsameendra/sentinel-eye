@@ -1,7 +1,8 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { bookmarkDialog, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
+import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
+import { barHTML, globalActionsHTML, markBell, wireGlobal } from './bar.js';
 import { onboardingDialog } from './onboarding.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api, getJSON } from './api.js';
@@ -32,7 +33,6 @@ export class LiveView {
     this.rotating = true;
     this.tiles = [];
     this.focus = null;         // { tile, id }
-    this.menuOpen = false;
     this.pendingFocusId = null;
     this.zoomMem = {};          // grid zoom per camera, kept while paging/re-laying out
     this.fitOverride = null;   // null = follow Settings > Display > Fit; 'contain'/'cover' = this-session-only override, never saved (see fitMode())
@@ -55,8 +55,6 @@ export class LiveView {
     document.addEventListener('keydown', this.onKey);
     this.onFs = () => this.syncFullscreen();
     document.addEventListener('fullscreenchange', this.onFs);
-    this.onDoc = (e) => { if (this.menuOpen && !e.target.closest('.menu-wrap')) { this.menuOpen = false; this.renderBar(); } };
-    document.addEventListener('click', this.onDoc);
     this.rotTimer = setInterval(() => this.rotate(), 1000);
     this.rotSince = Date.now();
     this.evTimer = setInterval(() => this.pollEvents(), 4000);
@@ -91,20 +89,32 @@ export class LiveView {
   build() {
     this.disposeTiles();
     const s = this.s;
+    // Empty states keep the bar (so Settings/Playback/your account stay one click away) and use the States
+    // board's designed treatment rather than a bare card.
+    const emptyState = (iconName, title, body, actionsHtml) => {
+      this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="state-card"><div class="state-ico">${icon(iconName)}</div>
+        <h2>${title}</h2><p>${body}</p>${actionsHtml}</div></main>`;
+      this.live = this.root.querySelector('.liveview');
+      this.bar = this.root.querySelector('.live-bar');
+      this.wall = null;
+      this.renderBar();
+    };
     if (!s.connection.host && !s.connection.configured) {   // configured: the redacted form non-admins get
-      this.root.innerHTML = `<main class="liveview"><div class="center-card"><div class="cc-icon">${icon('plug')}</div>
-        ${this.ctx.can('admin') ? `<h2>Connect your recorder</h2><p>Enter the IP address and login of your DVR or camera to see the live video.</p>
-        <div style="display:flex;gap:8px;justify-content:center"><button class="btn primary" data-a="setup">Set up now</button><a class="btn ghost" href="#/settings/connection">Open settings</a></div>`
-          : '<h2>No recorder yet</h2><p>An admin needs to connect the recorder before the cameras show up here.</p>'}</div></main>`;
-      this.root.querySelector('[data-a=setup]')?.addEventListener('click', () => onboardingDialog(this.ctx));
+      if (this.ctx.can('admin')) {
+        emptyState('briefcase', 'No cameras yet', "Add your recorder's address to start watching.",
+          '<div class="state-actions"><button class="btn primary" data-a="setup">Add recorder</button><a class="btn ghost" href="#/settings/connection">Open settings</a></div>');
+        this.root.querySelector('[data-a=setup]').addEventListener('click', () => onboardingDialog(this.ctx));
+      } else {
+        emptyState('briefcase', 'No recorder yet', 'An admin needs to connect the recorder before the cameras show up here.', '');
+      }
       return;
     }
-    if (!this.cams().length) {
-      this.root.innerHTML = `<main class="liveview"><div class="center-card"><div class="cc-icon">${icon('video')}</div>
-        <h2>No cameras yet</h2><p>Add or enable channels to start watching.</p><a class="btn primary" href="#/settings/channels">Manage channels</a></div></main>`;
+    if (!this.cams().length && !this.chan0Displayed) {
+      emptyState('video', 'No cameras yet', 'Add or enable channels to start watching.',
+        this.ctx.can('admin') ? '<div class="state-actions"><a class="btn primary" href="#/settings/channels">Manage channels</a></div>' : '');
       return;
     }
-    this.root.innerHTML = `<main class="liveview"><div class="subbar"></div><div class="wall"></div>
+    this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="wall"></div><div class="pager-row" hidden></div>
       <div class="tv-fs-controls">
         <button class="tv-fs-btn" data-a="pgprev" title="Previous page" aria-label="Previous page">${icon('left')}</button>
         <span class="tv-fs-page"></span>
@@ -112,10 +122,11 @@ export class LiveView {
         <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
       </div></main>`;
     this.live = this.root.querySelector('.liveview');
-    this.bar = this.root.querySelector('.subbar');
+    this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
+    this.pager = this.root.querySelector('.pager-row');
     this.wall.addEventListener('focusin', (e) => this._tvFocusIn(e));
-    this.live.querySelector('[data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    this.live.querySelector('.tv-fs-controls [data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
     this.live.querySelector('[data-a=pgprev]').addEventListener('click', () => this.goPage(this.page - 1));
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
@@ -174,64 +185,91 @@ export class LiveView {
 
   renderBar() {
     if (!this.bar) return;
-    const d = this.d, pages = this.pages(), q = this.effQuality(), layout = this.effLayout();
-    // Channel-zero's Overview mode (its own stream, filling the wall, no grid) replaces the layout/order/
-    // Arrange controls entirely — there's nothing to lay out or reorder, just the one stream — so those
-    // give way to the single Overview/Grid toggle a few lines down. TV mode starts here by default (its own
-    // point — a single cheap stream a weak TV browser can decode); everywhere else it's opt-in.
+    const layout = this.effLayout();
+    // Channel-zero's Overview mode replaces the grid outright (its own stream, filling the wall), so the
+    // layout picker gives way to the single Overview/Grid toggle — matching the Live board, where the layout
+    // button only exists in grid mode.
     const single = this.chan0Displayed;
-    const seg = (v, label, tip) => `<button data-q="${v}" aria-pressed="${q === v}" title="${tip}">${label}</button>`;
-    this.bar.innerHTML = `
-      ${single ? '' : `<div class="menu-wrap">
-        <button class="btn" data-a="layout" aria-haspopup="true" aria-expanded="${this.menuOpen}">${layoutIcon(layout, 22)} ${LAYOUTS[layout].label} ${icon('down')}</button>
-        ${this.menuOpen ? `<div class="menu" style="left:0;right:auto;min-width:250px"><div class="lay">${layoutIds.map((id) =>
-          `<button data-l="${id}" aria-pressed="${layout === id}">${layoutIcon(id, 40)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div></div>` : ''}
-      </div>`}
-      ${single ? '' : `<div class="seg" role="group" aria-label="Video quality">
-        ${seg('auto', 'Auto', 'HD for large tiles and the large view, SD for small tiles')}${seg('sub', 'SD', 'Always use the lighter sub-stream')}${seg('main', 'HD', 'Always use the full quality main stream')}
-      </div>`}
-      <button class="btn" data-a="fit" aria-pressed="${this.fitMode() === 'cover'}"
-        title="${this.fitMode() === 'cover' ? 'Filling tiles (cropped to fill, nothing letterboxed) — tap to letterbox instead. This session only, not saved.' : 'Letterboxed to fit — tap to fill tiles instead (crops the picture). This session only, not saved.'}">
-        ${icon('crop')} ${this.fitMode() === 'cover' ? 'Fill' : 'Fit'}
-      </button>
-      ${single ? '' : `<button class="btn" data-a="edit" aria-pressed="${this.edit}" title="Drag tiles to change their order (E)">${icon('move')} Arrange</button>`}
-      <!-- One button, one state (redesign v2 — was two: a separate on/off plus a separate grid/single-view
-           switch). Overview replaces the grid outright; this is the only control that moves between them. -->
-      ${this.channelZeroOn ? `<button class="btn view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'live' : 'monitor')} ${single ? 'Grid · all cameras' : 'Overview'}</button>` : ''}
-      ${!single && d.rotate_seconds > 0 && pages > 1 ? `<button class="btn" data-a="rotate" aria-pressed="${this.rotating}" title="Auto-rotate pages every ${d.rotate_seconds}s">${icon(this.rotating ? 'pause' : 'play')} Rotate</button>` : ''}
-      <span class="spacer"></span>
-      ${!single && pages > 1 ? `<div class="pager"><button class="btn icon ghost" data-a="prev" aria-label="Previous page">${icon('left')}</button>
-        <div class="dots">${Array.from({ length: pages }, (_, i) => `<button data-p="${i}" aria-label="Page ${i + 1}" aria-current="${i === this.page}"></button>`).join('')}</div>
-        <span>${this.page + 1} / ${pages}</span><button class="btn icon ghost" data-a="next" aria-label="Next page">${icon('right')}</button></div>` : ''}
-      <span class="pill" title="Cameras currently showing live video"><span class="dot ${this.liveCount === this.tiles.length && this.tiles.length ? 'live' : 'wait'}"></span><span class="livecount">${this.liveCount ?? 0}/${this.tiles.length} live</span></span>
-      <button class="btn icon" data-a="wallfs" title="Full screen" aria-label="Full screen">${icon('fullscreen')}</button>`;
-    this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; this.renderBar(); });
-    this.bar.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', () => {
-      // TV mode: local preference (see effLayout()), not the setting every other device shares — picking a
-      // bigger grid from the TV itself shouldn't hand a phone on the same server a wall of tiles it never asked for.
-      if (this.tvMode) { this.tvLayoutPref = b.dataset.l; this.ctx.setTvLayout?.(b.dataset.l); this.menuOpen = false; this.page = 0; this.renderBar(); this.renderWall(); }
-      else this.setDisplay({ layout: b.dataset.l }, true);
-    }));
-    this.bar.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
-      // TV mode: this control still works, it just writes to the local TV-only preference (see
-      // effQuality()) instead of the setting every other device shares — flipping a TV to HD shouldn't
-      // change what a phone on the same server defaults to next time it opens.
-      if (this.tvMode) { this.tvQualityPref = b.dataset.q; this.ctx.setTvQuality?.(b.dataset.q); this.renderBar(); this.renderWall(); }
-      else this.setDisplay({ quality: b.dataset.q }, true);
-    }));
-    this.bar.querySelector('[data-a=fit]').addEventListener('click', () => this.toggleFit());
-    this.bar.querySelector('[data-a=edit]')?.addEventListener('click', () => this.toggleEdit());
+    const context = `
+      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
+      ${this.edit ? '<button class="btn primary sm" data-a="edit-done" title="Finish arranging (E or Esc)">Done</button>' : ''}`;
+    const actions = `${this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button><span class="bar-sep"></span>` : ''}${globalActionsHTML(this.ctx)}`;
+    this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', after: this.wall ? this._healthHTML() : '', context, actions, cls: 'live' });
+    wireGlobal(this.bar, this.ctx);
+    this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
+    this.bar.querySelector('[data-a=edit-done]')?.addEventListener('click', () => this.toggleEdit(false));
     this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => {
       this.overviewOn = !this.overviewOn;
       this.ctx.setOverviewOn?.(this.overviewOn);
+      if (!this.wall) { this.build(); return; }
       this.renderBar(); this.renderWall();
     });
-    this.bar.querySelector('[data-a=rotate]')?.addEventListener('click', () => { this.rotating = !this.rotating; this.rotSince = Date.now(); this.renderBar(); });
-    this.bar.querySelector('[data-a=prev]')?.addEventListener('click', () => this.goPage(this.page - 1));
-    this.bar.querySelector('[data-a=next]')?.addEventListener('click', () => this.goPage(this.page + 1));
-    this.bar.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => this.goPage(+b.dataset.p)));
-    this.bar.querySelector('[data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    this.bar.querySelector('[data-a=wallfs]')?.addEventListener('click', () => this.toggleFullscreen(this.live));
+    if (this._lastEventRows) markBell(this.bar, this._lastEventRows);
+    this._renderPager();
     this._syncFsControls();
+  }
+
+  /** The bar's quiet health indicator (States board: "lives permanently in the top bar's corner — never
+   * hidden, never alarming at rest"): a plain camera count when everything's streaming, a dot + live/total
+   * only when something isn't. */
+  _healthHTML() {
+    const total = this.tiles.length, n = this.liveCount ?? 0;
+    const all = total > 0 && n === total;
+    const label = all ? `${total} camera${total === 1 ? '' : 's'}` : total ? `${n}/${total} live` : 'Connecting…';
+    return `<span class="pill health${all ? '' : ' degraded'}" title="${all ? 'Every camera on this page is streaming' : 'Some cameras are still connecting or reconnecting'}"><span class="dot wait"${all ? ' hidden' : ''}></span><span class="livecount">${label}</span></span>`;
+  }
+
+  /** Page control under the wall (the Live board's 1×1 pager: ‹ 1 / 8 ›), only when there's more than one page. */
+  _renderPager() {
+    if (!this.pager) return;
+    const pages = this.pages();
+    const show = !this.chan0Displayed && pages > 1;
+    this.pager.hidden = !show;
+    if (!show) { this.pager.innerHTML = ''; return; }
+    const d = this.d;
+    this.pager.innerHTML = `<button class="btn icon glass-btn" data-a="prev" aria-label="Previous page">${icon('left')}</button>
+      <span class="pager-n">${this.page + 1} / ${pages}</span>
+      <button class="btn icon glass-btn" data-a="next" aria-label="Next page">${icon('right')}</button>
+      ${d.rotate_seconds > 0 ? `<button class="btn icon ghost pager-rot" data-a="rotate" aria-pressed="${this.rotating}" title="${this.rotating ? `Auto-rotating every ${d.rotate_seconds}s — click to pause` : 'Auto-rotate paused — click to resume'}" aria-label="Auto-rotate pages">${icon(this.rotating ? 'pause' : 'play')}</button>` : ''}`;
+    this.pager.querySelector('[data-a=prev]').addEventListener('click', () => this.goPage(this.page - 1));
+    this.pager.querySelector('[data-a=next]').addEventListener('click', () => this.goPage(this.page + 1));
+    this.pager.querySelector('[data-a=rotate]')?.addEventListener('click', () => { this.rotating = !this.rotating; this.rotSince = Date.now(); this._renderPager(); });
+  }
+
+  /** Layout + view options in one popover (the Live board's layout menu, plus the controls the old second
+   * bar carried — quality, fit/fill, arrange — so nothing is lost by folding the bars into one). */
+  _openViewMenu(btn) {
+    const layout = this.effLayout(), q = this.effQuality(), fill = this.fitMode() === 'cover';
+    const menu = openPopover(btn, `<div class="view-menu">
+      <div class="pop-label">Layout</div>
+      <div class="lay">${layoutIds.map((id) => `<button data-l="${id}" aria-pressed="${layout === id}">${layoutIcon(id, 36)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div>
+      <div class="pop-sep"></div>
+      <div class="pop-row"><span>Quality</span><div class="seg" role="group" aria-label="Video quality">
+        <button data-q="auto" aria-pressed="${q === 'auto'}" title="HD for large tiles and the large view, SD for small tiles">Auto</button><button data-q="sub" aria-pressed="${q === 'sub'}" title="Always the lighter sub-stream">SD</button><button data-q="main" aria-pressed="${q === 'main'}" title="Always the full-quality main stream">HD</button></div></div>
+      <div class="pop-row"><span>Picture</span><div class="seg" role="group" aria-label="Fit or fill">
+        <button data-f="contain" aria-pressed="${!fill}" title="Letterbox — never crops">Fit</button><button data-f="cover" aria-pressed="${fill}" title="Fill the tile — crops the edges. This session only.">Fill</button></div></div>
+      <button class="pop-item" data-a="edit">${icon('move')}<span>Arrange cameras</span><kbd>E</kbd></button>
+    </div>`, { className: 'view-pop', align: 'left' });
+    if (!menu) return;
+    menu.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', () => {
+      closePopover();
+      // TV mode: local preference (see effLayout()), not the setting every other device shares.
+      if (this.tvMode) { this.tvLayoutPref = b.dataset.l; this.ctx.setTvLayout?.(b.dataset.l); this.page = 0; this.renderBar(); this.renderWall(); }
+      else this.setDisplay({ layout: b.dataset.l }, true);
+    }));
+    menu.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
+      menu.querySelectorAll('[data-q]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      // TV mode: writes the local TV-only preference (see effQuality()) instead of the shared setting.
+      if (this.tvMode) { this.tvQualityPref = b.dataset.q; this.ctx.setTvQuality?.(b.dataset.q); this.renderWall(); }
+      else this.setDisplay({ quality: b.dataset.q }, true, true);
+    }));
+    menu.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
+      if ((this.fitMode() === 'cover') !== (b.dataset.f === 'cover')) this.toggleFit();
+      menu.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    menu.querySelector('[data-a=edit]').addEventListener('click', () => { closePopover(); this.toggleEdit(true); });
   }
 
   // TV mode's own Auto/SD/HD choice in place of the synced Settings one (see main.js's tvQuality) — same
@@ -332,6 +370,14 @@ export class LiveView {
     this.tiles.push(t);
     t.el.style.gridColumn = '1 / span 1';
     t.el.style.gridRow = '1 / span 1';
+    // The Live board's Overview: full-bleed, an OVERVIEW pill + what it is, and the one action that means
+    // something different here (bookmark = every real camera at this moment).
+    const n = this.s.channels.filter((c) => c.enabled).length;
+    t.el.classList.add('overview-tile');
+    t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>All ${n} channel${n === 1 ? '' : 's'}, one mosaic feed · fixed quality</span></div>
+      <div class="overview-cap bottom"><div><b>Full property overview</b><small>The recorder's own multi-camera picture — not a camera of its own</small></div>
+      ${this.ctx.can('operator') ? `<button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button>` : ''}</div>`);
+    t.el.querySelector('[data-a=bookmark-all]')?.addEventListener('click', (e) => { e.stopPropagation(); this.bookmarkAllCams(); });
     w.append(t.el);
     this.liveCount = 0;
     if (this._autoFs) {
@@ -348,11 +394,8 @@ export class LiveView {
     const n = this.tiles.filter((t) => t.state === 'live').length;
     if (n === this.liveCount) return;
     this.liveCount = n;
-    const pill = this.bar?.querySelector('.livecount');
-    if (pill) {
-      pill.textContent = `${n}/${this.tiles.length} live`;
-      pill.previousElementSibling.className = `dot ${n === this.tiles.length ? 'live' : 'wait'}`;
-    }
+    const pill = this.bar?.querySelector('.health');
+    if (pill) pill.outerHTML = this._healthHTML();
   }
 
   disposeTiles() { this.tiles.forEach((t) => t.dispose()); this.tiles = []; }
@@ -360,7 +403,6 @@ export class LiveView {
   // ---------------------------------------------------------------- actions
   async setDisplay(patch, rebuild) {
     const next = { ...this.d, ...patch };
-    this.menuOpen = false;
     try {
       const saved = await this.ctx.saveDisplay(next);
       Object.assign(this.s.display, saved);
@@ -596,6 +638,8 @@ export class LiveView {
         byChannel.get(row.channel).add(row.kind);
       }
       for (const t of this.tiles) t.setBadges(byChannel.get(t.cam.channel));
+      this._lastEventRows = rows;
+      markBell(this.bar, rows);
     } catch { /* transient network hiccup — next poll retries */ }
   }
 
@@ -772,7 +816,6 @@ export class LiveView {
     this.closeReplay();
     document.removeEventListener('keydown', this.onKey);
     document.removeEventListener('fullscreenchange', this.onFs);
-    document.removeEventListener('click', this.onDoc);
     clearInterval(this.rotTimer);
     clearInterval(this.evTimer);
     if (document.fullscreenElement) document.exitFullscreen?.();

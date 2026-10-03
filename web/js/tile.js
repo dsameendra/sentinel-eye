@@ -26,7 +26,16 @@ export const streamName = (cam, kind, display) =>
 
 const UPGRADE_TIMEOUT = 30000;   // main streams can take a few seconds (keyframe interval ~5 s)
 const STALL_RECONNECT = 12000;
-const BADGE_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss' };
+// The player's raw errors are go2rtc/MSE internals ("webrtc/offer: streams: codecs not matched: …") —
+// useful in a tooltip, not as the tile's headline. One plain sentence per known cause, raw text as the title.
+const friendlyError = (err) => {
+  if (!err) return 'Connecting…';
+  if (/codecs? not matched|h265|hevc|hvc1/i.test(err)) return "This browser can't play this camera's video format";
+  if (/timeout|timed out|unreachable|refused|no route|network/i.test(err)) return "Can't reach the camera — retrying";
+  if (/auth|401|unauthori[sz]ed/i.test(err)) return 'The recorder rejected the login';
+  return 'Connecting…';
+};
+const BADGE_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss' };
 
 export class Tile {
   /**
@@ -47,8 +56,8 @@ export class Tile {
     this.el.innerHTML = `<div class="stage"><canvas class="enh-canvas" hidden></canvas></div>
       <div class="veil"><div class="spin"></div><div class="msg">Connecting…</div></div>
       ${opts.chrome ? `<div class="hit"></div>
-      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="pill tile-status"><span class="dot wait"></span></span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span></div>
-      <div class="ov bottom"><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="stat"></span><span class="grow"></span><span class="tag kind">SD</span></div>
+      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="pill tile-status"><span class="dot wait"></span></span><span class="ev-badges"></span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span></div>
+      <div class="ov bottom"><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="stat"></span><span class="grow"></span><span class="tag kind">SD</span><span class="offline-label">Offline</span></div>
       <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
       <div class="tile-actions">
         <div class="tile-actions-group">
@@ -57,17 +66,16 @@ export class Tile {
             <button data-a="zin" title="Zoom in (or scroll / pinch on the picture)" aria-label="Zoom in">${icon('plus')}</button>
             ${opts.fixedQuality ? '' : `<button class="txt" data-a="quality" title="Switch between SD and HD">HD</button>`}
             <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
-            ${opts.noReplay ? '' : `<button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>`}
-            <button data-a="bookmark" title="${opts.bookmarkLabel || 'Bookmark this moment'}" aria-label="${opts.bookmarkLabel || 'Bookmark this moment'}">${icon('flag')}</button>
+            ${opts.noReplay ? '' : `<button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('back2')}</button>`}
             <div class="menu-wrap enh-wrap">
               <button data-a="enhance" title="Live enhancement (brightness/contrast/sharpen)" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button>
             </div>
-            <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
           </div>
         </div>
-        <button class="tile-actions-toggle" data-a="moreactions" title="Camera controls" aria-label="Camera controls" aria-expanded="false" aria-haspopup="true">${icon('left')}</button>
-      </div>
-      <div class="ev-badges"></div>` : ''}`;
+        <button class="tile-actions-toggle" data-a="moreactions" title="More camera controls" aria-label="More camera controls" aria-expanded="false">${icon('more')}</button>
+        <button data-a="bookmark" title="${opts.bookmarkLabel || 'Bookmark this moment'}" aria-label="${opts.bookmarkLabel || 'Bookmark this moment'}">${icon('bookmark')}</button>
+        <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
+      </div>` : ''}`;
     this.stage = this.el.querySelector('.stage');
     this.veil = this.el.querySelector('.veil');
     this.enhCanvas = this.el.querySelector('.enh-canvas');
@@ -250,13 +258,15 @@ export class Tile {
     const el = this.el;
     const dot = el.querySelector('.dot');
     if (dot) dot.className = `dot ${this.state === 'live' ? 'live' : this.state === 'off' ? 'off' : 'wait'}`;
+    el.classList.toggle('is-off', this.state === 'off');
+    el.classList.toggle('is-wait', this.state === 'wait');
     if (this.state === 'live') this.veil.hidden = true;
     else {
       this.veil.hidden = false;
       const err = s.player.info.error;
       this.veil.innerHTML = this.state === 'off'
-        ? `<div class="msg"><b>No signal</b><br>${esc(err || 'The camera is not responding. Retrying…')}</div>`
-        : `<div class="spin"></div><div class="msg">${esc(err ? err : 'Connecting…')}</div>`;
+        ? `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(err || 'The camera is not responding — retrying')}">No signal — retrying</div>`
+        : `<div class="msg" title="${esc(err || '')}">${esc(friendlyError(err))}</div>`;
     }
     const tag = el.querySelector('.kind');
     if (tag) { tag.textContent = s.kind === 'main' ? 'HD' : 'SD'; tag.classList.toggle('hd', s.kind === 'main'); }
@@ -341,7 +351,15 @@ export class Tile {
   setBadges(kinds) {
     const el = this.el.querySelector('.ev-badges');
     if (!el) return;
-    if (!kinds || !kinds.size) { if (el.childElementCount) el.innerHTML = ''; return; }
+    if (!kinds || !kinds.size) {
+      if (el.childElementCount) el.innerHTML = '';
+      delete this.el.dataset.ev;
+      return;
+    }
+    // The most urgent active kind colours the tile's border (Live board: the motion tile's 2px motion-colour
+    // ring) — tamper/video loss outrank a line crossing, which outranks plain motion.
+    const order = ['tamper', 'videoloss', 'intrusion', 'line', 'motion'];
+    this.el.dataset.ev = order.find((k) => kinds.has(k)) || [...kinds][0];
     el.innerHTML = [...kinds].map((k) => `<span class="ev-badge ${k}">${BADGE_LABEL[k] || k}</span>`).join('');
   }
 
