@@ -120,6 +120,10 @@ def _conn():
         c.row_factory = sqlite3.Row
         with _lock:
             c.executescript(SCHEMA)
+            # Added after release: how the person appears (JSON — see set_avatar). Existing databases get
+            # the column on first open.
+            if "avatar" not in {r[1] for r in c.execute("PRAGMA table_info(users)")}:
+                c.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
         _local.conn = c
     return c
 
@@ -204,8 +208,13 @@ def enabled() -> bool:
 def _public_user(r) -> dict | None:
     if r is None:
         return None
+    try:
+        avatar = json.loads(r["avatar"]) if "avatar" in r.keys() and r["avatar"] else None
+    except ValueError:
+        avatar = None
     return {"id": r["id"], "username": r["username"], "kind": r["kind"], "label": r["label"], "role": r["role"],
-            "has_totp": bool(r["totp_secret"]), "disabled": bool(r["disabled"]), "created_ts": r["created_ts"]}
+            "has_totp": bool(r["totp_secret"]), "disabled": bool(r["disabled"]), "created_ts": r["created_ts"],
+            "avatar": avatar}
 
 
 def get_user(user_id: int) -> dict | None:
@@ -291,6 +300,64 @@ def update_user(user_id: int, *, role: str | None = None, disabled: bool | None 
     # level until it happens to reconnect. Disabling already revoked; a role-only change needs the same.
     if disabled or role_changed:
         revoke_user_sessions(user_id, actor=actor)
+    return get_user(user_id)
+
+
+def rename_user(user_id: int, username: str, *, actor: str = "", ip: str = "") -> dict:
+    """A person changes their own username (sessions are by id, so everyone stays signed in)."""
+    r = _require_user(user_id)
+    username = (username or "").strip()
+    if not USERNAME_RE.fullmatch(username) or username.lower().startswith("device:"):
+        raise AuthError(422, "Usernames are 1-64 letters, digits, and . _ @ -")
+    if username == r["username"]:
+        return get_user(user_id)
+    try:
+        _w("UPDATE users SET username=?, updated_ts=? WHERE id=?", (username, _now(), user_id))
+    except sqlite3.IntegrityError:
+        raise AuthError(409, "That username is taken")
+    audit(actor or username, "user.rename", r["username"], ip, to=username)
+    return get_user(user_id)
+
+
+AVATAR_DIR = DATA / "avatars"
+AVATAR_PRESETS = tuple(f"p{i}" for i in range(1, 13))
+AVATAR_MAX_BYTES = 400_000   # the browser sends a ~256px JPEG (tens of KB); this is just a ceiling
+
+
+def avatar_photo_path(user_id: int):
+    return AVATAR_DIR / f"{int(user_id)}.jpg"
+
+
+def set_avatar(user_id: int, spec: dict, photo: bytes | None = None, *, ip: str = "") -> dict:
+    """How a person appears: {"kind": "initial", "color": "#rrggbb"}, {"kind": "preset", "id": "p1".."p12"},
+    or {"kind": "photo"} with the image bytes (JPEG or PNG, already downscaled in the browser)."""
+    r = _require_user(user_id)
+    kind = (spec or {}).get("kind")
+    if kind == "initial":
+        color = str(spec.get("color", ""))
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            raise AuthError(422, "Pick a colour")
+        value = {"kind": "initial", "color": color.lower()}
+    elif kind == "preset":
+        if spec.get("id") not in AVATAR_PRESETS:
+            raise AuthError(422, "Unknown avatar")
+        value = {"kind": "preset", "id": spec["id"]}
+    elif kind == "photo":
+        if not photo or len(photo) > AVATAR_MAX_BYTES or not (photo[:3] == b"\xff\xd8\xff" or photo[:8] == b"\x89PNG\r\n\x1a\n"):
+            raise AuthError(422, "That photo couldn't be used — try a JPEG or PNG")
+        AVATAR_DIR.mkdir(exist_ok=True)
+        tmp = avatar_photo_path(user_id).with_suffix(".tmp")
+        tmp.write_bytes(photo)
+        os.replace(tmp, avatar_photo_path(user_id))
+        value = {"kind": "photo", "v": int(_now())}
+    elif kind is None:
+        value = None
+    else:
+        raise AuthError(422, "Unknown avatar style")
+    if value is None or value["kind"] != "photo":
+        avatar_photo_path(user_id).unlink(missing_ok=True)
+    _w("UPDATE users SET avatar=?, updated_ts=? WHERE id=?", (json.dumps(value) if value else "", _now(), user_id))
+    audit(r["username"], "user.avatar", r["username"], ip, kind=kind)
     return get_user(user_id)
 
 

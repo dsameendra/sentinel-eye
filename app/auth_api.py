@@ -2,13 +2,13 @@
 cookie, and the /api/auth/* endpoints. Storage and the security primitives live in auth.py.
 
 With no accounts every request is an admin principal (via="none"), so routes never special-case "auth off"."""
-import math, re
+import base64, math, re
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -172,7 +172,7 @@ def _account(request: Request) -> Principal:
 def _me(p: Principal) -> dict:
     return {"auth_enabled": auth.enabled(), "via": p.via, "role": p.role or None, "limited": p.limited,
             "session_id": p.session_hash[:16] if p.session else None,
-            "user": ({k: p.user[k] for k in ("id", "username", "kind", "label", "role", "has_totp")}
+            "user": ({k: p.user.get(k) for k in ("id", "username", "kind", "label", "role", "has_totp", "avatar")}
                      if p.user else None)}
 
 
@@ -276,6 +276,50 @@ async def change_password(req: PasswordReq, request: Request):
         raise HTTPException(400, "The current password isn't right")
     await run_in_threadpool(auth.set_password, p.user_id, req.new, except_hash=p.session_hash, ip=ip_of(request))
     return {"ok": True}
+
+
+class ProfileReq(BaseModel):
+    username: str
+    password: str   # changing the name you sign in with asks for your password, like changing the password
+
+
+@router.patch("/profile")
+async def update_profile(req: ProfileReq, request: Request):
+    p = _account(request)
+    if await run_in_threadpool(auth.authenticate, p.username, req.password) is None:
+        raise HTTPException(400, "The password isn't right")
+    u = await run_in_threadpool(auth.rename_user, p.user_id, req.username, actor=p.username, ip=ip_of(request))
+    return {"ok": True, "username": u["username"]}
+
+
+class AvatarReq(BaseModel):
+    kind: str | None = None
+    color: str | None = None
+    id: str | None = None
+    photo: str | None = None   # data: URL of the browser-downscaled JPEG
+
+
+@router.put("/avatar")
+async def update_avatar(req: AvatarReq, request: Request):
+    p = _account(request)
+    photo = None
+    if req.kind == "photo":
+        try:
+            photo = base64.b64decode((req.photo or "").split(",", 1)[-1], validate=True)
+        except ValueError:
+            raise HTTPException(422, "That photo couldn't be read")
+    u = await run_in_threadpool(auth.set_avatar, p.user_id, {"kind": req.kind, "color": req.color, "id": req.id}, photo,
+                                ip=ip_of(request))
+    return {"ok": True, "avatar": u["avatar"]}
+
+
+@router.get("/avatar/{user_id}")
+def avatar_photo(user_id: int, request: Request):
+    _p(request)   # anyone signed in sees people's pictures (the avatar in the bar, the accounts list)
+    path = auth.avatar_photo_path(user_id)
+    if not path.exists():
+        raise HTTPException(404, "No photo")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=31536000"})
 
 
 class CodeReq(BaseModel):
