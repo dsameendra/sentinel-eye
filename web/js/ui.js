@@ -66,8 +66,8 @@ const P = {
   // A bracketed span of time — "pick a range to export" (crop meant the wrong thing on a timeline).
   // A figure in motion (motion events).
   // A walking pedestrian — Events (things that happened in front of a camera) and motion alerts.
-  walk: '<circle cx="14" cy="3.9" r="2.1"/><path d="M13 8.4 11.3 14"/><path d="M11.3 14 14 16.6l.7 4.9"/><path d="M11.3 14 8.4 21"/><path d="M13 8.4 9.4 10l-1.6 3.3"/><path d="m13 8.4 2 3.6 3.1 1.3"/>',
-  motion: '<circle cx="14" cy="3.9" r="2.1"/><path d="M13 8.4 11.3 14"/><path d="M11.3 14 14 16.6l.7 4.9"/><path d="M11.3 14 8.4 21"/><path d="M13 8.4 9.4 10l-1.6 3.3"/><path d="m13 8.4 2 3.6 3.1 1.3"/>',
+  walk: '<circle cx="13" cy="4" r="1.75"/><path d="M7 21l3-4"/><path d="M16 21l-2-4-3-3 1-6"/><path d="M6 12l2-3 4-1 3 3 3 1"/>',
+  motion: '<circle cx="13" cy="4" r="1.75"/><path d="M7 21l3-4"/><path d="M16 21l-2-4-3-3 1-6"/><path d="M6 12l2-3 4-1 3 3 3 1"/>',
   // Two arrows pointing in — leave full screen.
   collapse: '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>',
   // A remote's direction pad — "the arrows".
