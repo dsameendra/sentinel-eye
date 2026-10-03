@@ -424,8 +424,13 @@ whatever's already on screen, paused, this instant.
 - `GET /api/enhance/{job_id}` — `{state: queued|working|done|error, progress, error}`.
 - `GET /api/enhance/{job_id}/result` — the enhanced PNG, once done.
 - `GET /api/enhance/{job_id}/source` — the fused-but-not-AI-processed reference frame (the "before"), for the popup's before/after comparison — this is what the input actually looked like, not a claim about ground truth.
-- `POST /api/enhance/{job_id}/ocr` — body `{which: "result"|"source"}`. Runs synchronously (Tesseract on a
-  single already-in-hand image is sub-second, no job/poll needed) and returns `{lines: [{text, confidence}]}`.
+- `POST /api/enhance/{job_id}/ocr` — body `{which: "result"|"source", region: {cx, cy, w, h, angle}|null,
+  plate: bool}`. `region` is the operator's box: centre and size as fractions of the picture, `angle` in
+  degrees clockwise as drawn (the server levels the box, crops, scales and reads several cleaned variants,
+  keeping the reading most agree on); `plate` limits the read to plate characters with no dictionary.
+  Runs synchronously (about a second, no job/poll) and returns `{lines: [{text, confidence}], crop}` —
+  `crop` a PNG data URL of the levelled patch that was read (region reads only, else null).
+  `tools/bench_ocr.py` measures it on synthetic plates and signs.
   Optional, on-demand — never run automatically as part of the main pipeline (see 7.8.4a).
 
 ##### 7.8.4a OCR (optional, on demand)
