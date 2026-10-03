@@ -151,6 +151,7 @@ export class WCPlayer {
       tctx.drawImage(frame, 0, 0, tmp.width, tmp.height);
       out.push(tmp.toDataURL('image/png'));
     }
+    out.pausedIndex = this.bufIndex - start; // which of these is the frame on screen (not always the middle at a buffer edge)
     return out;
   }
 

@@ -671,82 +671,94 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 .dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 16px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
 
-/* AI frame enhancer (docs/enhance-ai-spec.md) — a large, near-fullscreen viewer, not the small dialog
-   style above: the whole point is close visual inspection of the result. */
-.enh-scrim { padding: 0; background: rgba(0, 0, 0, .78); }
-/* min-width: 0 overrides the grid item default of min-width: auto — without it, .scrim's grid layout let
-   this refuse to shrink below its own content's min-content width (the bottom toolbar's several buttons,
-   found directly: 666px on a 375px phone), pushing "Download enhanced" and others off the right edge of
-   the screen entirely with no way to reach them, rather than actually filling (and wrapping/scrolling
-   within) the real 100% width this rule already asked for. */
-.enh-viewer { width: 100%; min-width: 0; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
-.enh-viewer.is-fs { background: #000; }
-.enh-top { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.enh-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
-.enh-title .hint { font-weight: 400; }
-.enh-fuse { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
-.enh-fuse input { margin: 0; }
-.enh-topactions { display: flex; gap: 6px; margin-left: auto; flex: none; } /* pinned to the far right of .enh-top regardless of whether the fuse checkbox (only shown for a >1-frame burst) is present */
-.enh-top2 { flex: none; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.enh-weight { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.enh-weight input { width: 110px; }
-.enh-weight-val { font-variant-numeric: tabular-nums; width: 2.8em; }
-.enh-roi-chip { display: flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--accent-soft); padding: 3px 4px 3px 10px; border-radius: var(--r-full); }
-.enh-stage { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; container-type: size; display: grid; place-items: center; }
-.enh-pic { display: grid; place-items: center; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transform-origin: center; }
-.enh-pic > * { grid-area: 1 / 1; } /* the live-filter canvas overlays the <img> exactly, same trick as .pb-pic's raw+enhanced canvas pair */
-/* Same technique as .pb-pane canvas (see its comment) and .stage cam-player: an intrinsic box shaped like
-   the real picture, sized to fit in EITHER direction — a plain max-width/max-height (shrink-only) would
-   under-scale a source-resolution "before" frame that's smaller than the viewer, same bug fixed there. */
-.enh-img { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; }
-.enh-img-result { opacity: 1; }   /* set per-frame from the blend slider (JS) — no transition, so dragging tracks the pointer exactly */
-.enh-blend { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; flex: none; }
-.enh-blend input[type=range] { width: 130px; }
-.enh-blend-val { font-variant-numeric: tabular-nums; width: 3.2em; }
-/* Same phone-width fix as .enh-bottom's own comment above (the row scrolls, nothing's ever truly
-   unreachable), but the blend control is the widest thing in that row — trimming it here means less
-   scrolling stands between a phone and "Download enhanced", the primary action at the far end. */
-@media (max-width: 480px) {
-  .enh-blend .hint { display: none; }
-  .enh-blend input[type=range] { width: 84px; }
-}
-.enh-livefilter-canvas { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; pointer-events: none; }
-.enh-stage.flashlight-on { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='10' fill='rgba(255,214,130,0.22)' stroke='%23ffd682' stroke-width='2'/%3E%3Ccircle cx='14' cy='14' r='2.2' fill='%23ffd682'/%3E%3C/svg%3E") 14 14, crosshair; }
-.enh-stage .hitzone { position: absolute; inset: 0; z-index: 3; touch-action: none; }
-/* Sits above .hitzone (z-index 3) so a drag is captured as a selection instead of a pan while "Select
-   region" is active — pointer-events stays none the rest of the time so normal pan/zoom is unaffected. */
-.enh-roi-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; cursor: crosshair; }
-.enh-roi-layer.active { pointer-events: auto; }
-.enh-roi-box { position: absolute; border: 2px solid var(--accent); background: var(--ov-roi); box-shadow: 0 0 0 9999px var(--ov-scrim-soft); pointer-events: none; }
-.enh-stage .zoomtag { position: absolute; right: 10px; top: 10px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: var(--r-full); background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; box-shadow: 0 2px 8px var(--ov-scrim); }
-.enh-badge { position: absolute; left: 10px; bottom: 10px; z-index: 5; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 20px); padding: 7px 12px; border-radius: var(--r-sm); background: rgba(120, 53, 15, .92); color: #fef3c7; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px var(--ov-scrim); }
-.enh-badge svg { flex: none; width: 15px; height: 15px; }
-.enh-loading { position: absolute; inset: 0; z-index: 7; display: flex; flex-direction: column; gap: 16px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; }
-/* Progress stepper (redesign v2) — replaces a single changing status line with the mockups' done/now/next
-   steps, driven by the server's own real per-stage progress text (see enhancePopup.js's stepFor/setStep). */
-.enh-steps { display: flex; flex-direction: column; gap: 10px; min-width: 240px; }
+/* AI Frame Enhancer (Enhance board): a full screen in two steps — pick frames, then compare. */
+.enh2 { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; background: var(--bg); animation: xp-in var(--dur-chrome-in, .28s) var(--ease-out-expo, ease-out); }
+.enh2:fullscreen { background: #000; }
+.enh2-bar { flex: none; }
+.enh2-modes button { min-width: 64px; }
+.enh2-pick { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding: 24px; }
+.enh2-pick[hidden], .enh2-result[hidden] { display: none; }
+.enh2-pick h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+.enh2-cap { margin: 0; font-size: 13px; color: var(--muted); }
+.enh2-frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.enh2-frame { position: relative; aspect-ratio: 16 / 10; border-radius: var(--r-sm); overflow: hidden; border: 2px solid transparent; background: #0b0b0d; cursor: crosshair; touch-action: none; user-select: none; }
+.enh2-frame img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; opacity: .55; transition: opacity var(--dur-fast, .15s); }
+.enh2-frame.on { border-color: var(--accent); }
+.enh2-frame.on img { opacity: 1; }
+.enh2-frame:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.enh2-frame .ck { position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; background: rgba(0, 0, 0, .5); border: 1.5px solid rgba(255, 255, 255, .6); color: transparent; }
+.enh2-frame .ck .i { width: 12px; height: 12px; stroke-width: 3; }
+.enh2-frame.on .ck { background: var(--accent); border-color: var(--accent); color: #fff; }
+.enh2-here { position: absolute; left: 7px; bottom: 7px; height: 20px; padding: 0 8px; border-radius: var(--r-full); background: rgba(0, 0, 0, .6); color: #fff; font-size: 11px; font-weight: 600; display: grid; place-items: center; }
+.enh2-roi { position: absolute; border: 2px solid var(--accent); background: rgba(10, 132, 255, .15); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .35); pointer-events: none; border-radius: 3px; }
+.enh2-tip { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--muted); }
+.enh2-tip > .i { width: 17px; height: 17px; flex: none; }
+.enh2-tip .t { flex: 1; }
+.enh2-go { height: 44px; padding: 0 22px; border-radius: var(--r-full); font-weight: 600; }
+.enh2-result { flex: 1; min-height: 0; display: flex; gap: 20px; padding: 20px 24px; }
+.enh2-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.enh2-stage { position: relative; flex: 1; min-height: 0; border-radius: var(--r-lg); overflow: hidden; background: #000; container-type: size; display: grid; place-items: center; }
+.enh2-pic { display: grid; place-items: center; transform: translate(var(--zx, 0px), var(--zy, 0px)) scale(var(--zs, 1)); transform-origin: center; }
+.enh2-pic > *, .enh2-after > * { grid-area: 1 / 1; }
+.enh2-after { display: grid; place-items: center; }
+.enh2-img, .enh2-filter { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; }
+.enh2-img[hidden], .enh2-filter[hidden] { display: none; }
+.enh2-stage .hitzone { position: absolute; inset: 0; z-index: 3; touch-action: none; }
+.enh2-stage.flashlight-on .hitzone { cursor: crosshair; }
+.enh2-tag { position: absolute; top: 14px; z-index: 4; height: 24px; padding: 0 10px; border-radius: var(--r-full); background: rgba(20, 20, 23, .62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #fff; font-size: 12px; font-weight: 600; display: grid; place-items: center; pointer-events: none; }
+.enh2-tag.l { left: 14px; } .enh2-tag.r { right: 14px; }
+.enh2-tag[hidden], .enh2-split[hidden], .enh2-badge[hidden], .enh2-busy[hidden] { display: none; }
+.enh2-split { position: absolute; top: 0; bottom: 0; z-index: 5; width: 28px; margin-left: -14px; cursor: ew-resize; touch-action: none; }
+.enh2-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 13px; width: 2px; background: #fff; box-shadow: 0 0 6px rgba(0, 0, 0, .5); }
+.enh2-split > span { position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: #fff; color: #111; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0, 0, 0, .5); }
+.enh2-split > span .i { width: 12px; height: 12px; stroke-width: 2.4; margin: 0 -2px; }
+.enh2-split:focus-visible > span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.enh2-stage .zoomtag { position: absolute; right: 14px; bottom: 14px; z-index: 6; height: 26px; padding: 0 11px; border: 0; border-radius: var(--r-full); background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; }
+.enh2-badge { position: absolute; left: 14px; bottom: 14px; z-index: 5; max-width: calc(100% - 28px); display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: var(--r-full); background: rgba(120, 53, 15, .88); color: #fef3c7; font-size: 12px; font-weight: 600; pointer-events: none; }
+.enh2-badge .i { width: 14px; height: 14px; flex: none; }
+.enh2-busy { position: absolute; inset: 0; z-index: 7; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; background: linear-gradient(90deg, #0d0d10 25%, #16161a 37%, #0d0d10 63%); background-size: 400% 100%; animation: shimmer 1.6s ease-in-out infinite; color: #c7c7cc; font-size: 13px; text-align: center; padding: 20px; }
+.enh2-under { display: flex; align-items: center; gap: 12px; }
+.enh2-fid { flex: 1; max-width: 640px; display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--muted); }
+.enh2-fid[hidden] { display: none; }
+.enh2-fid input { flex: 1; accent-color: var(--accent); }
+.enh2-fid span:first-child { width: 58px; } .enh2-fid span:last-child { width: 86px; text-align: right; }
+.enh2-under .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.enh-steps { display: flex; flex-direction: column; gap: 10px; }
 .enh-step { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--faint); }
 .enh-step .n { width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--panel-2); color: var(--faint); }
-.enh-step.done { color: #cbd5e1; }
+.enh-step.done { color: var(--text); }
 .enh-step.done .n { background: var(--armed); color: var(--armed-ink); }
 .enh-step.done .n::before { content: "✓"; }
-.enh-step.now { color: #fff; font-weight: 600; }
+.enh-step.now { color: var(--text); font-weight: 600; }
 .enh-step.now .n { background: var(--accent); color: var(--accent-ink); }
 .enh-step.now .n::before { content: "●"; font-size: 8px; }
-.enh-ocr-panel { position: absolute; right: 10px; top: 10px; z-index: 6; width: min(320px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto; padding: 10px 12px; border-radius: var(--r-sm); background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
-.enh-ocr-head { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
-.enh-ocr-head .btn { margin-left: auto; }
-.enh-ocr-body { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
-.enh-ocr-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: var(--r-xs); background: var(--panel); font-size: 13px; }
-.enh-ocr-text { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
-.enh-ocr-conf { flex: none; color: var(--muted); font-size: 11.5px; }
-/* Same fix as .pb-ctrl-center (playback's transport row): 4 buttons + a status hint is wider than a phone
-   screen at any reasonable touch size — found directly, "Download enhanced" (the primary action) was
-   rendering fully off-screen with no way to reach it at all. Horizontal scroll instead of hiding anything,
-   for the same reason as that row: every action here stays reachable rather than silently disappearing. */
-.enh-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
-.enh-bottom .spacer { flex: 1; }
-.enh-bottom .btn, .enh-bottom .enh-status { flex: none; }
+.enh-step.fail { color: var(--danger); }
+.enh-step.fail .n { background: var(--danger); color: #fff; }
+.enh-step.fail .n::before { content: "!"; }
+.enh2-side { width: 300px; flex: none; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+.enh2-side .card { padding: 16px 18px; }
+.enh2-side .card h3 { margin: 0 0 12px; font-size: 15px; }
+.enh2-detected, .enh2-note { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.enh2-link { padding: 0; margin-top: 8px; color: var(--accent-text); }
+.enh2-ocrline { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.enh2-ocrline span:first-child { font: 600 16px/1.3 ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+.enh2-ocrline .pill { flex: none; height: 20px; padding: 0 8px; border-radius: var(--r-full); background: rgba(127, 127, 127, .18); color: var(--muted); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.enh2-ocrline .pill.ok { background: var(--armed-soft); color: var(--armed-text); }
+.enh2-ocr .enh2-ocrline + .enh2-note { margin-top: 10px; }
+.enh2-actions { display: flex; gap: 10px; margin-top: auto; }
+.enh2-actions .btn { flex: 1; justify-content: center; height: 42px; border-radius: var(--r-full); }
+.enh2-saveorig { align-self: center; color: var(--muted); }
+@media (max-width: 900px) {
+  .enh2-result { flex-direction: column; overflow-y: auto; padding: 14px 16px; }
+  .enh2-main { flex: none; }
+  .enh2-stage { flex: none; aspect-ratio: 4 / 3; }
+  .enh2-side { width: auto; overflow: visible; }
+  .enh2-actions { margin-top: 0; }
+  .enh2-pick { padding: 16px; }
+  .enh2-frames { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .enh2-bar .bar-actions { display: none; }
+}
+@media (max-width: 640px) { .enh2-bar .bar-actions { display: flex; order: 10; flex: 1 0 100%; overflow-x: auto; } }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .chip { padding: 5px 11px; border-radius: var(--r-full); border: 1px solid var(--line-2); background: var(--bg); }
 .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }

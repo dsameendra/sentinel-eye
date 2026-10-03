@@ -539,11 +539,12 @@ export class PlaybackView {
   _openFrameEnhancer() {
     if (this.playing || !this.panes.length) return;
     const primary = this.panes[0];
-    const images = primary.player.grabFrames(5);
+    const images = primary.player.grabFrames(7); // the enhancer lets you pick 1–7 of these
     if (!images.length) { toast('No decoded frame available to enhance yet.', 'bad'); return; }
     const d = this.ctx.settings().display; // Settings > Enhancement — were hardcoded 'auto'/0.5
     openEnhancePopup({
-      images, channel: primary.cam.channel, atUtc: new Date(this.currentEpoch * 1000).toISOString(),
+      images, pausedIndex: images.pausedIndex, camName: primary.cam.name || `Camera ${primary.cam.channel}`,
+      channel: primary.cam.channel, atUtc: new Date(this.currentEpoch * 1000).toISOString(), tzOffsetMin: this.tzOffsetMin,
       defaultMode: d.enhance_default_mode, defaultFidelity: d.enhance_default_fidelity,
     });
   }
