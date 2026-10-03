@@ -76,6 +76,8 @@ const P = {
   range: '<path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 12h6"/>',
   bookmark: '<path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-4 7 4Z"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  back5: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M3.6 3.4 4 7.6l4.2-.3"/><text x="12" y="15.4" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="-apple-system,system-ui,sans-serif">5</text>',
+  fwd5: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="m20.4 3.4-.4 4.2-4.2-.3"/><text x="12" y="15.4" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="-apple-system,system-ui,sans-serif">5</text>',
   back2: '<path d="M11 19l-8-7 8-7v14Z"/><path d="M21 19l-8-7 8-7v14Z"/>',
   fwd2: '<path d="M13 19l8-7-8-7v14Z"/><path d="M3 19l8-7-8-7v14Z"/>',
   sparkle: '<path d="m12 3 1.9 4.9L19 10l-5.1 2.1L12 17l-1.9-4.9L5 10l5.1-2.1L12 3Z"/>',

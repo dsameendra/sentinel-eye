@@ -71,7 +71,7 @@ export class Tile {
             <button data-a="zin" title="Zoom in (or scroll / pinch on the picture)" aria-label="Zoom in">${icon('plus')}</button>
             ${opts.fixedQuality ? '' : `<button class="txt" data-a="quality" title="Switch between SD and HD">HD</button>`}
             <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
-            ${opts.noReplay ? '' : `<button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('back2')}</button>`}
+            ${opts.noReplay ? '' : `<button data-a="replay" title="Instant replay (last 15 s)" aria-label="Instant replay">${icon('back2')}</button>`}
             <div class="menu-wrap enh-wrap">
               <button data-a="enhance" title="Live enhancement (brightness/contrast/sharpen)" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button>
             </div>

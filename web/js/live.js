@@ -620,11 +620,15 @@ export class LiveView {
   // .focus:fullscreen's own CSS comment for why. A harmless no-op in windowed mode (nothing there reads the
   // .show class the CSS only applies under .focus:fullscreen). Listeners live on `f` itself, so they're
   // discarded along with it on close/swap — no separate teardown needed.
-  _bindFocusAutoHide(f) {
+  _bindFocusAutoHide(f, stayUp = () => false) {
     const chrome = f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow, .focus-zoom');
     let hideTimer;
-    // Stays up while the pointer is over the bars or the zoom HUD, or a remote has focus in them.
-    const hide = () => { if (f.querySelector('.focus-bar:hover, .focus-bottom:hover, .focus-zoom:hover, .focus-bar :focus-visible, .focus-bottom :focus-visible, .focus-zoom :focus-visible')) { hideTimer = setTimeout(hide, 2600); return; } chrome.forEach((a) => a.classList.remove('show')); };
+    // Stays up while the pointer is over the bars or the zoom HUD, or a remote has focus in them (and, for
+    // Instant replay, while it's paused — like any player).
+    const hide = () => {
+      if (stayUp() || f.querySelector('.focus-bar:hover, .focus-bottom:hover, .focus-zoom:hover, .focus-bar :focus-visible, .focus-bottom :focus-visible, .focus-zoom :focus-visible')) { hideTimer = setTimeout(hide, 2600); return; }
+      chrome.forEach((a) => a.classList.remove('show'));
+    };
     const show = () => {
       chrome.forEach((a) => a.classList.add('show'));
       clearTimeout(hideTimer);
@@ -634,6 +638,7 @@ export class LiveView {
     f.addEventListener('mouseenter', show);
     f.addEventListener('touchstart', show, { passive: true });
     f.addEventListener('focusin', show);
+    if (f.classList.contains('focus')) this._focusShowFocus = show;
     this._focusShow = show;
     show();
   }
@@ -807,41 +812,174 @@ export class LiveView {
   }
 
   // ---------------------------------------------------------------- instant replay
-  // A dedicated small overlay that opens a real playback session (WCPlayer over /api/playback/ws)
-  // starting ~10s in the past and playing forward at 1x, rather than a client-side ring buffer — this
-  // reuses the already-verified DVR playback path instead of new plumbing. Counts against the DVR's
-  // 4-session playback cap like any other playback stream; released the moment it's closed.
+  // A real playback session (WCPlayer over /api/playback/ws) from 15 s ago, playing forward at 1x — it reuses
+  // the verified DVR playback path instead of a client-side ring buffer, counts against the recorder's
+  // playback budget like any review, and is released the moment it's closed. It looks and behaves like
+  // Focus: the picture fills the screen, glass bars fade away while you watch. The bottom bar is a small
+  // player: a scrubber from where the replay started to now, play/pause, 5 s skips, start over, and
+  // Back to live. Skips and scrubs inside what's already decoded are instant (WCPlayer keeps ~30 s);
+  // further back asks the recorder.
   openReplay(cam, seconds = 15) {
     this.closeReplay();
     const r = document.createElement('div');
-    r.className = 'replay-overlay';
+    r.className = 'replay-overlay' + (this.fitMode() === 'cover' ? ' fill' : '');
     r.dataset.tvScope = '';
-    r.innerHTML = `<div class="focus-bar show">
+    r.innerHTML = `<div class="focus-bar">
         <button class="btn icon ghost bar-back" data-a="x" title="Close (Esc)" aria-label="Close instant replay">${icon('left')}</button>
-        <div class="bar-title"><h2>Instant replay</h2><div class="bar-sub"><span class="dot wait"></span><span class="stat">starting…</span><span>· ${esc(cam.name || 'Camera ' + cam.channel)} · last ${seconds}s</span></div></div>
+        <div class="bar-title"><h2>Instant replay</h2><div class="bar-sub"><span class="dot wait"></span><span class="stat">Starting…</span><span>· ${esc(cam.name || 'Camera ' + cam.channel)}</span></div></div>
         <span class="spacer"></span>
       </div><div class="replay-stage"><canvas></canvas></div>
-      <div class="focus-bottom show"><span class="spacer"></span><button class="btn primary" data-a="live">${icon('play')}Back to live</button></div>`;
+      <div class="focus-bottom rp-bottom">
+        <div class="rp-scrub"><span class="rp-t rp-at">0:00</span>
+          <div class="rp-track" role="slider" tabindex="0" aria-label="Replay position" aria-valuemin="0"><div class="rp-buf"></div><div class="rp-fill"></div><div class="rp-knob"></div></div>
+          <span class="rp-t rp-behind" title="How far behind live">−0:${String(seconds).padStart(2, '0')}</span></div>
+        <div class="rp-row">
+          <span class="rp-clock" aria-live="off"></span>
+          <div class="rp-transport">
+            <button class="btn icon ghost" data-a="restart" title="Start over" aria-label="Start over">${icon('rewind')}</button>
+            <button class="btn icon ghost" data-a="back5" title="Back 5 seconds (←)" aria-label="Back 5 seconds">${icon('back5')}</button>
+            <button class="btn rp-play" data-a="play" title="Pause (Space)" aria-label="Pause" data-tv-default>${icon('pause')}</button>
+            <button class="btn icon ghost" data-a="fwd5" title="Forward 5 seconds (→)" aria-label="Forward 5 seconds">${icon('fwd5')}</button>
+            <span class="rp-gap" aria-hidden="true"></span>
+          </div>
+          <button class="btn primary rp-live" data-a="live">${icon('play')}Back to live</button>
+        </div>
+      </div>`;
     this.live.append(r);
     const canvas = r.querySelector('canvas');
-    const pill = r.querySelector('.stat');
+    const startEpoch = Date.now() / 1000 - seconds;
+    const rp = { el: r, cam, startEpoch, at: null, playing: true, holdAfterSeek: false };
     const player = new WCPlayer(canvas, {
-      onState: (s) => { pill.textContent = s === 'playing' ? 'Replaying' : s === 'queued' ? 'Waiting for a recorder session…' : (s ? s[0].toUpperCase() + s.slice(1) : ''); pill.previousElementSibling.className = `dot ${s === 'playing' ? 'armed' : 'wait'}`; },
-      onError: (msg) => { pill.textContent = 'error'; toast(`Instant replay: ${msg}`, 'bad', 6000); },
+      onState: () => this._replayPaint(),
+      onError: (msg) => toast(`Instant replay: ${msg}`, 'bad', 6000),
+      onFrame: (t) => {
+        rp.at = t;
+        // The picture's own shape, so the stage can size it to fill the screen whatever its resolution.
+        if (canvas.width && canvas.height) r.style.setProperty('--ar', (canvas.width / canvas.height).toFixed(4));
+        if (rp.holdAfterSeek) { rp.holdAfterSeek = false; player.pauseHere(); }
+        this._replayPaint();
+      },
     });
     if (!player.supported) { toast(`Instant replay unavailable: ${unsupportedReason()}`, 'bad', 8000); r.remove(); return; }
-    const startIso = new Date(Date.now() - seconds * 1000).toISOString();
-    player.connect(cam.id, startIso, '1');
-    this.replay = { el: r, player, cam };
-    r.querySelector('[data-a=live]').addEventListener('click', () => this.closeReplay());
-    r.querySelector('[data-a=x]').addEventListener('click', () => this.closeReplay());
+    rp.player = player;
+    player.connect(cam.id, new Date(startEpoch * 1000).toISOString(), '1');
+    this.replay = rp;
+    rp.tick = setInterval(() => this._replayPaint(), 250);   // "now" keeps moving even while paused
+    const on = (a, fn) => r.querySelector(`[data-a=${a}]`).addEventListener('click', fn);
+    on('live', () => this.closeReplay());
+    on('x', () => this.closeReplay());
+    on('play', () => this.replayToggle());
+    on('back5', () => this.replaySkip(-5));
+    on('fwd5', () => this.replaySkip(5));
+    on('restart', () => this.replayJump(rp.startEpoch, true));
+    this._bindReplayScrub(r.querySelector('.rp-track'));
+    // Double-click / double-tap the picture: fit ⇄ fill, for this replay only (like a video player's zoom).
+    r.querySelector('.replay-stage').addEventListener('dblclick', () => r.classList.toggle('fill'));
+    this._bindFocusAutoHide(r, () => !this.replay?.playing);
+  }
+
+  /** Pause, or play on from the frame on screen (out of the buffer, so no wait). */
+  replayToggle() {
+    const rp = this.replay;
+    if (!rp) return;
+    if (rp.playing) { rp.player.pauseHere(); rp.playing = false; }
+    else { rp.player.playFromHere(); rp.playing = true; }
+    this._replayPaint();
+    this._focusShow?.();
+  }
+
+  replaySkip(sec) {
+    const rp = this.replay;
+    if (!rp || rp.at == null) return;
+    this.replayJump(rp.at + sec, rp.playing);
+    this._focusShow?.();
+  }
+
+  /** Go to `t` (epoch seconds): instantly if it's decoded already, else a seek on the open session. */
+  replayJump(t, play) {
+    const rp = this.replay;
+    if (!rp) return;
+    const now = Date.now() / 1000;
+    t = Math.max(rp.startEpoch - 60, Math.min(t, now - 3));   // up to a minute before it began; the recorder trails live by a moment
+    if (rp.player.showTime(t)) {
+      rp.at = t;
+      if (play) rp.player.playFromHere();
+    } else {
+      rp.holdAfterSeek = !play;
+      rp.player.seek(new Date(t * 1000).toISOString(), '1');
+      rp.at = t;
+    }
+    if (t < rp.startEpoch) rp.startEpoch = t;
+    rp.playing = !!play;
+    this._replayPaint();
+  }
+
+  _bindReplayScrub(track) {
+    const timeAt = (e) => {
+      const rp = this.replay, b = track.getBoundingClientRect();
+      const f = Math.min(1, Math.max(0, (e.clientX - b.left) / b.width));
+      return rp.startEpoch + f * (Date.now() / 1000 - rp.startEpoch);
+    };
+    track.addEventListener('pointerdown', (e) => {
+      const rp = this.replay;
+      if (!rp) return;
+      e.preventDefault();
+      track.setPointerCapture(e.pointerId);
+      const resume = rp.playing;
+      rp.player.pauseHere(); rp.playing = false;
+      const move = (ev) => { rp.player.showTime(timeAt(ev)) && (rp.at = timeAt(ev)); this._replayPaint(timeAt(ev)); };
+      const up = (ev) => {
+        track.removeEventListener('pointermove', move); track.removeEventListener('pointerup', up); track.removeEventListener('pointercancel', up);
+        this.replayJump(timeAt(ev), resume);
+      };
+      move(e);
+      track.addEventListener('pointermove', move); track.addEventListener('pointerup', up); track.addEventListener('pointercancel', up);
+    });
+    track.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); this.replaySkip(e.key === 'ArrowLeft' ? -5 : 5); }
+    });
+  }
+
+  /** Scrubber, times and the play button, from the replay's state. `dragAt` previews a scrub in progress. */
+  _replayPaint(dragAt) {
+    const rp = this.replay;
+    if (!rp) return;
+    const r = rp.el, now = Date.now() / 1000, span = Math.max(1, now - rp.startEpoch);
+    const at = dragAt ?? rp.at ?? rp.startEpoch;
+    const pct = (t) => `${Math.min(100, Math.max(0, ((t - rp.startEpoch) / span) * 100))}%`;
+    r.querySelector('.rp-fill').style.width = pct(at);
+    r.querySelector('.rp-knob').style.left = pct(at);
+    const buf = rp.player.buffered;
+    const bufEl = r.querySelector('.rp-buf');
+    if (buf) { bufEl.style.left = pct(buf[0]); bufEl.style.width = `calc(${pct(buf[1])} - ${pct(buf[0])})`; }
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    r.querySelector('.rp-at').textContent = mmss(Math.max(0, at - rp.startEpoch));
+    r.querySelector('.rp-behind').textContent = `−${mmss(Math.max(0, now - at))}`;
+    r.querySelector('.rp-clock').textContent = rp.at == null ? '' : new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const track = r.querySelector('.rp-track');
+    track.setAttribute('aria-valuemax', String(Math.round(span)));
+    track.setAttribute('aria-valuenow', String(Math.round(at - rp.startEpoch)));
+    // Status: the session's own state while it's getting going, else what the viewer asked for.
+    const st = rp.player.state, waiting = rp.at == null || st === 'queued' || st === 'connecting' || st === 'error';
+    const pill = r.querySelector('.bar-sub .stat');
+    pill.textContent = st === 'error' ? 'Unavailable' : st === 'queued' ? 'Waiting for a recorder session…' : waiting ? 'Loading…' : rp.playing ? 'Replaying' : 'Paused';
+    pill.previousElementSibling.className = `dot ${st === 'error' ? 'off' : !waiting && rp.playing ? 'armed' : 'wait'}`;
+    const b = r.querySelector('.rp-play');
+    if (b.dataset.on !== String(rp.playing)) {
+      b.dataset.on = String(rp.playing);
+      b.innerHTML = icon(rp.playing ? 'pause' : 'play');
+      b.title = rp.playing ? 'Pause (Space)' : 'Play (Space)';
+      b.setAttribute('aria-label', rp.playing ? 'Pause' : 'Play');
+    }
   }
 
   closeReplay() {
     if (!this.replay) return;
+    clearInterval(this.replay.tick);
     this.replay.player.destroy();
     this.replay.el.remove();
     this.replay = null;
+    this._focusShow = this.focus ? this._focusShowFocus : null;
   }
 
   /** Called by main.js when the tab/installed app regains visibility (see Tile.resume's own comment for
@@ -877,10 +1015,20 @@ export class LiveView {
     const tvPlay = this.tvMode && (/^(MediaPlayPause|MediaPlay|MediaPause|MediaStop)$/.test(e.key) || [10252, 415, 19, 413].includes(e.keyCode));
     const k = tvBack ? 'Escape' : e.key;
     if (this.tvMode) this._tvWake();
+    if (tvPlay && this.replay) { e.preventDefault(); this.replayToggle(); return; }
     if (tvPlay) { e.preventDefault(); this._tvPlayPause(); return; }
     if (tvBack && document.body._openPopover) { e.preventDefault(); closePopover(); return; }
     if (k === '?') { shortcutsDialog(); return; }
-    if (this.replay) { if (k === 'Escape') { e.preventDefault(); this.closeReplay(); } return; }
+    if (this.replay) {
+      // Space plays/pauses and ←/→ skip 5 s, unless a remote is moving between the replay's own buttons.
+      const onBtn = document.activeElement?.closest?.('.replay-overlay button');
+      this._focusShow?.();
+      if (k === 'Escape') { e.preventDefault(); this.closeReplay(); }
+      else if (k === ' ' && !onBtn) { e.preventDefault(); this.replayToggle(); }
+      else if ((k === 'ArrowLeft' || k === 'ArrowRight') && !(this.tvMode && onBtn)) { e.preventDefault(); this.replaySkip(k === 'ArrowLeft' ? -5 : 5); }
+      else if (k === 'Home') { e.preventDefault(); this.replayJump(this.replay.startEpoch, true); }
+      return;
+    }
     if (this.focus) {
       // On a remote, Left/Right switch cameras unless a control in Focus's own bars has the focus — then
       // they move between those controls (tvnav); Up/Down always go to the controls.

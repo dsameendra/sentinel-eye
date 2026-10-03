@@ -79,6 +79,7 @@ export class WCPlayer {
    * session stays open and keeps decoding into the buffer in the background, so stepping forward right
    * after pausing has frames already waiting instead of needing a fresh DVR round trip. */
   pauseHere() {
+    this._playout = 0;
     this.following = false;
     this._setState('paused');
   }
@@ -87,6 +88,7 @@ export class WCPlayer {
    * than visibly replaying whatever arrived while paused) and reconnects only if the session had actually
    * been closed (e.g. after a seek elsewhere). */
   resumeFollow() {
+    this._playout = 0;
     this.following = true;
     if (this.buffer.length) {
       this.bufIndex = this.buffer.length - 1;
@@ -94,6 +96,45 @@ export class WCPlayer {
     }
     if (this.ws?.readyState === WebSocket.OPEN) this._setState('playing');
   }
+
+  /** Play on from the frame on screen at the stream's own pace, out of what's already buffered (frames kept
+   * arriving while paused), rather than jumping to the newest one — Instant replay's play after a pause or a
+   * skip. Hands back to following the incoming stream if it ever catches up with it. */
+  playFromHere() {
+    if (this.bufIndex < 0 || this.bufIndex >= this.buffer.length - 1) { this.resumeFollow(); return; }
+    const id = this._playout = this._playoutSeq = (this._playoutSeq || 0) + 1;   // never reused, so an older loop always stops
+    const t0 = performance.now(), a0 = this.buffer[this.bufIndex].absTime, rate = Number(this.speed) || 1;
+    this.following = false;
+    this._setState('playing');
+    const tick = () => {
+      if (this._playout !== id || this._closed) return;
+      const target = a0 + ((performance.now() - t0) / 1000) * rate;
+      let i = Math.max(0, this.bufIndex);
+      while (i < this.buffer.length - 1 && this.buffer[i + 1].absTime <= target) i++;
+      if (i !== this.bufIndex) { this.bufIndex = i; this._paintIndex(i); this.opts.onFrame?.(this.buffer[i].absTime, this.frameCount); }
+      if (i >= this.buffer.length - 1) { this._playout = 0; this.following = true; return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** Show the buffered frame at `absTime` (epoch seconds) if the buffer reaches that far; false if it doesn't
+   * (the caller then asks the recorder with seek()). Leaves the player paused there. */
+  showTime(absTime) {
+    const b = this.buffer;
+    if (!b.length || absTime < b[0].absTime - 0.25 || absTime > b[b.length - 1].absTime + 0.25) return false;
+    let i = 0;
+    while (i < b.length - 1 && b[i + 1].absTime <= absTime) i++;
+    this._playout = 0;
+    this.following = false;
+    this.bufIndex = i;
+    this._paintIndex(i);
+    this.opts.onFrame?.(b[i].absTime, this.frameCount);
+    return true;
+  }
+
+  /** The time span held in memory, [oldest, newest] epoch seconds, or null. */
+  get buffered() { return this.buffer.length ? [this.buffer[0].absTime, this.buffer[this.buffer.length - 1].absTime] : null; }
 
   _clearBuffer() {
     for (const { frame } of this.buffer) { try { frame.close(); } catch { /* already closed */ } }
@@ -209,6 +250,7 @@ export class WCPlayer {
    * through this point); otherwise waits briefly for one more frame to arrive on the still-open
    * connection — never a fresh DVR session, unlike the old implementation. */
   async stepForward() {
+    this._playout = 0;
     this.following = false;
     if (this.bufIndex < this.buffer.length - 1) {
       this.bufIndex++;
@@ -237,6 +279,7 @@ export class WCPlayer {
   /** Previous frame. Instant when still within the buffered window (the common case); falls back to a
    * one-shot DVR fetch only once stepping back past the oldest frame still held in memory. */
   async stepBackward(beforeEpoch, channel) {
+    this._playout = 0;
     this.following = false;
     if (this.bufIndex > 0) {
       this.bufIndex--;
@@ -303,6 +346,7 @@ export class WCPlayer {
 
   /** Send a control message without reconnecting (seek within the open session, or change speed). */
   seek(iso, scale) {
+    this._playout = 0;
     this._clearBuffer();
     this.following = true;
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'seek', t: iso, scale }));
@@ -319,6 +363,7 @@ export class WCPlayer {
 
   destroy() {
     this._closed = true;
+    this._playout = 0;
     if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; }
     this.disconnectSocket();
     if (this.decoder && this.decoder.state !== 'closed') { try { this.decoder.close(); } catch { /* already closed */ } }
