@@ -61,7 +61,13 @@ const P = {
   calendar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/>',
   // Redesign v2 — taken from the design boards' own SVGs (24x24, line, 1.6 stroke via svg.i).
   bell: '<path d="M18 8a6 6 0 0 0-12 0c0 4-2 5-2 7h16c0-2-2-3-2-7Z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.97 7.97 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L14.9 3h-4l-.4 2.9a8 8 0 0 0-1.7 1l-2.5-1-2 3.4L6.4 11a8 8 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a8 8 0 0 0 1.7 1L9.9 21h4l.4-2.9a8 8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 13Z"/>',
+  // Centred on the 24-unit grid (the old one sat ~1px right of centre and read small next to its neighbours).
+  gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  // A bracketed span of time — "pick a range to export" (crop meant the wrong thing on a timeline).
+  // A figure in motion (motion events).
+  motion: '<circle cx="14" cy="4.5" r="2"/><path d="m8.5 21 2.6-5.6 2.9 2.6V22"/><path d="M6 11.5 9 8l4.2.4 2.3 3.6 3 .8"/><path d="m11.1 15.4 1.6-7"/>',
+  excl: '<path d="M12 6.5v7"/><path d="M12 17.5h.01"/>',
+  range: '<path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 12h6"/>',
   bookmark: '<path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-4 7 4Z"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   back2: '<path d="M11 19l-8-7 8-7v14Z"/><path d="M21 19l-8-7 8-7v14Z"/>',
@@ -90,13 +96,42 @@ export function toast(msg, kind = 'ok', ms = 4200, opts = {}) {
   if (!host) return;
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
-  t.innerHTML = `${opts.dot ? `<span class="toast-dot" style="background:${opts.dot}"></span>` : icon(kind === 'ok' ? 'checkcircle' : 'alert')}<div>${esc(msg)}</div>`;
+  t.innerHTML = `${opts.dot ? `<span class="toast-dot" style="background:${opts.dot}"></span>` : icon(kind === 'ok' ? 'check' : 'excl')}<div>${esc(msg)}</div>`;
   host.prepend(t);   // newest on top, nearest the edge it drops from
   while (host.children.length > 3) host.lastElementChild.remove();
   const leave = () => { t.classList.add('out'); setTimeout(() => t.remove(), 320); };
   setTimeout(leave, ms);
   t.addEventListener('click', () => { leave(); opts.onClick?.(); });
   if (opts.onClick) t.classList.add('tappable');
+}
+
+/** Event notifications (a different job from toast(): something happened on a camera, worth a look) —
+ * glass banners stacked under the top-right of the bar (top centre on a phone), each with a kind-coloured
+ * glyph, title, body and, when there is one, a thumbnail of the picture at that moment. Tap to open;
+ * hovering holds it; at most three. */
+export function notify({ title, body = '', glyph = 'bell', color = 'var(--accent)', thumb = null, onClick = null, ms = 6500 }) {
+  let host = document.getElementById('notifs');
+  if (!host) { host = document.createElement('div'); host.id = 'notifs'; host.setAttribute('aria-live', 'polite'); }
+  (document.fullscreenElement || document.body).append(host);
+  const n = document.createElement('div');
+  n.className = `notif-banner${onClick ? ' tappable' : ''}`;
+  n.setAttribute('role', 'status');
+  n.style.setProperty('--n-color', color);
+  n.innerHTML = `<span class="nb-glyph">${icon(glyph)}</span>
+    <div class="nb-text"><b>${esc(title)}</b>${body ? `<span>${esc(body)}</span>` : ''}</div>
+    ${thumb ? `<img class="nb-thumb" src="${thumb}" alt="">` : ''}
+    <button class="nb-close" aria-label="Dismiss">${icon('close')}</button>`;
+  host.prepend(n);
+  while (host.children.length > 3) host.lastElementChild.remove();
+  let timer = 0;
+  const leave = () => { clearTimeout(timer); n.classList.add('out'); setTimeout(() => n.remove(), 320); };
+  const arm = () => { clearTimeout(timer); timer = setTimeout(leave, ms); };
+  n.addEventListener('mouseenter', () => clearTimeout(timer));
+  n.addEventListener('mouseleave', arm);
+  n.querySelector('.nb-close').addEventListener('click', (e) => { e.stopPropagation(); leave(); });
+  n.addEventListener('click', () => { leave(); onClick?.(); });
+  arm();
+  return n;
 }
 
 /** Keeps Tab/Shift+Tab cycling within an open dialog instead of walking onto whatever's behind the scrim
@@ -213,7 +248,8 @@ export function shortcutsDialog() {
  * before this). Positioned in the viewport (not the DOM), clamped so it never runs off-screen, and closes
  * itself on an outside click or Escape. Returns the menu element in case the caller wants it (e.g. to
  * close it early on selection). At most one popover from this helper is open at a time. */
-export function openPopover(anchorEl, innerHTML, { className = '', align = 'right' } = {}) {
+/** @param onClose called once when the popover goes away, however it's dismissed. */
+export function openPopover(anchorEl, innerHTML, { className = '', align = 'right', onClose = null } = {}) {
   const already = document.body._openPopover;
   closePopover();
   if (already?._anchor === anchorEl) return null; // second click on the same button: treat as toggle-close
@@ -239,6 +275,7 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
   menu._cleanup = () => { document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
   menu._anchor = anchorEl;
+  menu._onClose = onClose;
   document.body._openPopover = menu;
   return menu;
 }
@@ -250,6 +287,7 @@ export function closePopover() {
   menu._cleanup?.();
   menu.remove();
   document.body._openPopover = null;
+  menu._onClose?.();
 }
 
 /** Debounce helper. */

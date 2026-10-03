@@ -391,6 +391,18 @@ export class Tile {
 
   /** Captures whichever picture is actually on screen — the L0-enhanced frame if enhancement is on, the
    * original otherwise. That's "your choice" (spec 11.5): toggle enhancement, then snapshot. */
+  /** A small JPEG of the picture on screen right now (event notifications), or null with nothing decoded. */
+  thumbnail(w = 160) {
+    const v = this.cur?.player.video;
+    if (!v || !v.videoWidth) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = Math.round(w * v.videoHeight / v.videoWidth);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.7);
+    } catch { return null; }
+  }
+
   snapshot() {
     const enhanced = !this.enhCanvas.hidden;
     const v = this.cur?.player.video;

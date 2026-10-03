@@ -128,7 +128,7 @@ export class PlaybackView {
               <button class="btn icon ghost" data-a="bookmark" title="Bookmark this moment (B)" aria-label="Bookmark this moment">${icon('bookmark')}</button>
               <div class="menu-wrap enh-wrap"><button class="btn icon ghost" data-a="enhance" title="Picture adjustments" aria-label="Picture adjustments" aria-haspopup="true">${icon('sparkle')}</button></div>
               <button class="btn icon ghost" data-a="aienhance" title="AI frame enhancer — pause first" aria-label="AI frame enhancer">${icon('scan')}</button>
-              <button class="btn icon ghost" data-a="selectrange" title="Pick a range on the timeline to export" aria-label="Select a range">${icon('crop')}</button>
+              <button class="btn icon ghost" data-a="selectrange" title="Pick a range on the timeline to export" aria-label="Select a range">${icon('range')}</button>
               <button class="btn icon ghost" data-a="pbfs" title="Full screen (F)" aria-label="Full screen">${icon('expand')}</button>
               <button class="btn icon ghost" data-a="pbmore" title="More" aria-label="More playback options" aria-haspopup="true">${icon('more')}</button>
             </div>
@@ -256,25 +256,44 @@ export class PlaybackView {
   }
 
   _openCamPicker(anchor) {
-    const selected = this.panes.map((p) => p.cam.id);
+    // Pick several at once: the popover stays open, ticks are staged, and the panes change once — when it
+    // closes (Done, a tap outside, Esc) — instead of reconnecting the recorder on every tick.
+    const before = this.panes.map((p) => p.cam.id);
+    const picked = [...before];
     const menu = openPopover(anchor, `<div class="cam-picker">
       <div class="pop-label">Cameras · up to ${MAX_PANES} at once</div>
-      <div class="cam-list">${this.cams().map((c) => {
-        const on = selected.includes(c.id);
-        return `<label class="cam-item ${on ? 'on' : ''}" data-id="${c.id}"><input type="checkbox" ${on ? 'checked' : ''} ${!on && selected.length >= MAX_PANES ? 'disabled' : ''}><span class="name">${esc(c.name || 'Camera ' + c.channel)}</span></label>`;
-      }).join('')}</div>
+      <div class="cam-list">${this.cams().map((c) => `<label class="cam-item" data-id="${c.id}"><input type="checkbox"><span class="name">${esc(c.name || 'Camera ' + c.channel)}</span></label>`).join('')}</div>
+      <div class="cam-pick-foot"><span class="cam-pick-n"></span><button class="btn primary sm" data-a="done">Done</button></div>
       ${this._pool ? `<div class="pop-foot">${this._pool.busy}/${this._pool.limit} recorder sessions in use</div>` : ''}
-    </div>`, { className: 'cam-pop', align: 'left' });
+    </div>`, {
+      className: 'cam-pop', align: 'left',
+      onClose: () => { if (picked.join() !== before.join()) this._setSelection(picked); },
+    });
     if (!menu) return;
+    const paint = () => {
+      menu.querySelectorAll('.cam-item').forEach((el) => {
+        const id = el.dataset.id, on = picked.includes(id), cb = el.querySelector('input');
+        cb.checked = on;
+        el.classList.toggle('on', on);
+        // Full at four: the rest wait. And never zero: the last one can't be unticked.
+        cb.disabled = (!on && picked.length >= MAX_PANES) || (on && picked.length === 1);
+        el.title = !on && picked.length >= MAX_PANES ? `Up to ${MAX_PANES} cameras at once — untick one first` : on && picked.length === 1 ? 'At least one camera stays selected' : '';
+      });
+      menu.querySelector('.cam-pick-n').textContent = `${picked.length} of ${MAX_PANES} selected`;
+    };
     menu.querySelectorAll('.cam-item input').forEach((cb) => cb.addEventListener('change', () => {
       const id = cb.closest('.cam-item').dataset.id;
-      let ids = this.panes.map((p) => p.cam.id);
-      if (cb.checked) { if (ids.length < MAX_PANES) ids.push(id); }
-      else { ids = ids.filter((x) => x !== id); if (!ids.length) ids = [id]; } // never end up with zero panes
-      closePopover();
-      this._setSelection(ids);
+      const i = picked.indexOf(id);
+      if (cb.checked && i < 0 && picked.length < MAX_PANES) picked.push(id);
+      if (!cb.checked && i >= 0 && picked.length > 1) picked.splice(i, 1);
+      paint();
+      // The fourth tick fills the screen — close (and apply) on its own, a beat later so the tick is seen.
+      if (cb.checked && picked.length === MAX_PANES) setTimeout(() => { if (document.body._openPopover === menu) closePopover(); }, 380);
     }));
+    menu.querySelector('[data-a=done]').addEventListener('click', () => closePopover());
+    paint();
   }
+
 
   /** Date label → the shared date/time picker in a popover (Calendar board), with the board's quick jumps. */
   _openCalendar(anchor) {
@@ -335,7 +354,7 @@ export class PlaybackView {
     const speedRow = hidden('.speed-seg') ? `<div class="pop-row"><span>Speed</span><div class="seg" role="group" aria-label="Speed">
         ${['0.5', '1', '4', '16'].map((sp) => `<button data-s="${sp}" aria-pressed="${sp === this.speed}">${sp === '0.5' ? '½' : sp}×</button>`).join('')}</div></div>` : '';
     const extra = [
-      hidden('[data-a=selectrange]') ? `<button class="pop-item" data-m="range">${icon('crop')}<span>Select a range to export</span></button>` : '',
+      hidden('[data-a=selectrange]') ? `<button class="pop-item" data-m="range">${icon('range')}<span>Select a range to export</span></button>` : '',
       hidden('[data-a=pbfs]') ? `<button class="pop-item" data-m="fs">${icon('expand')}<span>Full screen</span></button>` : '',
     ].join('');
     const menu = openPopover(anchor, `<div class="view-menu">

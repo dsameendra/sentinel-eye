@@ -1,7 +1,7 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
+import { bookmarkDialog, closePopover, esc, icon, notify, toast, openPopover, shortcutsDialog } from './ui.js';
 import { barHTML, globalActionsHTML, markBell, wireGlobal } from './bar.js';
 import { onboardingDialog } from './onboarding.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
@@ -426,8 +426,7 @@ export class LiveView {
     const n = this.s.channels.filter((c) => c.enabled).length;
     t.el.classList.add('overview-tile');
     t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>All ${n} channel${n === 1 ? '' : 's'}, one mosaic feed · fixed quality</span></div>
-      <div class="overview-cap bottom"><div><b>Full property overview</b><small>The recorder's own multi-camera picture — not a camera of its own</small></div>
-      ${this.ctx.can('operator') ? `<button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button>` : ''}</div>`);
+      ${this.ctx.can('operator') && !this.tvMode ? `<div class="overview-cap bottom"><span class="spacer"></span><button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button></div>` : ''}`);
     t.el.querySelector('[data-a=bookmark-all]')?.addEventListener('click', (e) => { e.stopPropagation(); this.bookmarkAllCams(); });
     w.append(t.el);
     this.liveCount = 0; this.wallSince = Date.now();
@@ -746,18 +745,23 @@ export class LiveView {
     const now = Date.now();
     this._evSeen ||= new Set(rows.map((r) => r.id));   // first poll: what's already happening isn't news
     this._evCamAt ||= new Map();
-    const LABEL = { motion: 'Motion', line: 'Line crossed', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video lost' };
-    const DOT = { motion: 'var(--ev-motion)', line: 'var(--ev-line)', intrusion: 'var(--ev-line)', tamper: 'var(--tamper)', videoloss: 'var(--ev-videoloss)' };
+    const KIND = {
+      motion: ['Motion', 'motion', 'var(--ev-motion)'], line: ['Line crossed', 'range', 'var(--ev-line)'], intrusion: ['Intrusion', 'shield', 'var(--ev-line)'],
+      tamper: ['Tamper', 'alert', 'var(--tamper)'], videoloss: ['Video lost', 'offline', 'var(--ev-videoloss)'],
+    };
     for (const r of rows) {
       if (this._evSeen.has(r.id)) continue;
       this._evSeen.add(r.id);
-      if (!LABEL[r.kind] || this.focus || document.hidden) continue;
+      if (!KIND[r.kind] || this.focus || document.hidden) continue;
       const cam = this.cams().find((c) => c.channel === r.channel);
       if (!cam || now - (this._evCamAt.get(cam.id) || 0) < 60000 || now - (this._evToastAt || 0) < 15000) continue;
       this._evCamAt.set(cam.id, now); this._evToastAt = now;
-      toast(`${LABEL[r.kind]} at ${cam.name || 'Camera ' + cam.channel}, just now`, 'ok', 4000, { dot: DOT[r.kind], onClick: () => this.ctx.go(`#/live/${cam.id}`) });
+      const [title, glyph, color] = KIND[r.kind];
+      const tile = this.tiles.find((t) => t.cam.id === cam.id);
+      notify({ title: `${title} · ${cam.name || 'Camera ' + cam.channel}`, body: 'Just now — open to watch', glyph, color, thumb: tile?.thumbnail(), onClick: () => this.ctx.go(`#/live/${cam.id}`) });
     }
   }
+
 
   // ---------------------------------------------------------------- bookmarks (spec section 9/11.6)
   async bookmarkNow(cam) {

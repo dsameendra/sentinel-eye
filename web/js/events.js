@@ -123,8 +123,7 @@ export class EventsView {
         <section class="ev-sec"><h3>Cameras <button class="ev-link" data-a="allcams" hidden>Select all</button></h3><div class="ev-cams"></div></section>
         <section class="ev-sec"><h3>Event type</h3><div class="ev-kinds"></div></section>
         <section class="ev-sec"><h3>View</h3>
-          <label class="ev-switch"><span class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></span>Show thumbnails</label>
-          <p class="ev-cap">Off trades the image for a denser list — handy over a slow connection, or when you just need timestamps.</p></section>
+          <label class="ev-switch"><span class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></span>Show thumbnails</label></section>
       </aside>
       <div class="ev-scrim" hidden></div>
       <main class="events-main"><div class="events-results"></div></main>
