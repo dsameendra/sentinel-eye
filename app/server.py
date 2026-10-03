@@ -8,7 +8,7 @@ import websockets
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import auth
@@ -422,16 +422,29 @@ async def enhance_source(job_id: str):
     return FileResponse(path, media_type="image/png", filename=f"frame_{job_id}_source.png")
 
 
+class OcrRegion(BaseModel):
+    # The operator's box on the picture: centre and size as fractions (w of the width, h of the height),
+    # angle in degrees clockwise as drawn on screen.
+    cx: float = Field(ge=0, le=1)
+    cy: float = Field(ge=0, le=1)
+    w: float = Field(gt=0, le=1.5)
+    h: float = Field(gt=0, le=1.5)
+    angle: float = Field(default=0, ge=-90, le=90)
+
+
 class OcrRequest(BaseModel):
     which: Literal["result", "source"] = "result"
+    region: OcrRegion | None = None
+    plate: bool = False   # plate characters only, no dictionary "corrections"
 
 
 @app.post("/api/enhance/{job_id}/ocr")
 async def enhance_ocr(job_id: str, req: OcrRequest):
-    """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job.
-    Synchronous: sub-second for a single image, no job/poll needed."""
+    """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job, the
+    whole picture or just the operator's (possibly rotated) box. Synchronous: about a second, no job/poll."""
     try:
-        lines = await run_in_threadpool(enhance_ai.ocr, job_id, req.which)
+        lines, crop = await run_in_threadpool(enhance_ai.ocr, job_id, req.which,
+                                              req.region.model_dump() if req.region else None, req.plate)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ModuleNotFoundError as e:
@@ -442,7 +455,7 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
                                   "\"AI frame enhancer\" section to install it on a native (non-Docker) run.")
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
-    return {"lines": lines}
+    return {"lines": lines, "crop": crop}
 
 
 @app.get("/api/timeline/tz")

@@ -105,12 +105,17 @@ export function openEnhancePopup(opts) {
           <div class="enh2-pic">
             <img class="enh2-img enh2-src" alt="Original frame">
             <div class="enh2-after"><img class="enh2-img enh2-res" alt="Enhanced frame"><canvas class="enh2-filter" hidden></canvas></div>
+            <div class="enh2-ocrlayer" hidden><div class="enh2-ocrbox" tabindex="0" role="group" aria-label="Text box — arrow keys move it, [ and ] turn it, 0 levels it, Enter reads">
+              ${['nw', 'ne', 'sw', 'se'].map((h) => `<span class="h" data-h="${h}"></span>`).join('')}<span class="rot" data-h="rot" title="Turn the box to follow slanted text"></span><span class="ang"></span></div></div>
           </div>
           <div class="hitzone"></div>
           <span class="enh2-tag l">Before</span><span class="enh2-tag r">After</span>
           <div class="enh2-split" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100"><span>${icon('left')}${icon('right')}</span></div>
           <button class="zoomtag" hidden title="Reset zoom">Reset</button>
           <div class="enh2-busy"><span class="spin"></span><span class="msg">Starting…</span></div>
+          <div class="enh2-ocrbar" hidden><span class="t">Drag a box around the text. Turn it with the round handle if the text is slanted.</span>
+            <label class="enh2-plate"><input type="checkbox" data-x="ocr-plate"> Plate characters only</label>
+            <button class="btn sm glass-btn" data-x="ocr-cancel">Cancel</button><button class="btn sm primary" data-x="ocr-read">Read text</button></div>
         </div>
         <div class="enh2-badge" role="note">${icon('alert')}<span><b>ENHANCED</b> — reconstructed detail, not the original recording. An investigative lead, not evidence.</span></div>
         <div class="enh2-under">
@@ -390,25 +395,125 @@ export function openEnhancePopup(opts) {
     });
   }
 
+  // ---------------------------------------------------------------- read text (OCR)
+  // Best read: mark where the text is. "Select text" puts a box on the picture (in the picture's own space,
+  // so it stays put through zoom and pan) to draw, move, resize and turn to follow slanted text; the server
+  // levels that patch, enlarges it and reads it (app/enhance_ai.py _ocr_region). Reading the whole picture
+  // stays available, and the levelled patch that was read is shown with the result.
   const ocrEl = $('.enh2-ocr');
+  const layer = $('.enh2-ocrlayer'), obox = $('.enh2-ocrbox'), obar = $('.enh2-ocrbar');
+  let ob = null;           // { cx, cy, w, h, a } in the picture's own (unzoomed) CSS px; a = degrees clockwise
+  let ocrLast = null;      // { lines, crop, region }
+  const ocrWhich = () => (job?.resultUrl ? 'result' : 'source');
   const ocrIdle = () => {
-    ocrEl.innerHTML = `<p class="enh2-note">A read, not a guess at what should be there — Tesseract on the ${job?.resultUrl ? 'result' : 'original'}. Verify by eye; it can still misread real footage.</p>
-      <button class="btn sm ghost enh2-link" data-x="ocr" ${job ? '' : 'disabled'}>${icon('search')} Run OCR on ${job?.resultUrl ? 'result' : 'original'}</button>`;
-    ocrEl.querySelector('[data-x=ocr]').addEventListener('click', runOcr);
+    if (ocrLast) { ocrResult(); return; }
+    ocrEl.innerHTML = `<p class="enh2-note">Mark where the text is for the best read — slanted text too. Tesseract reads the ${job?.resultUrl ? 'result' : 'original'}; verify by eye.</p>
+      <div class="enh2-ocracts"><button class="btn sm primary" data-x="ocr-mark" ${job ? '' : 'disabled'}>${icon('scan')} Select text</button>
+      <button class="btn sm ghost" data-x="ocr-whole" ${job ? '' : 'disabled'}>Read whole picture</button></div>`;
   };
-  async function runOcr() {
+  const ocrResult = () => {
+    const { lines, crop } = ocrLast;
+    ocrEl.innerHTML = `${crop ? `<div class="enh2-ocrcrop"><img src="${crop}" alt="The text that was read, levelled"></div>` : ''}
+      ${lines.length ? lines.map((l) => `<div class="enh2-ocrline"><span>${esc(l.text)}</span><span class="pill ${l.confidence >= 80 ? 'ok' : ''}">${l.confidence.toFixed(0)}%</span></div>`).join('')
+        : '<p class="enh2-note">No text could be read there.</p>'}
+      <p class="enh2-note">Tesseract's read with its own confidence — verify by eye before acting on it.</p>
+      <div class="enh2-ocracts"><button class="btn sm glass-btn" data-x="ocr-mark">${ocrLast.region ? 'Adjust the box' : 'Select text'}</button>
+        <button class="btn sm ghost" data-x="ocr-whole">Read whole picture</button></div>`;
+  };
+  ocrEl.addEventListener('click', (e) => {
+    const x = e.target.closest('[data-x]')?.dataset.x;
+    if (x === 'ocr-mark') ocrMode(true);
+    else if (x === 'ocr-whole') runOcr(null);
+  });
+  async function runOcr(region) {
     if (!job) return;
     ocrEl.innerHTML = '<p class="enh2-note"><span class="spin sm"></span> Reading…</p>';
     try {
-      const { lines } = await api.enhanceOcr(job.job_id, job.resultUrl ? 'result' : 'source');
-      ocrEl.innerHTML = lines.length
-        ? `${lines.map((l) => `<div class="enh2-ocrline"><span>${esc(l.text)}</span><span class="pill ${l.confidence >= 80 ? 'ok' : ''}">${l.confidence.toFixed(0)}%</span></div>`).join('')}
-           <p class="enh2-note">Tesseract's best read per line, with its own confidence — verify by eye before acting on it.</p>`
-        : '<p class="enh2-note">No text found on this frame.</p>';
+      const plate = region ? $('[data-x=ocr-plate]').checked : false;
+      const r = await api.enhanceOcr(job.job_id, ocrWhich(), region, plate);
+      ocrLast = { lines: r.lines, crop: r.crop, region };
+      ocrResult();
     } catch (e) {
-      ocrEl.innerHTML = `<p class="enh2-note">${esc(e.message || 'OCR failed.')}</p>`;
+      ocrLast = null;
+      ocrIdle();
+      ocrEl.insertAdjacentHTML('afterbegin', `<p class="enh2-note enh2-err">${esc(e.message || 'OCR failed.')}</p>`);
     }
   }
+
+  function ocrMode(on) {
+    stage.classList.toggle('ocr-mode', on);
+    layer.hidden = !on; obar.hidden = !on;
+    if (!on) return;
+    const W = pic.offsetWidth, H = pic.offsetHeight;
+    if (!ob) ob = { cx: W / 2, cy: H / 2, w: W * 0.4, h: H * 0.14, a: 0 };
+    $('[data-x=ocr-plate]').checked = mode === 'plate';
+    paintBox();
+    obox.focus({ preventScroll: true });
+  }
+  function paintBox() {
+    Object.assign(obox.style, { left: `${ob.cx - ob.w / 2}px`, top: `${ob.cy - ob.h / 2}px`, width: `${ob.w}px`, height: `${ob.h}px`, transform: `rotate(${ob.a}deg)` });
+    const ang = obox.querySelector('.ang');
+    ang.textContent = `${Math.round(ob.a)}°`;
+    ang.hidden = Math.round(ob.a) === 0;
+  }
+  const local = (e) => {
+    const r = pic.getBoundingClientRect(), k = r.width / pic.offsetWidth;
+    return { x: (e.clientX - r.left) / k, y: (e.clientY - r.top) / k };
+  };
+  const OMIN = 8;
+  layer.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    layer.setPointerCapture(e.pointerId);
+    const p0 = local(e), b0 = { ...ob };
+    const h = e.target.closest('[data-h]')?.dataset.h;
+    const inside = !h && e.target.closest('.enh2-ocrbox');
+    const rad = (b0.a * Math.PI) / 180, u = [Math.cos(rad), Math.sin(rad)], v = [-Math.sin(rad), Math.cos(rad)];
+    const move = (ev) => {
+      const p = local(ev), W = pic.offsetWidth, H = pic.offsetHeight;
+      if (h === 'rot') {
+        // The handle sits above the box's top edge: the box's angle is the pointer's bearing from the
+        // centre, less 90°. Snaps level within 2°.
+        let a = (Math.atan2(p.y - b0.cy, p.x - b0.cx) * 180) / Math.PI + 90;
+        if (a > 180) a -= 360;
+        a = clamp(a, -90, 90);
+        ob = { ...b0, a: Math.abs(a) < 2 ? 0 : a };
+      } else if (h) {
+        // A corner: the opposite corner stays put; the size is measured along the box's own axes.
+        const sx = h.includes('w') ? -1 : 1, sy = h.includes('n') ? -1 : 1;
+        const ox = b0.cx - sx * (b0.w / 2) * u[0] - sy * (b0.h / 2) * v[0], oy = b0.cy - sx * (b0.w / 2) * u[1] - sy * (b0.h / 2) * v[1];
+        const dx = p.x - ox, dy = p.y - oy;
+        const w = Math.max(OMIN, sx * (dx * u[0] + dy * u[1])), hh = Math.max(OMIN, sy * (dx * v[0] + dy * v[1]));
+        ob = { ...b0, w, h: hh, cx: ox + sx * (w / 2) * u[0] + sy * (hh / 2) * v[0], cy: oy + sx * (w / 2) * u[1] + sy * (hh / 2) * v[1] };
+      } else if (inside) {
+        ob = { ...b0, cx: clamp(b0.cx + p.x - p0.x, 0, W), cy: clamp(b0.cy + p.y - p0.y, 0, H) };
+      } else {
+        const x0 = clamp(Math.min(p0.x, p.x), 0, W), x1 = clamp(Math.max(p0.x, p.x), 0, W);
+        const y0 = clamp(Math.min(p0.y, p.y), 0, H), y1 = clamp(Math.max(p0.y, p.y), 0, H);
+        ob = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: Math.max(OMIN, x1 - x0), h: Math.max(OMIN, y1 - y0), a: 0 };
+      }
+      paintBox();
+    };
+    const up = () => { layer.removeEventListener('pointermove', move); layer.removeEventListener('pointerup', up); layer.removeEventListener('pointercancel', up); };
+    layer.addEventListener('pointermove', move); layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
+  });
+  obox.addEventListener('keydown', (e) => {
+    const st = e.shiftKey ? 10 : 1;
+    const mv = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key];
+    if (mv) { ob.cx += mv[0]; ob.cy += mv[1]; }
+    else if (e.key === '[' || e.key === ']') ob.a = clamp(ob.a + (e.key === '[' ? -1 : 1) * (e.shiftKey ? 5 : 1), -90, 90);
+    else if (e.key === '0') ob.a = 0;
+    else if (e.key === 'Enter') { $('[data-x=ocr-read]').click(); }
+    else return;
+    e.preventDefault(); e.stopPropagation();
+    paintBox();
+  });
+  $('[data-x=ocr-cancel]').addEventListener('click', () => ocrMode(false));
+  $('[data-x=ocr-read]').addEventListener('click', () => {
+    const W = pic.offsetWidth, H = pic.offsetHeight;
+    const region = { cx: clamp(ob.cx / W, 0, 1), cy: clamp(ob.cy / H, 0, 1), w: ob.w / W, h: ob.h / H, angle: Math.round(ob.a * 10) / 10 };
+    ocrMode(false);
+    runOcr(region);
+  });
 
   function detectedText() {
     if (!job) return '—';
@@ -436,6 +541,7 @@ export function openEnhancePopup(opts) {
     liveFilter?.stop(); filterCanvas.hidden = true;
     $('[data-x=save]').disabled = true; $('[data-x=save-source]').disabled = true;
     $('.enh2-detected').textContent = '—';
+    ocrLast = null; ob = null; ocrMode(false);
     ocrIdle();
     paintSplit();
     try {
@@ -512,7 +618,9 @@ export function openEnhancePopup(opts) {
   // frames closes.
   const back = () => (step === 'pick' ? close() : showStep('pick'));
   const onKey = (e) => {
-    if (e.key !== 'Escape' || document.fullscreenElement || document.body._openPopover) return;
+    if (e.key !== 'Escape' || document.body._openPopover) return;
+    if (stage.classList.contains('ocr-mode')) { e.preventDefault(); e.stopPropagation(); ocrMode(false); return; }
+    if (document.fullscreenElement) return;
     e.preventDefault(); e.stopPropagation();
     back();
   };
