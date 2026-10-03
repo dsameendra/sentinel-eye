@@ -664,11 +664,13 @@ export class LiveView {
     const ease = opening ? 'cubic-bezier(.2, .85, .25, 1)' : 'cubic-bezier(.4, 0, .2, 1)';
     const ms = opening ? 420 : 340;
     const fly = stage.animate(opening ? [at, full] : [full, at], { duration: ms, easing: ease, fill: 'both' });
-    f.animate(opening ? [{ backgroundColor: 'rgba(0,0,0,0)' }, { backgroundColor: '#000' }] : [{ backgroundColor: '#000' }, { backgroundColor: 'rgba(0,0,0,0)' }],
-      { duration: ms * 0.8, easing: 'ease-out', fill: 'both' });
-    f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow').forEach((el) => el.animate(opening ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
-      { duration: opening ? 260 : 160, delay: opening ? 160 : 0, easing: 'ease-out', fill: 'both' }));
-    fly.onfinish = () => { if (opening) f.getAnimations({ subtree: true }).forEach((a) => a.cancel?.()); done?.(); };
+    // Only this flight's own animations are cleared when it lands (never the page's CSS ones — a cancelled
+    // CSS animation stays stopped, e.g. the live dot's pulse).
+    const mine = [fly, f.animate(opening ? [{ backgroundColor: 'rgba(0,0,0,0)' }, { backgroundColor: '#000' }] : [{ backgroundColor: '#000' }, { backgroundColor: 'rgba(0,0,0,0)' }],
+      { duration: ms * 0.8, easing: 'ease-out', fill: 'both' })];
+    f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow').forEach((el) => mine.push(el.animate(opening ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
+      { duration: opening ? 260 : 160, delay: opening ? 160 : 0, easing: 'ease-out', fill: 'both' })));
+    fly.onfinish = () => { if (opening) mine.forEach((a) => a.cancel()); done?.(); };
     return fly;
   }
 
@@ -928,7 +930,9 @@ export class LiveView {
           <button class="btn primary rp-live" data-a="live">${icon('play')}Back to live</button>
         </div>
       </div>`;
-    this.live.append(r);
+    // In full screen only the full-screen element is drawn, so the replay goes inside it (Focus, usually).
+    const fs = document.fullscreenElement;
+    (fs && this.live.contains(fs) ? fs : this.live).append(r);
     const canvas = r.querySelector('canvas');
     const startEpoch = Date.now() / 1000 - seconds;
     const rp = { el: r, cam, startEpoch, at: null, playing: true, holdAfterSeek: false };
