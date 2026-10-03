@@ -377,7 +377,7 @@ class EnhanceRequest(BaseModel):
     channel: int
     at_utc: str = ""
     mode: Literal["auto", "face", "plate", "general"] = "auto"
-    images: list[str]  # base64 PNG, oldest -> newest, 1-7 frames
+    images: list[str]  # base64 PNG, oldest -> newest, 1-11 frames
     roi: list[float] | None = None  # optional [x, y, w, h] fractions (0-1) — crop before enhancing
     weight: float = 0.5  # GFPGAN fidelity (0=free reconstruction, 1=barely touched) — spec section 2d
 
@@ -387,8 +387,8 @@ async def create_enhance(req: EnhanceRequest):
     """Starts a background AI frame-enhancement job (docs/SPEC.md section 7.8). Frames come from the
     client's already-decoded playback buffer — no DVR session, doesn't touch the 4-session budget."""
     import secrets as _secrets
-    if not req.images or len(req.images) > 7:
-        raise HTTPException(422, "1-7 frames expected")
+    if not req.images or len(req.images) > 11:
+        raise HTTPException(422, "1-11 frames expected")
     if req.roi is not None and len(req.roi) != 4:
         raise HTTPException(422, "roi must be [x, y, w, h]")
     if not 0.0 <= req.weight <= 1.0:

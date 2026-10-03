@@ -274,6 +274,9 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 - **Zoom HUD (`zoomhud.js`):** wherever a picture zooms (Focus, grid tiles, Playback panes), while zoomed: a minimap with a live thumbnail and the visible part outlined — click or drag it to pan there — and a − / % / + cluster where the percentage resets. Plain dark, not glass.
 - **Adjust picture (live filters):** Photos-style — status and Reset, a swipeable preset row, collapsible slider groups in inset cards; a slider's accent fill runs from its resting value to the thumb, and double-click resets it.
 
+- **Instant replay:** looks and behaves like Focus — the picture fills the screen (scaled up as well as down), glass bars fade while it plays and stay while it's paused. The bottom bar is a small player: a scrubber from where the replay began to now (what's loaded shaded), elapsed and behind-live times, start over, 5 s back, a white round play/pause, 5 s forward, and Back to live.
+- **Focus transitions:** one continuous picture — the tile grows into Focus and shrinks back into its own cell (uniform scale plus a rounded clip, never a stretch); the previous/next camera slides in over a fading still of the last one. Off for reduced motion; a plain fade on TV.
+- **AI Frame Enhancer:** pick step — the reference frame (the middle of the selected ones, which the server aligns to) large and centred, or just the region when one is set; under it a strip of up to 11 frames (a yellow dot marks the paused one, a white bar the reference) and the actions. Result step — a before/after wipe; the **ENHANCED** label is an amber strip directly under the picture (never over it), on screen whenever any enhanced pixels are.
 ### Cards / Containers
 - **Corner Style:** 22px radius (redesign v2, was 12px).
 - **Background:** Graphite Panel on Graphite Bg — flat, not glass (see Elevation & Depth).
@@ -313,6 +316,7 @@ A dark rounded tile (`#141417`, radius 30/108) holding a white iris — a ring a
 - **Do** use full-round shape for buttons, segmented controls, status/selection chips, and toggles — never for content containers (cards, tiles, dialogs stay in the 16–30px range).
 
 ### Don't:
+- **Don't** put a label, badge or banner over evidence the operator is studying — the enhancer's ENHANCED strip sits under the picture, not on it.
 - **Don't** introduce a fifth semantic hue for "brand" purposes — warn-amber, danger-red and info-teal stay semantic-only.
 - **Don't** add shadow to any surface that's part of the normal page flow at rest (cards, tiles, panels) — that's reserved for floating/glass layers and the hover-lift exception.
 - **Don't** put glass/`backdrop-filter` over the multi-tile grid, or keep it over a single stream once its chrome has faded (see the Glass-Over-One-Stream Rule).

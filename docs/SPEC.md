@@ -393,7 +393,7 @@ gets most of the achievable benefit for a handful of frames spanning well under 
 #### 7.8.3 Pipeline
 
 ```
-N frames (1–7, from the paused position's decode buffer, already in memory client-side)
+N frames (1–11, from the paused position's decode buffer, already in memory client-side)
   → [roi set] crop every frame to the operator-drawn region (7.8.2c) — before anything else
   → [N > 1] align to the middle frame (ECC, translation), then fuse → 1 frame:
       mode = "plate": per-pixel median across the aligned stack (7.8.2d)
@@ -420,7 +420,7 @@ whatever's already on screen, paused, this instant.
 
 #### 7.8.4 API
 
-- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest], roi: [x, y, w, h]|null, weight: 0.0-1.0}` (1–7 images, same dimensions). `roi` (optional, 7.8.2c) is fractions of the frame to crop to before enhancing. `weight` (default 0.5, 7.8.2d) is GFPGAN's fidelity knob. Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
+- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest], roi: [x, y, w, h]|null, weight: 0.0-1.0}` (1–11 images, same dimensions). `roi` (optional, 7.8.2c) is fractions of the frame to crop to before enhancing. `weight` (default 0.5, 7.8.2d) is GFPGAN's fidelity knob. Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
 - `GET /api/enhance/{job_id}` — `{state: queued|working|done|error, progress, error}`.
 - `GET /api/enhance/{job_id}/result` — the enhanced PNG, once done.
 - `GET /api/enhance/{job_id}/source` — the fused-but-not-AI-processed reference frame (the "before"), for the popup's before/after comparison — this is what the input actually looked like, not a claim about ground truth.
@@ -458,7 +458,7 @@ enhance pipeline and the "modes" in 7.8.3:
 - A new toolbar button, enabled **only while paused** (mirrors the fact that this operates on the exact
   frame on screen, not a moving target) — icon: a corner-bracket "focus/scan" glyph, distinct from L0's
   wand icon, since this is a heavier, different-purpose operation.
-- Click: grabs up to 7 frames centered on the current paused position from the primary pane's already-
+- Click: grabs up to 11 frames centered on the current paused position from the primary pane's already-
   decoded buffer, immediately opens the enhancer popup in a loading state, and starts the job.
 - The popup is a large, near-fullscreen overlay (not the small dialog style used elsewhere) with:
   - The result image in a **zoom/pan viewport** (reuses `ZoomPan`, the same component Live/Playback panes

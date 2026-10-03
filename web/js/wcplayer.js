@@ -181,27 +181,19 @@ export class WCPlayer {
     // else: paused — the frame just sits buffered ahead of bufIndex until a step or resume reaches it
   }
 
-  /** Up to `n` consecutive frames centred on the current paused position, as PNG data URLs (oldest ->
-   * newest), for the AI frame enhancer (docs/SPEC.md section 7.8) — pulled straight from the decode buffer
-   * already sitting in memory, no new DVR session. Odd counts centre exactly on bufIndex; clamps to
-   * whatever's actually buffered around it rather than erroring near either edge of the window. */
-  grabFrames(n = 5) {
+  /** Up to `n` consecutive frames centred on the current paused position (oldest -> newest), for the AI
+   * frame enhancer (docs/SPEC.md section 7.8) — copies of what's already decoded in memory, no new DVR
+   * session. They're VideoFrame clones (cheap: they share the decoded picture), so nothing is encoded until
+   * the enhancer actually sends the ones you chose; the caller owns them and must close() them. Odd counts
+   * centre exactly on bufIndex; clamps to whatever's buffered near either edge. */
+  grabFrames(n = 11) {
     if (!this.buffer.length) return [];
     const half = Math.floor(n / 2);
     let start = clampInt(this.bufIndex - half, 0, this.buffer.length - 1);
-    let end = clampInt(start + n - 1, 0, this.buffer.length - 1);
+    const end = clampInt(start + n - 1, 0, this.buffer.length - 1);
     start = clampInt(end - n + 1, 0, this.buffer.length - 1);
-    const tmp = document.createElement('canvas');
-    const tctx = tmp.getContext('2d');
     const out = [];
-    for (let i = start; i <= end; i++) {
-      const { frame } = this.buffer[i];
-      if (tmp.width !== frame.displayWidth || tmp.height !== frame.displayHeight) {
-        tmp.width = frame.displayWidth; tmp.height = frame.displayHeight;
-      }
-      tctx.drawImage(frame, 0, 0, tmp.width, tmp.height);
-      out.push(tmp.toDataURL('image/png'));
-    }
+    for (let i = start; i <= end; i++) out.push(this.buffer[i].frame.clone());
     out.pausedIndex = this.bufIndex - start; // which of these is the frame on screen (not always the middle at a buffer edge)
     return out;
   }

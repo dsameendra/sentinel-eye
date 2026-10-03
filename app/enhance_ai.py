@@ -68,7 +68,7 @@ def get_job(job_id):
 
 
 def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
-    """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-7 frames, same dimensions.
+    """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-11 frames, same dimensions.
     roi: optional (x, y, w, h) fractions (0-1) of the frame to crop to *before* alignment/upscaling — lets
     the operator isolate a plate or face so the AI's fixed output resolution is spent on that subject
     instead of the whole scene (see docs/SPEC.md section 7.8.2c). weight: GFPGAN's own fidelity/

@@ -1,7 +1,8 @@
 // AI Frame Enhancer (docs/SPEC.md section 7.8; Enhance board) — a full screen in two steps:
-//   1. Pick frames: the burst grabbed around the paused frame, shown as a strip. Choose 1–7 (more means
-//      multi-frame fusion — denoise, at the risk of softening a moving subject), and optionally drag a box on
-//      any frame to crop to a plate or face first.
+//   1. Pick frames: a large preview of the reference frame (the middle of the ones selected — what the
+//      server aligns the others to), cropped to the region when one is set, over a strip of the up-to-11
+//      frames grabbed around the paused one. Choose any of them (more means multi-frame fusion — denoise, at
+//      the risk of softening a moving subject), and optionally select a region (a plate, a face) first.
 //   2. Compare: the server's Real-ESRGAN + GFPGAN result against its own source frame with a before/after
 //      wipe, zoom/pan, fidelity, the "wand" live filters and flashlight, a progress stepper, what was
 //      detected, OCR on demand, and Discard / Save.
@@ -19,11 +20,30 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const pad2 = (n) => String(n).padStart(2, '0');
 
-/** @param opts { images: [dataURL,...] (oldest->newest), pausedIndex (which one is on screen), camName,
- *  channel (DVR channel number), atUtc (ISO), tzOffsetMin, defaultMode, defaultFidelity } */
+/** @param opts { frames: [VideoFrame | ImageBitmap | canvas | img, ...] (oldest->newest; closed when the
+ *  enhancer closes), pausedIndex (which one is on screen), camName, channel (DVR channel number), atUtc
+ *  (ISO), tzOffsetMin, defaultMode, defaultFidelity } */
 export function openEnhancePopup(opts) {
   const root = document.getElementById('modal-root');
-  const burst = opts.images;
+  const burst = opts.frames;
+  const size = (f) => [f.displayWidth || f.naturalWidth || f.width, f.displayHeight || f.naturalHeight || f.height];
+  const [FW, FH] = size(burst[0]);
+  const FAR = FW / FH;
+  // Small JPEGs for the strip (fast); the full frames are only encoded — as lossless PNG — for the ones sent.
+  const thumb = (f, w = 320) => {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = Math.round(w / FAR);
+    c.getContext('2d').drawImage(f, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.82);
+  };
+  const encodePNG = async (f) => {
+    const c = document.createElement('canvas');
+    c.width = FW; c.height = FH;
+    c.getContext('2d').drawImage(f, 0, 0, FW, FH);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+    return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+  };
+  const thumbs = burst.map((f) => thumb(f));
   const paused = clamp(opts.pausedIndex ?? Math.floor(burst.length / 2), 0, burst.length - 1);
   let mode = opts.defaultMode || 'auto';
   // Fidelity: a real linear blend between GFPGAN's face restoration and a plain upscale with no face
@@ -60,17 +80,21 @@ export function openEnhancePopup(opts) {
       <div class="bar-actions"><div class="seg enh2-modes" role="group" aria-label="Mode">${MODES.map(([k, l]) => `<button data-mode="${k}" aria-pressed="${k === mode}">${l}</button>`).join('')}</div></div>
     </header>
     <section class="enh2-pick">
-      <div><h2>Select frames to enhance</h2><p class="enh2-cap"></p></div>
-      <div class="enh2-frames">${burst.map((src, i) => `<div class="enh2-frame" data-i="${i}" role="checkbox" tabindex="0" aria-label="Frame ${i + 1}${i === paused ? ', the paused frame' : ''}">
-        <img src="${src}" alt="" draggable="false"><span class="ck">${icon('check')}</span>${i === paused ? '<span class="enh2-here">Paused</span>' : ''}<span class="enh2-roi" hidden></span></div>`).join('')}</div>
-      <div class="enh2-tip">${icon('crop')}<span class="t"></span>
-        <button class="btn sm ghost" data-x="clear-roi" hidden>Whole frame</button>
-        <button class="btn sm glass-btn" data-x="edit-roi">Select region…</button></div>
-      <div><button class="btn primary enh2-go" data-x="go"></button></div>
+      <div class="enh2-pv" title="Select a region"><canvas class="enh2-pv-c" aria-label="Preview of the reference frame"></canvas></div>
+      <p class="enh2-pv-cap"><span class="what"></span><span class="roi"></span></p>
+      <div class="enh2-strip" role="group" aria-label="Frames, oldest to newest">${thumbs.map((src, i) => `<div class="enh2-frame" data-i="${i}" role="checkbox" tabindex="0" aria-label="Frame ${i + 1} of ${burst.length}${i === paused ? ', the paused frame' : ''}">
+        <img src="${src}" alt="" draggable="false"><span class="ck">${icon('check')}</span>${i === paused ? '<span class="enh2-here" title="The paused frame"></span>' : ''}<span class="enh2-roi" hidden></span></div>`).join('')}</div>
+      <div class="enh2-pick-bar">
+        <p class="enh2-cap"></p>
+        <span class="spacer"></span>
+        <button class="btn ghost" data-x="clear-roi" hidden>Whole frame</button>
+        <button class="btn glass-btn" data-x="edit-roi">${icon('crop')}<span>Select region</span></button>
+        <button class="btn primary enh2-go" data-x="go"></button>
+      </div>
     </section>
     <section class="enh2-crop" hidden>
       <div><h2>Select a region</h2><p class="enh2-cap">Drag the box, or its corners, to fit a plate or a face. Only this part of the frame is enhanced — every output pixel goes to it. Drag anywhere outside the box to draw a new one.</p></div>
-      <div class="enh2-crop-stage"><div class="enh2-crop-wrap"><img src="${burst[paused]}" alt="The paused frame" draggable="false">
+      <div class="enh2-crop-stage"><div class="enh2-crop-wrap" style="--ar:${FAR.toFixed(4)}"><canvas class="enh2-crop-c" width="${FW}" height="${FH}" aria-label="The reference frame"></canvas>
         <div class="enh2-crop-box" tabindex="0" role="group" aria-label="Region — arrow keys move it, Shift for bigger steps">${['nw', 'ne', 'sw', 'se'].map((h) => `<span class="h" data-h="${h}"></span>`).join('')}<span class="dims"></span></div></div></div>
       <div class="enh2-crop-actions"><button class="btn ghost" data-x="crop-whole">Whole frame</button><span class="spacer"></span>
         <button class="btn glass-btn" data-x="crop-cancel">Cancel</button><button class="btn primary" data-x="crop-done">Use this region</button></div>
@@ -86,9 +110,9 @@ export function openEnhancePopup(opts) {
           <span class="enh2-tag l">Before</span><span class="enh2-tag r">After</span>
           <div class="enh2-split" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100"><span>${icon('left')}${icon('right')}</span></div>
           <button class="zoomtag" hidden title="Reset zoom">Reset</button>
-          <div class="enh2-badge">${icon('alert')} ENHANCED — reconstructed detail, not the original recording. An investigative lead, not evidence.</div>
           <div class="enh2-busy"><span class="spin"></span><span class="msg">Starting…</span></div>
         </div>
+        <div class="enh2-badge" role="note">${icon('alert')}<span><b>ENHANCED</b> — reconstructed detail, not the original recording. An investigative lead, not evidence.</span></div>
         <div class="enh2-under">
           <label class="enh2-fid"><span>Fidelity</span><input type="range" data-x="weight" min="0" max="1" step="0.05" value="${weight}" aria-label="Fidelity"><span>Identity-safe</span></label>
           <span class="spacer"></span>
@@ -119,15 +143,34 @@ export function openEnhancePopup(opts) {
   const zoomtag = $('.zoomtag');
 
   // ---------------------------------------------------------------- step 1: pick frames (+ optional region)
-  // Thumbnails take each frame's own shape (object-fit: fill on a box of the same aspect), so the region
-  // preview drawn over them in fractions lines up exactly with what the server crops.
-  root.querySelectorAll('.enh2-frame img, .enh2-crop-wrap img').forEach((img) => {
-    const set = () => { if (img.naturalWidth) img.parentElement.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); };
-    if (img.complete) set(); else img.addEventListener('load', set);
-  });
+  // The preview shows the reference frame — the middle of the selected ones, which the server aligns the
+  // others to — or, while the pointer rests on a frame in the strip, that frame. With a region set it shows
+  // just the region, large. Thumbnails keep the frame's own shape, so the region drawn over them in
+  // fractions lines up exactly with what the server crops.
+  root.querySelectorAll('.enh2-frame').forEach((el) => el.style.setProperty('--ar', FAR.toFixed(4)));
+  const pv = $('.enh2-pv'), pvc = $('.enh2-pv-c');
+  let hoverI = null;
+  const refIndex = () => { const sel = [...picked].sort((a, b) => a - b); return sel.length ? sel[Math.floor(sel.length / 2)] : paused; };
+  const paintPreview = () => {
+    const i = hoverI ?? refIndex();
+    const r = roi || { x: 0, y: 0, w: 1, h: 1 };
+    const sw = r.w * FW, sh = r.h * FH;
+    const scale = Math.min(1, 1600 / Math.max(sw, sh)) * (roi ? Math.max(1, 900 / Math.max(sw, sh)) : 1);   // small regions drawn larger, smoothly
+    pvc.width = Math.max(1, Math.round(sw * scale)); pvc.height = Math.max(1, Math.round(sh * scale));
+    const g = pvc.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(burst[i], r.x * FW, r.y * FH, sw, sh, 0, 0, pvc.width, pvc.height);
+    pv.style.setProperty('--pv-ar', (sw / sh).toFixed(4));
+    const sel = picked.size;
+    $('.enh2-pv-cap .what').textContent = hoverI != null ? `Frame ${i + 1} of ${burst.length}${i === paused ? ' · the paused frame' : ''}`
+      : sel > 1 ? `Reference frame ${i + 1} of ${burst.length} — the other ${sel - 1} are aligned to it and fused` : `Frame ${i + 1} of ${burst.length}${i === paused ? ' · the paused frame' : ''}`;
+    $('.enh2-pv-cap .roi').textContent = roi ? ` · region ${Math.round(sw)} × ${Math.round(sh)} px` : '';
+    root.querySelectorAll('.enh2-frame').forEach((el) => el.classList.toggle('ref', +el.dataset.i === refIndex() && picked.size > 0));
+  };
   const paintPick = () => {
     const n = picked.size;
-    $('.enh2-cap').textContent = `1–${burst.length} frames, oldest to newest — more frames means better fusion, but only while the subject barely moves between them. ${n} selected.`;
+    $('.enh2-cap').innerHTML = `${n} of ${burst.length} selected. More frames fuse into a cleaner picture while the subject barely moves. `
+      + `<button class="linkish" data-x="all">${n === burst.length ? '' : 'Select all'}</button>${n === burst.length ? '' : ' · '}<button class="linkish" data-x="only">Only the paused frame</button>`;
     root.querySelectorAll('.enh2-frame').forEach((el) => {
       const on = picked.has(+el.dataset.i);
       el.classList.toggle('on', on);
@@ -137,21 +180,30 @@ export function openEnhancePopup(opts) {
       if (roi) Object.assign(box.style, { left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.w * 100}%`, height: `${roi.h * 100}%` });
     });
     $('[data-x=clear-roi]').hidden = !roi;
-    $('[data-x=edit-roi]').textContent = roi ? 'Edit region…' : 'Select region…';
-    $('.enh2-tip .t').textContent = roi
-      ? `Region set — ${Math.round(roi.w * 100)}% × ${Math.round(roi.h * 100)}% of the frame. Only this part is enhanced, so all the detail goes to it.`
-      : 'Optionally select a region first — a plate or a face — so every output pixel goes to that subject instead of the whole scene.';
-    $('.enh2-go').textContent = `Enhance ${n} frame${n === 1 ? '' : 's'}`;
+    $('[data-x=edit-roi] span').textContent = roi ? 'Edit region' : 'Select region';
+    $('.enh2-go').textContent = n ? `Enhance ${n} frame${n === 1 ? '' : 's'}` : 'Select a frame';
     $('.enh2-go').disabled = n === 0 || running;
+    paintPreview();
   };
   const toggleFrame = (i) => { if (picked.has(i)) picked.delete(i); else picked.add(i); paintPick(); };
   root.querySelectorAll('.enh2-frame').forEach((el) => {
     const i = +el.dataset.i;
     el.addEventListener('click', () => toggleFrame(i));
-    el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleFrame(i); } });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleFrame(i); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); el[e.key === 'ArrowLeft' ? 'previousElementSibling' : 'nextElementSibling']?.focus(); }
+    });
+    el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { hoverI = i; paintPreview(); } });
+    el.addEventListener('pointerleave', () => { if (hoverI === i) { hoverI = null; paintPreview(); } });
+  });
+  $('.enh2-pick-bar').addEventListener('click', (e) => {
+    const x = e.target.closest('[data-x]')?.dataset.x;
+    if (x === 'all') { burst.forEach((_, i) => picked.add(i)); paintPick(); }
+    else if (x === 'only') { picked.clear(); picked.add(paused); paintPick(); }
   });
   $('[data-x=clear-roi]').addEventListener('click', () => { roi = null; paintPick(); });
   $('[data-x=edit-roi]').addEventListener('click', () => openCrop());
+  pv.addEventListener('click', () => openCrop());
 
   // ---------------------------------------------------------------- the region editor
   // The paused frame, large, with a box to move (drag inside), resize (drag a corner) or redraw (drag
@@ -161,11 +213,10 @@ export function openEnhancePopup(opts) {
   const wrap = $('.enh2-crop-wrap'), cbox = $('.enh2-crop-box');
   const paintCrop = () => {
     Object.assign(cbox.style, { left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%` });
-    const img = wrap.querySelector('img');
-    const W = img.naturalWidth || 0, H = img.naturalHeight || 0;
-    cbox.querySelector('.dims').textContent = W ? `${Math.round(draft.w * W)} × ${Math.round(draft.h * H)} px` : '';
+    cbox.querySelector('.dims').textContent = `${Math.round(draft.w * FW)} × ${Math.round(draft.h * FH)} px`;
   };
   const openCrop = () => {
+    wrap.querySelector('canvas').getContext('2d').drawImage(burst[refIndex()], 0, 0, FW, FH);   // the frame the preview shows
     draft = roi ? { ...roi } : { x: 0.3, y: 0.3, w: 0.4, h: 0.4 };
     showStep('crop');
     paintCrop();
@@ -247,13 +298,14 @@ export function openEnhancePopup(opts) {
     splitEl.hidden = !hasResult;
     $('.enh2-tag.l').hidden = !hasResult; $('.enh2-tag.r').hidden = !hasResult;
     if (!hasResult) { after.style.clipPath = 'none'; $('.enh2-badge').hidden = true; return; }   // nothing enhanced on screen
+    $('.enh2-badge').hidden = false;
     const sr = stage.getBoundingClientRect(), ir = imgSrc.getBoundingClientRect();
     splitEl.style.left = `${split}%`;
     splitEl.setAttribute('aria-valuenow', String(Math.round(split)));
     const x = sr.left + (split / 100) * sr.width;
     const f = ir.width ? clamp((x - ir.left) / ir.width, 0, 1) : split / 100;
     after.style.clipPath = `inset(0 0 0 ${(f * 100).toFixed(2)}%)`;
-    $('.enh2-badge').hidden = f >= 0.999;
+    $('.enh2-badge').classList.toggle('off', f >= 0.999);   // wiped all the way to Before: no enhanced pixels (kept in place, no jump)
   }
   splitEl.addEventListener('pointerdown', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -387,12 +439,14 @@ export function openEnhancePopup(opts) {
     ocrIdle();
     paintSplit();
     try {
+      busyEl.querySelector('.msg').textContent = 'Preparing frames…';
+      const images = await Promise.all(frames.map((i) => encodePNG(burst[i])));
       const { job_id } = await api.createEnhance({
-        channel: opts.channel, at_utc: opts.atUtc || '', mode, images: frames.map((i) => burst[i]),
+        channel: opts.channel, at_utc: opts.atUtc || '', mode, images,
         roi: roi ? [roi.x, roi.y, roi.w, roi.h] : null, weight,
       });
       let j = null, failed = null;
-      try { j = await poll(job_id); } catch (e) { if (!e.sourceReady) throw e; failed = e; }
+      try { j = await poll(job_id, frames.length); } catch (e) { if (!e.sourceReady) throw e; failed = e; }
       job = { job_id, mode, frames: frames.length, roiUsed: !!roi, faces: j?.faces_found ?? null,
         sourceUrl: `/api/enhance/${job_id}/source`, resultUrl: failed ? null : `/api/enhance/${job_id}/result` };
       imgSrc.src = job.sourceUrl;
@@ -418,10 +472,11 @@ export function openEnhancePopup(opts) {
     }
   }
 
-  function poll(jobId) {
+  function poll(jobId, n = 1) {
     // Measured on a Mac GPU: one frame is ~40 s including first-time model load; a 5-frame burst ~100 s.
-    // 240 s leaves margin for a burst plus a job queued behind another ("Waiting for another enhancement…").
-    const deadline = Date.now() + 240000;
+    // Allow 2 minutes plus 30 s a frame (11 frames: 7.5 min), so a big burst — or one queued behind another
+    // job ("Waiting for another enhancement…") — isn't cut off.
+    const deadline = Date.now() + 120000 + n * 30000;
     return new Promise((resolve, reject) => {
       const tick = async () => {
         if (!root.contains(viewer)) { reject(new Error('closed')); return; }
@@ -448,6 +503,7 @@ export function openEnhancePopup(opts) {
   // ---------------------------------------------------------------- close / back
   const close = () => {
     zoom?.destroy(); ro.disconnect(); liveFilter?.destroy();
+    burst.forEach((f) => { try { f.close?.(); } catch { /* already closed */ } });
     document.removeEventListener('keydown', onKey, true);
     if (document.fullscreenElement === viewer) document.exitFullscreen();
     root.innerHTML = '';
@@ -465,5 +521,8 @@ export function openEnhancePopup(opts) {
   $('[data-x=discard]').addEventListener('click', close);
 
   showStep('pick');
-  root.querySelector(`.enh2-frame[data-i="${paused}"]`)?.focus({ preventScroll: true });
+  // Start on the paused frame: focused, and centred in the strip when it scrolls (a phone shows ~4 of 11).
+  const here = root.querySelector(`.enh2-frame[data-i="${paused}"]`), strip = $('.enh2-strip');
+  here?.focus({ preventScroll: true });
+  if (here) strip.scrollLeft = here.offsetLeft - strip.offsetLeft - (strip.clientWidth - here.offsetWidth) / 2;
 }
