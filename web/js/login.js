@@ -3,9 +3,9 @@
 import { authApi } from './api.js';
 import { qrSvg } from './qr.js';
 import { esc, icon } from './ui.js';
-import { installTvNav } from './tvnav.js';
-
-installTvNav();
+// Remote-control navigation for a TV signing in — loaded optionally, so these pages still work against a
+// server whose sign-in allow-list predates tvnav.js (a static import that fails would blank the page).
+import('./tvnav.js').then((m) => m.installTvNav()).catch(() => {});
 
 const card = document.getElementById('card');
 const tvMode = document.documentElement.classList.contains('tv-mode');

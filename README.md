@@ -1,4 +1,4 @@
-<img src="web/icons/icon-512.png" width="88" height="88" alt="Sentinel Eye" align="left" style="margin-right:16px">
+<img src="web/icons/app-icon-512.png" width="88" height="88" alt="Sentinel Eye" align="left" style="margin-right:16px">
 
 # Sentinel Eye
 
