@@ -187,7 +187,7 @@ export function openEnhancePopup(opts) {
     const hasResult = !!job?.resultUrl;
     splitEl.hidden = !hasResult;
     $('.enh2-tag.l').hidden = !hasResult; $('.enh2-tag.r').hidden = !hasResult;
-    if (!hasResult) { after.style.clipPath = 'none'; return; }
+    if (!hasResult) { after.style.clipPath = 'none'; $('.enh2-badge').hidden = true; return; }   // nothing enhanced on screen
     const sr = stage.getBoundingClientRect(), ir = imgSrc.getBoundingClientRect();
     splitEl.style.left = `${split}%`;
     splitEl.setAttribute('aria-valuenow', String(Math.round(split)));

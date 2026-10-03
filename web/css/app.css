@@ -657,9 +657,15 @@ table.tbl { width: 100%; min-width: 640px; border-collapse: collapse; }
 kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line-2); background: var(--panel-2); font: 12px ui-monospace, monospace; }
 
 /* ---------- toasts & modal ---------- */
-#toasts { position: fixed; right: 16px; bottom: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
-.toast { max-width: 380px; padding: 10px 14px; border-radius: var(--r-sm); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); display: flex; gap: 10px; align-items: flex-start; animation: rise .18s ease-out; }
-.toast.ok { border-left: 3px solid var(--armed); } .toast.bad { border-left: 3px solid var(--danger); }
+/* Toasts (redesign v2): one glass pill dropping in at the top centre — clear of every screen's primary
+   actions, which all live bottom-right or in the bar's right end. Newest on top; at most three at once. */
+#toasts { position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 50%; z-index: 100; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 9px; max-width: min(520px, calc(100vw - 32px)); min-height: 40px; padding: 9px 18px 9px 14px; border-radius: var(--r-full); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); font-size: 13.5px; font-weight: 500; animation: toast-in var(--dur-chrome-in, .28s) var(--ease-out-expo, ease-out); }
+.toast .i { width: 17px; height: 17px; flex: none; }
+.toast.ok .i { color: var(--armed); } .toast.bad .i { color: var(--danger); }
+.toast.out { animation: toast-out var(--dur-chrome-out, .3s) ease-in forwards; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-14px) scale(.97); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(-10px) scale(.97); } }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 /* overflow-y: auto matters whenever a dialog's own content (the export dialog's two full calendars, most
    notably) is taller than a phone's viewport — without it the excess just spilled past the fixed/inset:0

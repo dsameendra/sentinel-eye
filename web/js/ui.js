@@ -85,11 +85,16 @@ const P = {
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
 export function toast(msg, kind = 'ok', ms = 4200) {
+  const host = document.getElementById('toasts');
+  if (!host) return;
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
-  t.innerHTML = `${icon(kind === 'ok' ? 'check' : 'alert')}<div>${esc(msg)}</div>`;
-  document.getElementById('toasts').append(t);
-  setTimeout(() => t.remove(), ms);
+  t.innerHTML = `${icon(kind === 'ok' ? 'checkcircle' : 'alert')}<div>${esc(msg)}</div>`;
+  host.prepend(t);   // newest on top, nearest the edge it drops from
+  while (host.children.length > 3) host.lastElementChild.remove();
+  const leave = () => { t.classList.add('out'); setTimeout(() => t.remove(), 320); };
+  setTimeout(leave, ms);
+  t.addEventListener('click', leave);
 }
 
 /** Keeps Tab/Shift+Tab cycling within an open dialog instead of walking onto whatever's behind the scrim

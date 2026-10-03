@@ -130,8 +130,8 @@ async def main():
         await b.js("document.querySelector('#discard').click()"); await asyncio.sleep(0.4)
         check("discard resets the form", await b.js("document.querySelector('#f-host').value") == "127.0.0.1" and await b.js("document.querySelector('.savebar').hidden"))
         await b.js("document.querySelector('#t-run').click()")
-        await b.wait_for("document.querySelector('.result')", 30)
-        res = await b.js("document.querySelector('.result')?.textContent")
+        await b.wait_for("document.querySelector('.test-status.ok, .test-status.bad')", 30)   # inline status in the test card
+        res = await b.js("document.querySelector('.test-status.ok, .test-status.bad')?.textContent")
         check("test connection reports the stream", res and "readable" in res.lower(), (res or "")[:80])
         await b.shot(f"{SHOT}/ui_settings_test.png")
 
