@@ -53,7 +53,7 @@ export function globalActionsHTML(ctx) {
   const lock = op ? '' : '<span class="lock-badge" aria-hidden="true"></span>';
   return `
     <button class="btn icon ghost gbtn" data-g="playback" title="${op ? 'Playback' : 'Playback — needs an Operator or Admin account'}" aria-label="Playback">${icon('calendar')}${lock}</button>
-    <button class="btn icon ghost gbtn" data-g="events" title="${op ? 'Search events' : 'Events — needs an Operator or Admin account'}" aria-label="Search events">${icon('search')}${lock}</button>
+    <button class="btn icon ghost gbtn" data-g="events" title="${op ? 'Events' : 'Events — needs an Operator or Admin account'}" aria-label="Events">${icon('walk')}${lock}</button>
     ${op ? `<button class="btn icon ghost gbtn" data-g="bell" title="Notifications" aria-label="Notifications" aria-haspopup="true">${icon('bell')}<span class="bell-dot" hidden></span></button>` : ''}
     <a class="btn icon ghost gbtn" data-g="settings" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>
     <button class="avatar" data-g="me" aria-haspopup="menu" aria-label="Account">${avatarInner(ctx)}</button>`;
@@ -161,5 +161,5 @@ function openMe(btn, ctx) {
 export function tabBarHTML(ctx) {
   const op = ctx.can('operator');
   const tab = (n, ic, label, lockedTab) => `<a class="tab${lockedTab ? ' locked' : ''}" data-tab="${n}" href="#/${n}">${icon(ic)}<span>${label}</span></a>`;
-  return `<nav class="tabbar" aria-label="Main">${tab('live', 'grid4', 'Live')}${tab('playback', 'calendar', 'Playback', !op)}${tab('events', 'heart', 'Events', !op)}${tab('settings', 'gear', 'Settings')}</nav>`;
+  return `<nav class="tabbar" aria-label="Main">${tab('live', 'grid4', 'Live')}${tab('playback', 'calendar', 'Playback', !op)}${tab('events', 'walk', 'Events', !op)}${tab('settings', 'gear', 'Settings')}</nav>`;
 }

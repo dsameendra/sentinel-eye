@@ -1505,6 +1505,10 @@ html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
   opacity: 0 !important; pointer-events: none !important;
 }
 .liveview:fullscreen .tile .ov { transition: opacity .22s ease; }
+/* The Overview's own caption and Bookmark-all button idle away in full screen like everything else. */
+.liveview:fullscreen .overview-cap { transition: opacity .22s ease; }
+.liveview:fullscreen:not(.show) .overview-cap { opacity: 0; pointer-events: none; }
+html.tv-mode .liveview:fullscreen:not(.show) .overview-cap { opacity: 1; visibility: hidden; }
 
 /* ---------- sign-in (login.html, pair.html) ---------- */
 /* body is overflow:hidden app-wide (the app scrolls inside its panes); these standalone pages scroll here.

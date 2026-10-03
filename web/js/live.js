@@ -430,9 +430,8 @@ export class LiveView {
     t.el.style.gridRow = '1 / span 1';
     // The Live board's Overview: full-bleed, an OVERVIEW pill + what it is, and the one action that means
     // something different here (bookmark = every real camera at this moment).
-    const n = this.s.channels.filter((c) => c.enabled).length;
     t.el.classList.add('overview-tile');
-    t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>All ${n} channel${n === 1 ? '' : 's'}, one mosaic feed · fixed quality</span></div>
+    t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>Channel zero</span></div>
       ${this.ctx.can('operator') && !this.tvMode ? `<div class="overview-cap bottom"><span class="spacer"></span><button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button></div>` : ''}`);
     t.el.querySelector('[data-a=bookmark-all]')?.addEventListener('click', (e) => { e.stopPropagation(); this.bookmarkAllCams(); });
     w.append(t.el);

@@ -65,7 +65,9 @@ const P = {
   gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
   // A bracketed span of time — "pick a range to export" (crop meant the wrong thing on a timeline).
   // A figure in motion (motion events).
-  motion: '<circle cx="14" cy="4.5" r="2"/><path d="m8.5 21 2.6-5.6 2.9 2.6V22"/><path d="M6 11.5 9 8l4.2.4 2.3 3.6 3 .8"/><path d="m11.1 15.4 1.6-7"/>',
+  // A walking pedestrian — Events (things that happened in front of a camera) and motion alerts.
+  walk: '<circle cx="14" cy="3.9" r="2.1"/><path d="M13 8.4 11.3 14"/><path d="M11.3 14 14 16.6l.7 4.9"/><path d="M11.3 14 8.4 21"/><path d="M13 8.4 9.4 10l-1.6 3.3"/><path d="m13 8.4 2 3.6 3.1 1.3"/>',
+  motion: '<circle cx="14" cy="3.9" r="2.1"/><path d="M13 8.4 11.3 14"/><path d="M11.3 14 14 16.6l.7 4.9"/><path d="M11.3 14 8.4 21"/><path d="M13 8.4 9.4 10l-1.6 3.3"/><path d="m13 8.4 2 3.6 3.1 1.3"/>',
   // Two arrows pointing in — leave full screen.
   collapse: '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>',
   // A remote's direction pad — "the arrows".
