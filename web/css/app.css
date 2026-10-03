@@ -1362,9 +1362,21 @@ html.tv-mode .nav-arrow { width: 56px; height: 56px; }
    themes without a separate light-theme value. */
 .auth-page { height: 100%; overflow-y: auto; display: grid; place-items: center; padding: 24px 16px; position: relative; background: radial-gradient(circle at 50% 30%, rgba(10, 132, 255, .1), transparent 60%), var(--bg); }
 .auth-card { position: relative; width: min(400px, 100%); padding: 28px 26px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
-.auth-card h1 { margin: 18px 0 6px; font-size: 20px; }
-.auth-card .cc-icon { margin: 18px 0 0; }
-.auth-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .01em; }
+.auth-card h1 { margin: 16px 0 6px; font-size: 21px; font-weight: 700; text-align: center; letter-spacing: -.01em; }
+.auth-card .cc-icon { margin: 18px auto 0; }
+.auth-card .auth-lead { text-align: center; }
+.auth-mark { display: flex; justify-content: center; }
+.auth-mark .brand-mark { width: 40px; height: 40px; }
+/* Pairing board: no card — the page itself, wide, with the QR beside a code readable from across a room. */
+.auth-card.is-pair { width: min(760px, 100%); background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; text-align: center; }
+.auth-card.is-pair h1 { font-size: 26px; margin-top: 20px; }
+.auth-card.is-pair .auth-pair { flex-direction: row; justify-content: center; gap: 40px; margin: 26px 0 8px; flex-wrap: wrap; }
+.auth-card.is-pair .auth-pair .qr { width: 168px; padding: 10px; border-radius: var(--r-md); background: #fff; }
+.pair-side { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.auth-card.is-pair .pair-code { font: 700 clamp(36px, 11vw, 60px)/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; letter-spacing: .04em; white-space: nowrap; }
+.auth-card.is-pair .auth-alt { border-top: 0; align-items: center; }
+.auth-countdown { display: inline-flex; align-items: center; gap: 7px; }
+.auth-countdown .dot { width: 7px; height: 7px; }
 .auth-lead { margin: 0 0 18px; color: var(--muted); }
 .auth-form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 .auth-check { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; }

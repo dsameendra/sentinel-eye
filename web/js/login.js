@@ -15,7 +15,8 @@ const next = (() => {
 })();
 const go = () => location.replace(next);
 
-const brand = `<div class="auth-brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>`;
+const brand = '<div class="auth-mark" aria-hidden="true"><span class="brand-mark"></span></div>';
+const setPairing = (on) => { card.classList.toggle('is-pair', on); };
 
 function showError(msg) {
   const el = card.querySelector('.auth-err');
@@ -31,7 +32,8 @@ async function busy(btn, fn) {
 }
 
 function passwordStep() {
-  card.innerHTML = `${brand}<h1>Sign in</h1>
+  setPairing(false);
+  card.innerHTML = `${brand}<h1>Sign in to Sentinel Eye</h1>
     <form class="auth-form" novalidate>
       <div class="field"><label for="u">Username</label><input id="u" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
       <div class="field"><label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required></div>
@@ -39,8 +41,8 @@ function passwordStep() {
       <div class="auth-err" role="alert" hidden></div>
       <button class="btn primary auth-submit" type="submit">Sign in</button>
     </form>
-    <div class="auth-alt"><button class="btn ${tvMode ? 'primary' : 'ghost'}" data-a="pair">${icon('monitor')} Pair this device instead</button>
-      <p class="hint">For a TV or a shared screen: show a code here and approve it from your phone.</p></div>`;
+    <div class="auth-alt"><button class="btn ${tvMode ? 'primary' : 'ghost'}" data-a="pair">${icon('tv')} Pair this device instead</button>
+      <p class="hint">For a TV or a shared screen — show a code here and approve it from your phone.</p></div>`;
   const form = card.querySelector('form');
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -62,6 +64,7 @@ function passwordStep() {
 }
 
 function codeStep(challenge, recovery = false) {
+  setPairing(false);
   card.innerHTML = `${brand}<h1>${recovery ? 'Use a recovery code' : 'Two-factor code'}</h1>
     <p class="auth-lead">${recovery ? 'One of the codes you saved when you set up two-factor authentication. Each works once.'
       : 'The 6-digit code from your authenticator app.'}</p>
@@ -96,6 +99,7 @@ function stopPairing() { clearTimeout(pollTimer); clearInterval(tickTimer); }
 
 async function pairStep() {
   stopPairing();
+  setPairing(true);
   card.innerHTML = `${brand}<div class="auth-pair"><span class="spin"></span></div>`;
   let p;
   try { p = await authApi.pairStart(); } catch (err) {
@@ -106,16 +110,17 @@ async function pairStep() {
   }
   const url = `${location.origin}/pair?code=${encodeURIComponent(p.user_code)}`;
   const expires = Date.now() + p.expires_in * 1000;
+  // Pairing board: a bare full screen — the QR beside a code big enough to read from the sofa.
   card.innerHTML = `${brand}<h1>Pair this device</h1>
-    <p class="auth-lead">On your phone, signed in as an admin, scan the code or open <b>${esc(location.host)}/pair</b> and enter:</p>
-    <div class="auth-pair">${qrSvg(url, 'QR code to approve this device')}<div class="pair-code" aria-label="Pairing code">${esc(p.user_code)}</div></div>
-    <p class="hint auth-countdown" aria-live="off"></p>
-    <div class="auth-alt"><button class="btn" data-a="back">Sign in with a password instead</button></div>`;
+    <p class="auth-lead">Scan with an admin's phone, or sign in on another device and enter this code at <b>${esc(location.host)}/pair</b></p>
+    <div class="auth-pair">${qrSvg(url, 'QR code to approve this device')}<div class="pair-side"><div class="pair-code" aria-label="Pairing code">${esc(p.user_code)}</div>
+      <p class="auth-countdown" aria-live="off"><span class="dot wait"></span><span class="t"></span></p></div></div>
+    <div class="auth-alt"><button class="btn ghost" data-a="back">Sign in with a password instead</button></div>`;
   card.querySelector('[data-a=back]').addEventListener('click', () => { stopPairing(); passwordStep(); });
-  const countdown = card.querySelector('.auth-countdown');
+  const countdown = card.querySelector('.auth-countdown .t');
   const tick = () => {
     const s = Math.max(0, Math.round((expires - Date.now()) / 1000));
-    countdown.textContent = `Waiting for approval · code valid for ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    countdown.textContent = `Waiting for approval · expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
   tick();
   tickTimer = setInterval(tick, 1000);
@@ -131,6 +136,7 @@ async function pairStep() {
 }
 
 function expired() {
+  setPairing(false);
   card.innerHTML = `${brand}<h1>That code expired</h1><p class="auth-lead">Codes last 10 minutes.</p>
     <div class="auth-alt"><button class="btn primary" data-a="again">Get a new code</button><button class="btn ghost" data-a="back">Sign in with a password</button></div>`;
   card.querySelector('[data-a=again]').addEventListener('click', pairStep);
