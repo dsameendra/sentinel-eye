@@ -280,7 +280,7 @@ async def timeline_calibration():
 @app.get("/api/playback/pool")
 async def playback_pool():
     """How many of the DVR's 4 playback sessions are in use right now (section 7.3)."""
-    return {"busy": psess.pool.busy, "limit": psess.pool.limit}
+    return {"busy": psess.pool.busy, "limit": psess.pool.limit, "units": psess.pool.used_units, "budget": psess.pool.budget}
 
 
 class BookmarkRequest(BaseModel):

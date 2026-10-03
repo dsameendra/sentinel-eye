@@ -15,6 +15,10 @@ import { ZoomHud } from './zoomhud.js';
 import { openEnhancePopup } from './enhancePopup.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
+// The recorder's playback budget (app/playback_session.py's SPEED_BUDGET, measured on it): the speeds of
+// every open session add up to at most 16 real-time streams — 1 camera up to 16x, 2 up to 8x, 3–4 up to 4x.
+const SPEED_BUDGET = 16;
+const maxSpeedFor = (n) => SPEEDS.filter((sp) => Math.max(1, +sp) * Math.max(1, n) <= SPEED_BUDGET).pop() || '1';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
 const EXPORT_SCALE = 16; // must match app/export.py's EXPORT_SCALE — the DVR delivers full frames this fast during export (measured)
@@ -332,7 +336,21 @@ export class PlaybackView {
     }));
   }
 
+  /** Grey out the speeds the recorder can't serve for this many cameras (with why), and step the current
+   * speed down if a camera was just added past the line. */
+  _syncSpeedLimits(announce = false) {
+    const n = this.panes.length, max = maxSpeedFor(n);
+    const over = (sp) => +sp > +max;
+    const why = `With ${n} cameras the recorder plays up to ${max}× — show fewer cameras to go faster`;
+    this.root.querySelectorAll('[data-sp]').forEach((b) => { b.disabled = over(b.dataset.sp); b.title = b.disabled ? why : ''; });
+    if (over(this.speed)) {
+      if (announce) toast(`Playing at ${max}× — the recorder can't go faster with ${n} cameras.`, 'ok', 5000);
+      this._pickSpeed(max);
+    }
+  }
+
   _pickSpeed(sp) {
+    if (+sp > +maxSpeedFor(this.panes.length)) return;
     this.setSpeed(sp);
     this.root.querySelectorAll('[data-sp]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sp === sp)));
     const more = this.root.querySelector('[data-a=speedmore]');
@@ -342,7 +360,9 @@ export class PlaybackView {
   }
 
   _openSpeedMenu(anchor) {
-    const menu = openPopover(anchor, `<div class="speed-menu">${SPEEDS.map((sp) => `<button data-s="${sp}" aria-pressed="${sp === this.speed}">${sp.startsWith('0.') ? '1/' + Math.round(1 / parseFloat(sp)) : sp}×</button>`).join('')}</div>`, { className: 'speed-pop' });
+    const max = maxSpeedFor(this.panes.length);
+    const menu = openPopover(anchor, `<div class="speed-menu">${SPEEDS.map((sp) => `<button data-s="${sp}" aria-pressed="${sp === this.speed}" ${+sp > +max ? `disabled title="With ${this.panes.length} cameras the recorder plays up to ${max}×"` : ''}>${sp.startsWith('0.') ? '1/' + Math.round(1 / parseFloat(sp)) : sp}×</button>`).join('')}
+      ${this.panes.length > 1 ? `<p class="speed-note">Up to ${max}× with ${this.panes.length} cameras</p>` : ''}</div>`, { className: 'speed-pop' });
     menu?.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => { closePopover(); this._pickSpeed(b.dataset.s); }));
   }
 
@@ -412,6 +432,7 @@ export class PlaybackView {
     this.panes = ids.map((id) => keep.get(id) || this._makePane(cams.find((c) => c.id === id))).filter(Boolean);
     this._layoutPanes();
     this._renderCamList();
+    this._syncSpeedLimits(true);
     // Every selected camera's events, not just the primary's — the timeline gives each one its own lane.
     this.timeline?.setChannels(this.panes.map((p) => ({ channel: p.cam.channel, name: p.cam.name || `Camera ${p.cam.channel}` })));
     // A pending clip list applies to whichever cameras are selected at export time (_runExportOne reads
@@ -1190,7 +1211,9 @@ export class PlaybackView {
     // Must track app/export.py's own per-channel deadline (span/EXPORT_SCALE*3 + 60s, floor 60s), or a
     // genuinely-long export just errors out client-side while it's still running server-side. Camera count
     // adds queueing, not just per-channel time, so scale by pane count too, with real margin on top.
-    const perChannel = Math.max(60, spanSec / EXPORT_SCALE * 3 + 60);
+    // The server exports as fast as the recorder's playback budget allows at that moment — 16x when nothing
+    // else is playing, as slow as 1x alongside a busy review — so allow for the slow case here.
+    const perChannel = Math.max(90, spanSec * 3 + 60);
     const deadline = Date.now() + perChannel * this.panes.length * 1000;
     return new Promise((resolve, reject) => {
       const tick = async () => {

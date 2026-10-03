@@ -57,6 +57,7 @@ class RtspClient:
         self.url = f"rtsp://{host}:{self.port}{path}"
         self.timeout = timeout
         self.buf = b""
+        self.sock = None
         self.cseq = 0
         self.session = None
         self.auth = None
@@ -162,8 +163,8 @@ class RtspClient:
             self.session = re.search(r"Session:\s*([^;\r\n]+)", head).group(1)
             status = self.play(play_range, scale)
             if not status.startswith("RTSP/1.0 200"):
-                if "453" in status:
-                    raise RelayError("The recorder has no free playback session (its own limit — try again shortly)")
+                if "453" in status:   # "Not Enough Bandwidth": its playback speed budget is used up
+                    raise RelayError("The recorder can't play this many cameras this fast — lower the speed, or show fewer cameras.")
                 raise RelayError("PLAY failed: " + status)
         except (ConnectionError, OSError) as e:
             self.close()
@@ -207,6 +208,17 @@ class RtspClient:
             if time.time() - last_ka > 20:
                 self._send("OPTIONS", self.url)
                 last_ka = time.time()
+
+    def teardown(self):
+        """Politely end an RTSP session (the recorder also frees it when the socket closes — measured — but
+        this is the protocol's own way, and costs at most a second)."""
+        if not (self.sock and self.session):
+            return
+        try:
+            self.sock.settimeout(1.0)
+            self._send("TEARDOWN", self.url)
+        except Exception:
+            pass
 
     def close(self):
         try:
