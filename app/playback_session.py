@@ -141,14 +141,18 @@ class PlaybackReader:
 
     def stop(self):
         self._stop.set()
-        # Wake a read blocked on a quiet socket now, so the session (and its pool share) is given back
-        # straight away rather than whenever the recorder next sends something or the idle timeout fires.
-        try:
-            if self.client and self.client.sock:
-                import socket
-                self.client.sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
+        # A flowing session notices the flag on its next packet and tears down cleanly (waiting for the
+        # recorder's reply, so its budget is really free before the pool hands it on). A quiet one — no
+        # packets coming — gets its socket cut after a short grace, so its share isn't held for the 15s
+        # idle timeout.
+        def cut():
+            if self.thread.is_alive() and self.client and self.client.sock:
+                try:
+                    import socket
+                    self.client.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        threading.Timer(2.0, cut).start()
         try:
             self.q.put_nowait(None)
         except queue.Full:
@@ -213,10 +217,16 @@ class PlaybackReader:
                 self.client.open(play_range=rng, scale=self.speed, idle_timeout=15)
                 break
             except h.RelayError as e:
+                self.client.close()
+                if "fast" in str(e) and attempt < 5:
+                    # 453: the recorder's budget is (still) spoken for — a session that just ended can
+                    # take a moment to be released on its side. Wait briefly rather than fail.
+                    if self._stop.wait(0.8):
+                        return
+                    continue
                 too_close = "400" in str(e)   # 453 is the recorder's bandwidth refusal, not "too near now"
                 if not too_close or attempt == 5:
                     raise
-                self.client.close()
                 start_dt -= datetime.timedelta(seconds=20)
         aes = h.make_aes(self.conn["key"]) if self.conn["encrypted"] else None
         dp = h.Depacketizer(self.client.codec, aes)

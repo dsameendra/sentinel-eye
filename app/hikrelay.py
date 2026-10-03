@@ -215,8 +215,11 @@ class RtspClient:
         if not (self.sock and self.session):
             return
         try:
-            self.sock.settimeout(1.0)
+            self.sock.settimeout(1.5)
             self._send("TEARDOWN", self.url)
+            # Wait for the reply: the recorder only gives back its playback budget once it has processed
+            # this (measured — a session freed a moment too early gets the next one a 453).
+            self._resp()
         except Exception:
             pass
 

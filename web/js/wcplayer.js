@@ -123,9 +123,19 @@ export class WCPlayer {
     }
     if (this.following) {
       this.bufIndex = this.buffer.length - 1;
-      this._paintIndex(this.bufIndex);
       this.frameCount++;
-      if (absTime != null) this.opts.onFrame?.(absTime, this.frameCount);
+      // Every frame is decoded (each depends on the one before), but painted at most once per screen
+      // refresh: at 16x the recorder sends ~375 frames a second, and drawing (and re-labelling the UI for)
+      // each one was what made fast playback stutter.
+      if (!this._raf) {
+        this._raf = requestAnimationFrame(() => {
+          this._raf = 0;
+          if (!this.following || this.bufIndex < 0) return;
+          this._paintIndex(this.bufIndex);
+          const t = this.buffer[this.bufIndex]?.absTime;
+          if (t != null) this.opts.onFrame?.(t, this.frameCount);
+        });
+      }
     }
     // else: paused — the frame just sits buffered ahead of bufIndex until a step or resume reaches it
   }
@@ -309,6 +319,7 @@ export class WCPlayer {
 
   destroy() {
     this._closed = true;
+    if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; }
     this.disconnectSocket();
     if (this.decoder && this.decoder.state !== 'closed') { try { this.decoder.close(); } catch { /* already closed */ } }
     this._clearBuffer();
