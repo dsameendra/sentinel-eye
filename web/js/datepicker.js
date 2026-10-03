@@ -147,15 +147,19 @@ export class DateTimePicker {
     for (let i = 0; i < firstWeekday; i++) cells.push('<span class="cal-day empty"></span>');
     for (let d = 1; d <= daysInMonth; d++) {
       const key = `${y}-${pad2(mo + 1)}-${pad2(d)}`;
-      const has = gatedByCoverage ? this.coverageDays.get(key) : true;
       const isSel = sel.y === y && sel.mo === mo && sel.da === d;
       const isToday = today.y === y && today.mo === mo && today.da === d;
-      cells.push(`<button class="cal-day${has ? ' has' : ''}${isSel ? ' sel' : ''}${isToday ? ' today' : ''}" data-day="${d}" ${gatedByCoverage && !has ? 'disabled' : ''} title="${gatedByCoverage ? (has ? 'Recordings available' : 'No recordings') : ''}">${d}</button>`);
+      const future = y > today.y || (y === today.y && (mo > today.mo || (mo === today.mo && d > today.da)));
+      // Gated: only days with footage are pickable, and carry the green "has footage" dot. Ungated (Events'
+      // range): any day up to today is pickable, with no dot — it would claim footage nobody checked.
+      const has = gatedByCoverage ? this.coverageDays.get(key) : false;
+      const pickable = gatedByCoverage ? has : !future;
+      cells.push(`<button class="cal-day${has ? ' has' : ''}${pickable && !has ? ' avail' : ''}${isSel ? ' sel' : ''}${isToday ? ' today' : ''}" data-day="${d}" ${pickable ? '' : 'disabled'} title="${gatedByCoverage ? (has ? 'Recordings available' : 'No recordings') : ''}">${d}</button>`);
     }
     this.host.querySelector('.cal-label').textContent = `${MONTHS[mo]} ${y}`;
     const grid = this.host.querySelector('.cal-grid');
     grid.innerHTML = cells.join('');
-    grid.querySelectorAll('.cal-day.has, .cal-day:not([disabled])').forEach((b) => {
+    grid.querySelectorAll('.cal-day:not([disabled])').forEach((b) => {
       if (b.classList.contains('empty')) return;
       b.addEventListener('click', () => {
         const day = +b.dataset.day;
