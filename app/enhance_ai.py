@@ -198,7 +198,7 @@ def source_path(job_id):
 
 
 # ------------------------------------------------------------------ OCR (optional, on demand — spec section 4a)
-def _ocr_pass(img):
+def _ocr_pass(img, psm=None):
     """Runs Tesseract once on a PIL image. Returns (lines, mean_confidence, n_words, score) — the last two
     are how the caller below picks the best of several candidate rotations, not shown to the operator.
     Words below MIN_WORD_CONF are dropped entirely, not just down-weighted: at a wrong rotation angle,
@@ -210,7 +210,7 @@ def _ocr_pass(img):
     letting a degenerate case win."""
     import pytesseract
     MIN_WORD_CONF = 40
-    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=f"--psm {psm}" if psm else "")
     lines, confs = {}, []
     for i, text in enumerate(data["text"]):
         text = text.strip()
@@ -264,12 +264,21 @@ def ocr(job_id, which):
     gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     pre = PILImage.fromarray(gray)
 
-    lines, conf, n, score = _ocr_pass(pre)
+    # Page segmentation: Tesseract's default (psm 3) looks for a page of text and reads nothing at all off
+    # a lone plate-sized block on an otherwise empty frame — found directly: a clean, upright "7CBR 481"
+    # read as empty under psm 3 but exactly under psm 6 (one uniform block). So try the default first, then
+    # one-block and sparse-text segmentation, keeping whichever reads the most with the most confidence.
+    best = None
+    for psm in (None, 6, 11):
+        cand = _ocr_pass(pre, psm)
+        if best is None or cand[3] > best[0][3]:
+            best = (cand, psm)
+    (lines, conf, n, score), psm = best
     if n == 0 or conf < 75:  # weak or empty first pass — the shape a meaningfully angled line of text takes
         best = (lines, conf, n, score)
         for angle in (-20, -15, -10, -5, 5, 10, 15, 20):
             rotated = pre.rotate(angle, resample=PILImage.BICUBIC, expand=True, fillcolor=255)
-            cand = _ocr_pass(rotated)
+            cand = _ocr_pass(rotated, psm)
             if cand[3] > best[3]:  # total confidence-weighted evidence wins, not raw word count (see _ocr_pass)
                 best = cand
         lines = best[0]
