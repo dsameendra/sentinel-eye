@@ -5,7 +5,7 @@
 // windows by app/events.py, so no further run-collapsing is needed here.
 import { barHTML, wireBar } from './bar.js';
 import { closePopover, confirmDialog, esc, icon, openPopover, toast } from './ui.js';
-import { fetchTzOffset } from './dvrtime.js';
+import { fetchTzOffset, knownTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { openEventPreview } from './eventPreview.js';
@@ -19,6 +19,10 @@ const RESULT_CAP = 500; // no server-side pagination yet — a capped result set
 const THUMB_CONCURRENCY = 2;
 const KINDS = Object.keys(KIND_LABEL);
 const PRESETS = [['today', 'Today'], ['24h', '24h'], ['7d', '7d'], ['custom', 'Custom']];
+
+// The last search's results, kept for the session so returning to Events shows them instantly.
+let lastSearch = null;   // { key, results, capped }
+const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r.id === b[i].id && r.end_utc === b[i].end_utc);
 
 export class EventsView {
   /** @param ctx { settings(), go(hash) } */
@@ -90,10 +94,20 @@ export class EventsView {
     if (n) { n.textContent = narrowed ? String(narrowed) : ''; }
   }
 
+  // Draws at once (with the DVR offset already known) and searches; the offset is checked in the
+  // background, and only a change — or a first visit ever, with nothing known — waits for it.
   async _init() {
-    this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
+    const known = knownTzOffset();
+    if (known === null) this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
+    else this.tzOffsetMin = known;
+    if (this._dead) return;   // left before a first-ever fetch came back
     this.build();
     this.search();
+    if (known !== null) fetchTzOffset(known).then((m) => {
+      if (m === this.tzOffsetMin || this._dead) return;
+      this.tzOffsetMin = m;
+      if (this.preset === 'today') this.search(); else this.renderResults();
+    });
   }
 
   // ------------------------------------------------------------- range from preset
@@ -184,7 +198,12 @@ export class EventsView {
 
   async search() {
     if (this.selectedCams.size === 0 || this.kinds.size === 0) { this.results = []; this.loading = false; this.renderResults(); return; }
-    this.loading = true;
+    // The same search as last time (coming back to Events, say) shows its results at once and refreshes
+    // them quietly; only a new search shows the spinner.
+    const key = JSON.stringify([this.preset, this.preset === 'custom' ? [this.customFrom, this.customTo] : 0, [...this.selectedCams].sort(), [...this.kinds].sort()]);
+    const cached = lastSearch?.key === key ? lastSearch : null;
+    if (cached) { this.results = cached.results; this.capped = cached.capped; this.loading = false; }
+    else this.loading = true;
     this.renderResults();
     const [fromEpoch, toEpoch] = this._range();
     const base = new URLSearchParams({
@@ -209,12 +228,15 @@ export class EventsView {
       if (seq !== this._seq) return; // a newer search has started; its results win
       const rows = parts.flat();
       rows.sort((a, b) => b.start_utc.localeCompare(a.start_utc)); // newest first
-      this.capped = parts.some((r) => r.length >= RESULT_CAP);
+      const capped = parts.some((r) => r.length >= RESULT_CAP);
+      lastSearch = { key, results: rows, capped };
+      // Nothing new since the cached results on screen: leave them (and their loaded thumbnails) alone.
+      if (cached && sameRows(cached.results, rows) && cached.capped === capped && !this.loading) return;
+      this.capped = capped;
       this.results = rows;
     } catch (e) {
       if (seq !== this._seq) return;
-      this.results = [];
-      toast(e.message || 'Search failed', 'bad');
+      if (!cached) { this.results = []; toast(e.message || 'Search failed', 'bad'); }
     }
     this.loading = false;
     this.renderResults();
@@ -322,6 +344,7 @@ export class EventsView {
   }
 
   destroy() {
+    this._dead = true;
     document.removeEventListener('keydown', this._onKey);
     this._io.disconnect();
     this.root.innerHTML = '';

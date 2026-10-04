@@ -9,6 +9,7 @@ import { SettingsView } from './settings.js';
 import { esc, icon, toast } from './ui.js';
 import { tabBarHTML } from './bar.js';
 import { layoutIds } from './layouts.js';
+import { fetchTzOffset } from './dvrtime.js';
 
 const state = { settings: null, me: null, view: null, kind: null, hash: '#/live' };
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
@@ -191,6 +192,7 @@ async function boot() {
   document.documentElement.classList.toggle('role-viewer', !can('operator'));   // hides review-only buttons (app.css)
   shell();
   if (state.me.limited) { openAccount(ctx, { force2fa: true }); return; }
+  if (can('operator')) fetchTzOffset();   // remembered, so Playback and Events never wait on it later
   // Registered from the app shell (not inline in index.html) so it only ever runs after the real app has
   // loaded — irrelevant to whether the settings fetch below succeeds, so it doesn't block or gate on it.
   if ('serviceWorker' in navigator) {

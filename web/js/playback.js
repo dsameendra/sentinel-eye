@@ -5,7 +5,7 @@ import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
-import { partsFromEpoch, fetchTzOffset } from './dvrtime.js';
+import { partsFromEpoch, fetchTzOffset, knownTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
@@ -61,9 +61,14 @@ export class PlaybackView {
     this._init(channelId);
   }
 
+  // Builds at once with the DVR offset already known (main.js fetches it at start-up); only a first visit
+  // ever, with nothing known yet, waits for it. A changed offset is picked up next time.
   async _init(channelId) {
-    this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
+    const known = knownTzOffset();
+    this.tzOffsetMin = known ?? await fetchTzOffset(this.tzOffsetMin);
+    if (this._dead) return;   // left before a first-ever fetch came back
     this.build(channelId);
+    if (known !== null) fetchTzOffset(known);
   }
 
   // Same order the operator arranged on Live/Settings (display.order), not just the enabled subset in
@@ -1230,6 +1235,7 @@ export class PlaybackView {
   }
 
   destroy() {
+    this._dead = true;
     document.removeEventListener('keydown', this.onKey);
     window.removeEventListener('resize', this.onResize);
     if (this._onFsChange) document.removeEventListener('fullscreenchange', this._onFsChange);
