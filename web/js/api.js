@@ -49,7 +49,7 @@ export const api = {
   exportStatus: (jobId) => call('GET', `/api/export/${jobId}`),
   createEnhance: (b) => call('POST', '/api/enhance', b),
   enhanceStatus: (jobId) => call('GET', `/api/enhance/${jobId}`),
-  enhanceOcr: (jobId, which) => call('POST', `/api/enhance/${jobId}/ocr`, { which }),
+  enhanceOcr: (jobId, which, region = null, plate = false) => call('POST', `/api/enhance/${jobId}/ocr`, { which, region, plate }),
 };
 
 // Sign-in (app/auth_api.py). Kept apart from `api` above so the login page can import it without the rest.
@@ -59,6 +59,8 @@ export const authApi = {
   loginTotp: (challenge, code) => call('POST', '/api/auth/login/totp', { challenge, code }),
   logout: () => call('POST', '/api/auth/logout'),
   changePassword: (current, next) => call('POST', '/api/auth/password', { current, new: next }),
+  rename: (username, password) => call('PATCH', '/api/auth/profile', { username, password }),
+  setAvatar: (spec) => call('PUT', '/api/auth/avatar', spec),
   totpBegin: () => call('POST', '/api/auth/totp/begin'),
   totpConfirm: (code) => call('POST', '/api/auth/totp/confirm', { code }),
   totpDisable: (password) => call('POST', '/api/auth/totp/disable', { password }),

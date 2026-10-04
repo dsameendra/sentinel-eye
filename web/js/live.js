@@ -1,7 +1,10 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
-import { bookmarkDialog, esc, icon, toast, openPopover } from './ui.js';
+import { ZoomHud } from './zoomhud.js';
+import { bookmarkDialog, closePopover, esc, icon, notify, toast, openPopover, shortcutsDialog } from './ui.js';
+import { barHTML, globalActionsHTML, markBell, wireGlobal } from './bar.js';
+import { onboardingDialog } from './onboarding.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api, getJSON } from './api.js';
 import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
@@ -31,7 +34,6 @@ export class LiveView {
     this.rotating = true;
     this.tiles = [];
     this.focus = null;         // { tile, id }
-    this.menuOpen = false;
     this.pendingFocusId = null;
     this.zoomMem = {};          // grid zoom per camera, kept while paging/re-laying out
     this.fitOverride = null;   // null = follow Settings > Display > Fit; 'contain'/'cover' = this-session-only override, never saved (see fitMode())
@@ -41,25 +43,23 @@ export class LiveView {
     this.tvQualityPref = ctx.tvQuality?.() || 'sub';
     this.tvLayoutPref = ctx.tvLayout?.() || '1x1';
     this.tvIndex = 0;   // currently-selected tile in TV mode's own arrow-key grid navigation
-    // Whether channel-zero shows at all on THIS device — its own local (localStorage), off-by-default
-    // preference everywhere except TV mode, which always shows it when the recorder offers it (see
-    // chan0Displayed): a phone or laptop shouldn't suddenly gain an extra tile because someone turned
-    // Channel-zero on for the TV in the other room.
-    this.chan0Visible = !!ctx.chan0Visible?.();
-    // Channel-zero's own single view (just that one stream, no grid) vs. showing it as the grid's first
-    // tile — session-only (not persisted): the subbar's "Grid"/"Channel 0" toggle switches between them
-    // without that choice following you to the next visit. TV mode defaults straight to the single view
-    // (its whole point — one cheap stream a weak TV browser can decode); elsewhere it starts in the grid.
-    this.chan0Single = this.tvMode && this.channelZeroOn;
+    // Overview mode: channel-zero shown full-screen, replacing the grid entirely — one on/off state (redesign
+    // v2; was two separate toggles, "add it to the grid" and "view it alone"). Local to this device
+    // (localStorage), off by default everywhere except TV mode, which always starts there when the recorder
+    // offers it (see chan0Displayed): a phone or laptop shouldn't jump into Overview because someone turned
+    // it on for the TV in the other room.
+    this.overviewOn = (this.tvMode && this.channelZeroOn) || !!ctx.overviewOn?.();
     // Set once by Settings right before ctx.go('#/live') (see settings.js's TV-mode confirm flow) —
     // consumed here so a plain reload/return to Live never re-triggers an unrequested full-screen jump.
     this._autoFs = !!ctx.consumeTvFullscreen?.();
     this.onKey = (e) => this.key(e);
     document.addEventListener('keydown', this.onKey);
+    this.onTvEdge = (e) => this._tvEdge(e);
+    document.addEventListener('tvnav-edge', this.onTvEdge);
+    this.onVis = () => { if (!document.hidden && this.tvMode) this._tvWakeLock(); };
+    document.addEventListener('visibilitychange', this.onVis);
     this.onFs = () => this.syncFullscreen();
     document.addEventListener('fullscreenchange', this.onFs);
-    this.onDoc = (e) => { if (this.menuOpen && !e.target.closest('.menu-wrap')) { this.menuOpen = false; this.renderBar(); } };
-    document.addEventListener('click', this.onDoc);
     this.rotTimer = setInterval(() => this.rotate(), 1000);
     this.rotSince = Date.now();
     this.evTimer = setInterval(() => this.pollEvents(), 4000);
@@ -70,7 +70,9 @@ export class LiveView {
   get s() { return this.ctx.settings(); }
   get d() { return this.s.display; }
   get channelZeroOn() { return !!this.s.connection.channel_zero; }   // the recorder actually offers it (Settings > Connection)
-  get chan0Displayed() { return this.channelZeroOn && (this.tvMode || this.chan0Visible); }   // ...and this device is actually showing it
+  // ...and this device is showing it. TV mode starts in Overview (constructor) but its toggle still works —
+  // it used to force Overview whenever TV mode was on, leaving the TV's Grid button doing nothing.
+  get chan0Displayed() { return this.channelZeroOn && this.overviewOn; }
   fitMode() { return this.fitOverride || this.d.fit; }
   toggleFit() {
     this.fitOverride = this.fitMode() === 'cover' ? 'contain' : 'cover';
@@ -82,11 +84,10 @@ export class LiveView {
     this.focus?.el.classList.toggle('fill', this.fitMode() === 'cover'); // focus is a separate overlay, not inside .wall — kept in sync here too
   }
   cams() {
+    // Channel-zero is never one of these (redesign v2) — Overview mode replaces the grid outright
+    // (renderWall/_renderChan0SingleView), it doesn't add a tile to it.
     const by = Object.fromEntries(this.s.channels.filter((c) => c.enabled).map((c) => [c.id, c]));
-    const real = this.d.order.map((id) => by[id]).filter(Boolean);
-    // Always first, regardless of the configured camera order — it's the recorder's own overview of
-    // everything else in this list, not one more camera slotted in wherever Arrange left it.
-    return this.chan0Displayed ? [CHAN0_CAM, ...real] : real;
+    return this.d.order.map((id) => by[id]).filter(Boolean);
   }
   slots() { return slotsOf(this.effLayout()); }
   pages() { return Math.max(1, Math.ceil(this.cams().length / this.slots())); }
@@ -95,35 +96,60 @@ export class LiveView {
   build() {
     this.disposeTiles();
     const s = this.s;
+    // Empty states keep the bar (so Settings/Playback/your account stay one click away) and use the States
+    // board's designed treatment rather than a bare card.
+    const emptyState = (iconName, title, body, actionsHtml) => {
+      this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="state-card"><div class="state-ico">${icon(iconName)}</div>
+        <h2>${title}</h2><p>${body}</p>${actionsHtml}</div></main>`;
+      this.live = this.root.querySelector('.liveview');
+      this.bar = this.root.querySelector('.live-bar');
+      this.wall = null;
+      this.renderBar();
+    };
     if (!s.connection.host && !s.connection.configured) {   // configured: the redacted form non-admins get
-      this.root.innerHTML = `<main class="liveview"><div class="center-card"><div class="cc-icon">${icon('plug')}</div>
-        ${this.ctx.can('admin') ? `<h2>Connect your recorder</h2><p>Enter the IP address and login of your DVR or camera to see the live video.</p>
-        <a class="btn primary" href="#/settings/connection">Open settings</a>` : '<h2>No recorder yet</h2><p>An admin needs to connect the recorder before the cameras show up here.</p>'}</div></main>`;
+      if (this.ctx.can('admin')) {
+        emptyState('briefcase', 'No cameras yet', "Add your recorder's address to start watching.",
+          '<div class="state-actions"><button class="btn primary" data-a="setup">Add recorder</button><a class="btn ghost" href="#/settings/connection">Open settings</a></div>');
+        this.root.querySelector('[data-a=setup]').addEventListener('click', () => onboardingDialog(this.ctx));
+      } else {
+        emptyState('briefcase', 'No recorder yet', 'An admin needs to connect the recorder before the cameras show up here.', '');
+      }
       return;
     }
-    if (!this.cams().length) {
-      this.root.innerHTML = `<main class="liveview"><div class="center-card"><div class="cc-icon">${icon('video')}</div>
-        <h2>No cameras yet</h2><p>Add or enable channels to start watching.</p><a class="btn primary" href="#/settings/channels">Manage channels</a></div></main>`;
+    if (!this.cams().length && !this.chan0Displayed) {
+      emptyState('video', 'No cameras yet', 'Add or enable channels to start watching.',
+        this.ctx.can('admin') ? '<div class="state-actions"><a class="btn primary" href="#/settings/channels">Manage channels</a></div>' : '');
       return;
     }
-    this.root.innerHTML = `<main class="liveview"><div class="subbar"></div><div class="wall"></div>
+    this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="wall"></div><div class="pager-row" hidden></div>
+      <p class="live-hint">Long-press any tile for quick actions</p>
       <div class="tv-fs-controls">
         <button class="tv-fs-btn" data-a="pgprev" title="Previous page" aria-label="Previous page">${icon('left')}</button>
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
         <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
-      </div></main>`;
+      </div>${this.tvMode ? `<button class="tv-page prev" data-a="tvprev" aria-label="Previous page">${icon('left')}</button><button class="tv-page next" data-a="tvnext" aria-label="Next page">${icon('right')}</button><div class="tv-ambient" aria-hidden="true"><span class="dot live"></span><span class="t"></span></div>` : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
-    this.bar = this.root.querySelector('.subbar');
+    this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
+    this.pager = this.root.querySelector('.pager-row');
     this.wall.addEventListener('focusin', (e) => this._tvFocusIn(e));
-    this.live.querySelector('[data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    this.live.querySelector('.tv-fs-controls [data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
     this.live.querySelector('[data-a=pgprev]').addEventListener('click', () => this.goPage(this.page - 1));
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
+    if (this.tvMode) {
+      this.live.querySelector('[data-a=tvprev]').addEventListener('click', () => this.goPage(this.page - 1));
+      this.live.querySelector('[data-a=tvnext]').addEventListener('click', () => this.goPage(this.page + 1));
+      this.live.addEventListener('mousemove', () => this._tvWake());
+      this.live.addEventListener('pointerdown', () => this._tvWake());
+      this._tvWake();
+      this._tvWakeLock();
+    }
     this.page = Math.min(this.page, this.pages() - 1);
     this.renderBar();
     this.renderWall();
+    if (this.tvMode) this._tvDefaultFocus();
     if (this.pendingFocusId) this.route(this.pendingFocusId);
   }
 
@@ -162,7 +188,7 @@ export class LiveView {
   _syncFsControls() {
     const el = this.live?.querySelector('.tv-fs-controls');
     if (!el) return;
-    const single = this.chan0Displayed && this.chan0Single;
+    const single = this.chan0Displayed;
     const pages = this.pages(), multi = !single && pages > 1;
     el.querySelector('[data-a=pgprev]').hidden = !multi;
     el.querySelector('[data-a=pgnext]').hidden = !multi;
@@ -176,72 +202,135 @@ export class LiveView {
 
   renderBar() {
     if (!this.bar) return;
-    const d = this.d, pages = this.pages(), q = this.effQuality(), layout = this.effLayout();
-    // Channel-zero's single view (its own stream, filling the wall, no grid) replaces the layout/order/
-    // Arrange controls entirely — there's nothing to lay out or reorder, just the one stream — so those
-    // give way to a single toggle back to the grid. Available on any device once channel-zero is actually
-    // showing, not just TV mode: TV mode still switches it on by default (its own point — a single cheap
-    // stream a weak TV browser can decode), everywhere else it's opt-in (see the "Channel 0" toggle below).
-    const single = this.chan0Displayed && this.chan0Single;
-    const canToggleView = this.chan0Displayed;
-    // The on/off toggle itself — hidden entirely in TV mode, where channel-zero showing is the deliberate,
-    // unconditional default (see the TV-mode confirm dialog in settings.js), not something to opt in/out
-    // of per visit the way it is on a phone, tablet, or laptop.
-    const canToggleChan0 = this.channelZeroOn && !this.tvMode;
-    const seg = (v, label, tip) => `<button data-q="${v}" aria-pressed="${q === v}" title="${tip}">${label}</button>`;
-    this.bar.innerHTML = `
-      ${single ? '' : `<div class="menu-wrap">
-        <button class="btn" data-a="layout" aria-haspopup="true" aria-expanded="${this.menuOpen}">${layoutIcon(layout, 22)} ${LAYOUTS[layout].label} ${icon('down')}</button>
-        ${this.menuOpen ? `<div class="menu" style="left:0;right:auto;min-width:250px"><div class="lay">${layoutIds.map((id) =>
-          `<button data-l="${id}" aria-pressed="${layout === id}">${layoutIcon(id, 40)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div></div>` : ''}
-      </div>`}
-      ${single ? '' : `<div class="seg" role="group" aria-label="Video quality">
-        ${seg('auto', 'Auto', 'HD for large tiles and the large view, SD for small tiles')}${seg('sub', 'SD', 'Always use the lighter sub-stream')}${seg('main', 'HD', 'Always use the full quality main stream')}
-      </div>`}
-      <button class="btn" data-a="fit" aria-pressed="${this.fitMode() === 'cover'}"
-        title="${this.fitMode() === 'cover' ? 'Filling tiles (cropped to fill, nothing letterboxed) — tap to letterbox instead. This session only, not saved.' : 'Letterboxed to fit — tap to fill tiles instead (crops the picture). This session only, not saved.'}">
-        ${icon('crop')} ${this.fitMode() === 'cover' ? 'Fill' : 'Fit'}
-      </button>
-      ${canToggleChan0 ? `<button class="btn" data-a="chan0" aria-pressed="${this.chan0Visible}" title="${this.chan0Visible ? "Hide the recorder's Channel 0 overview" : "Show the recorder's Channel 0 overview as the first tile"}">${icon('monitor')} Overview</button>` : ''}
-      ${canToggleView
-        ? `<button class="btn" data-a="chan0view" title="${single ? 'Switch to the camera grid' : "Show only the recorder's Channel 0 overview"}">${icon(single ? 'live' : 'monitor')} ${single ? 'Grid' : 'Channel 0'}</button>`
-        : `<button class="btn" data-a="edit" aria-pressed="${this.edit}" title="Drag tiles to change their order (E)">${icon('move')} Arrange</button>`}
-      ${!single && d.rotate_seconds > 0 && pages > 1 ? `<button class="btn" data-a="rotate" aria-pressed="${this.rotating}" title="Auto-rotate pages every ${d.rotate_seconds}s">${icon(this.rotating ? 'pause' : 'play')} Rotate</button>` : ''}
-      <span class="spacer"></span>
-      ${!single && pages > 1 ? `<div class="pager"><button class="btn icon ghost" data-a="prev" aria-label="Previous page">${icon('left')}</button>
-        <div class="dots">${Array.from({ length: pages }, (_, i) => `<button data-p="${i}" aria-label="Page ${i + 1}" aria-current="${i === this.page}"></button>`).join('')}</div>
-        <span>${this.page + 1} / ${pages}</span><button class="btn icon ghost" data-a="next" aria-label="Next page">${icon('right')}</button></div>` : ''}
-      <span class="pill" title="Cameras currently showing live video"><span class="dot ${this.liveCount === this.tiles.length && this.tiles.length ? 'live' : 'wait'}"></span><span class="livecount">${this.liveCount ?? 0}/${this.tiles.length} live</span></span>
-      <button class="btn icon" data-a="wallfs" title="Full screen" aria-label="Full screen">${icon('fullscreen')}</button>`;
-    this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; this.renderBar(); });
-    this.bar.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', () => {
-      // TV mode: local preference (see effLayout()), not the setting every other device shares — picking a
-      // bigger grid from the TV itself shouldn't hand a phone on the same server a wall of tiles it never asked for.
-      if (this.tvMode) { this.tvLayoutPref = b.dataset.l; this.ctx.setTvLayout?.(b.dataset.l); this.menuOpen = false; this.page = 0; this.renderBar(); this.renderWall(); }
-      else this.setDisplay({ layout: b.dataset.l }, true);
-    }));
-    this.bar.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
-      // TV mode: this control still works, it just writes to the local TV-only preference (see
-      // effQuality()) instead of the setting every other device shares — flipping a TV to HD shouldn't
-      // change what a phone on the same server defaults to next time it opens.
-      if (this.tvMode) { this.tvQualityPref = b.dataset.q; this.ctx.setTvQuality?.(b.dataset.q); this.renderBar(); this.renderWall(); }
-      else this.setDisplay({ quality: b.dataset.q }, true);
-    }));
-    this.bar.querySelector('[data-a=fit]').addEventListener('click', () => this.toggleFit());
-    this.bar.querySelector('[data-a=edit]')?.addEventListener('click', () => this.toggleEdit());
-    this.bar.querySelector('[data-a=chan0]')?.addEventListener('click', () => {
-      this.chan0Visible = !this.chan0Visible;
-      this.ctx.setChan0Visible?.(this.chan0Visible);
-      if (!this.chan0Visible) this.chan0Single = false;   // turning it off while viewing it alone has nothing left to show — land back in the grid for next time
+    if (this.tvMode) { this._renderTvBar(); return; }
+    const layout = this.effLayout();
+    // Channel-zero's Overview mode replaces the grid outright (its own stream, filling the wall), so the
+    // layout picker gives way to the single Overview/Grid toggle — matching the Live board, where the layout
+    // button only exists in grid mode.
+    const single = this.chan0Displayed;
+    const context = `
+      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
+      ${this.edit ? '<button class="btn primary sm" data-a="edit-done" title="Finish arranging (E or Esc)">Done</button>' : ''}`;
+    const actions = `${this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button><span class="bar-sep"></span>` : ''}${globalActionsHTML(this.ctx)}`;
+    this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', after: this.wall ? this._healthHTML() : '', context, actions, cls: 'live' });
+    wireGlobal(this.bar, this.ctx);
+    this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
+    this.bar.querySelector('[data-a=edit-done]')?.addEventListener('click', () => this.toggleEdit(false));
+    this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => {
+      this.overviewOn = !this.overviewOn;
+      this.ctx.setOverviewOn?.(this.overviewOn);
+      if (!this.wall) { this.build(); return; }
       this.renderBar(); this.renderWall();
     });
-    this.bar.querySelector('[data-a=chan0view]')?.addEventListener('click', () => { this.chan0Single = !this.chan0Single; this.renderBar(); this.renderWall(); });
-    this.bar.querySelector('[data-a=rotate]')?.addEventListener('click', () => { this.rotating = !this.rotating; this.rotSince = Date.now(); this.renderBar(); });
-    this.bar.querySelector('[data-a=prev]')?.addEventListener('click', () => this.goPage(this.page - 1));
-    this.bar.querySelector('[data-a=next]')?.addEventListener('click', () => this.goPage(this.page + 1));
-    this.bar.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => this.goPage(+b.dataset.p)));
-    this.bar.querySelector('[data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    this.bar.querySelector('[data-a=wallfs]')?.addEventListener('click', () => this.toggleFullscreen(this.live));
+    if (this._lastEventRows) markBell(this.bar, this._lastEventRows);
+    this._renderPager();
     this._syncFsControls();
+  }
+
+  /** TV mode's header (TV Mode board): the mark and name, a clock with the camera count, and only the
+   * controls a remote needs — Overview/Grid, layout, Settings — big enough to land on. */
+  _renderTvBar() {
+    const single = this.chan0Displayed;
+    const layout = this.effLayout();
+    const fs = !!document.fullscreenElement;
+    const actions = `<span class="tv-clock"></span>
+      ${this.channelZeroOn ? `<button class="btn ghost tv-btn view-toggle" data-a="overview" aria-pressed="${single}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Camera grid' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost tv-btn lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}
+      <button class="btn ghost tv-btn" data-a="tvfs">${icon(fs ? 'collapse' : 'expand')}<span>${fs ? 'Exit full screen' : 'Full screen'}</span></button>
+      <a class="btn icon ghost tv-btn" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>`;
+    this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Sentinel Eye', actions, cls: 'live tv' });
+    this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
+    this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => this._setOverview(!this.chan0Displayed));
+    this.bar.querySelector('[data-a=tvfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    const clock = this.bar.querySelector('.tv-clock');
+    const tick = () => {
+      const d = new Date();
+      const day = d.toLocaleDateString(undefined, { weekday: 'short' });
+      const n = this.cams().length, pages = this.chan0Displayed ? 1 : this.pages();
+      const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      clock.textContent = `${day} ${hm} · ${n} camera${n === 1 ? '' : 's'}${pages > 1 ? ` · page ${this.page + 1} of ${pages}` : ''}`;
+      const amb = this.live?.querySelector('.tv-ambient .t');
+      if (amb) amb.textContent = hm;
+    };
+    tick();
+    clearInterval(this.clockTimer);
+    this.clockTimer = setInterval(tick, 15000);
+    // Pointer remotes (Samsung's is a cursor): big page arrows on the grid's edges, when there are pages.
+    const multi = !single && this.pages() > 1;
+    this.live?.querySelectorAll('.tv-page').forEach((el) => { el.hidden = !multi; });
+    this._renderPager();
+    this._syncFsControls();
+    this._tvDefaultFocus();
+  }
+
+
+
+
+  /** The bar's quiet health indicator (States board: "lives permanently in the top bar's corner — never
+   * hidden, never alarming at rest"): a plain camera count when everything's streaming, a dot + live/total
+   * only when something isn't. */
+  _healthHTML() {
+    const total = this.tiles.length, n = this.liveCount ?? 0;
+    const all = total > 0 && n === total;
+    // States board's three: connected, reconnecting, unreachable. "Unreachable" only once nothing has
+    // come up for a while, so a normal cold start reads as connecting, not as an alarm.
+    const down = total > 0 && n === 0 && Date.now() - (this.wallSince || 0) > 20000 && this.tiles.every((t) => t.state !== 'live');
+    const label = all ? `${total} camera${total === 1 ? '' : 's'}<span class="all-note"> · all connected</span>` : down ? 'Recorder unreachable' : total && n ? `${n}/${total} live` : 'Connecting…';
+    const tip = all ? 'Every camera on this page is streaming' : down ? "No camera has connected — check the recorder's power and network" : 'Some cameras are still connecting or reconnecting';
+    return `<span class="pill health${all ? '' : ' degraded'}${down ? ' down' : ''}" title="${tip}"><span class="dot ${down ? 'off' : 'wait'}"${all ? ' hidden' : ''}></span><span class="livecount">${label}</span></span>`;
+  }
+
+  /** Page control under the wall (the Live board's 1×1 pager: ‹ 1 / 8 ›), only when there's more than one page. */
+  _renderPager() {
+    if (!this.pager) return;
+    const pages = this.pages();
+    const show = !this.chan0Displayed && pages > 1;
+    this.pager.hidden = !show;
+    if (!show) { this.pager.innerHTML = ''; return; }
+    const d = this.d;
+    this.pager.innerHTML = `<button class="btn icon glass-btn" data-a="prev" aria-label="Previous page">${icon('left')}</button>
+      <span class="pager-n">${this.page + 1} / ${pages}</span>
+      <button class="btn icon glass-btn" data-a="next" aria-label="Next page">${icon('right')}</button>
+      ${d.rotate_seconds > 0 ? `<button class="btn icon ghost pager-rot" data-a="rotate" aria-pressed="${this.rotating}" title="${this.rotating ? `Auto-rotating every ${d.rotate_seconds}s — click to pause` : 'Auto-rotate paused — click to resume'}" aria-label="Auto-rotate pages">${icon(this.rotating ? 'pause' : 'play')}</button>` : ''}`;
+    this.pager.querySelector('[data-a=prev]').addEventListener('click', () => this.goPage(this.page - 1));
+    this.pager.querySelector('[data-a=next]').addEventListener('click', () => this.goPage(this.page + 1));
+    this.pager.querySelector('[data-a=rotate]')?.addEventListener('click', () => { this.rotating = !this.rotating; this.rotSince = Date.now(); this._renderPager(); });
+  }
+
+  /** Layout + view options in one popover (the Live board's layout menu, plus the controls the old second
+   * bar carried — quality, fit/fill, arrange — so nothing is lost by folding the bars into one). */
+  _openViewMenu(btn) {
+    const layout = this.effLayout(), q = this.effQuality(), fill = this.fitMode() === 'cover';
+    const menu = openPopover(btn, `<div class="view-menu">
+      <div class="pop-label">Layout</div>
+      <div class="lay">${layoutIds.map((id) => `<button data-l="${id}" aria-pressed="${layout === id}">${layoutIcon(id, 36)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div>
+      <div class="pop-sep"></div>
+      <div class="pop-row"><span>Quality</span><div class="seg" role="group" aria-label="Video quality">
+        <button data-q="auto" aria-pressed="${q === 'auto'}" title="HD for large tiles and the large view, SD for small tiles">Auto</button><button data-q="sub" aria-pressed="${q === 'sub'}" title="Always the lighter sub-stream">SD</button><button data-q="main" aria-pressed="${q === 'main'}" title="Always the full-quality main stream">HD</button></div></div>
+      <div class="pop-row"><span>Picture</span><div class="seg" role="group" aria-label="Fit or fill">
+        <button data-f="contain" aria-pressed="${!fill}" title="Letterbox — never crops">Fit</button><button data-f="cover" aria-pressed="${fill}" title="Fill the tile — crops the edges. This session only.">Fill</button></div></div>
+      <button class="pop-item" data-a="edit">${icon('move')}<span>Arrange cameras</span><kbd>E</kbd></button>
+    </div>`, { className: 'view-pop', align: 'left' });
+    if (!menu) return;
+    menu.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', () => {
+      closePopover();
+      // TV mode: local preference (see effLayout()), not the setting every other device shares.
+      if (this.tvMode) { this.tvLayoutPref = b.dataset.l; this.ctx.setTvLayout?.(b.dataset.l); this.page = 0; this.renderBar(); this.renderWall(); }
+      else this.setDisplay({ layout: b.dataset.l }, true);
+    }));
+    menu.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
+      menu.querySelectorAll('[data-q]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      // TV mode: writes the local TV-only preference (see effQuality()) instead of the shared setting.
+      if (this.tvMode) { this.tvQualityPref = b.dataset.q; this.ctx.setTvQuality?.(b.dataset.q); this.renderWall(); }
+      else this.setDisplay({ quality: b.dataset.q }, true, true);
+    }));
+    menu.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
+      if ((this.fitMode() === 'cover') !== (b.dataset.f === 'cover')) this.toggleFit();
+      menu.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    menu.querySelector('[data-a=edit]').addEventListener('click', () => { closePopover(); this.toggleEdit(true); });
   }
 
   // TV mode's own Auto/SD/HD choice in place of the synced Settings one (see main.js's tvQuality) — same
@@ -266,7 +355,8 @@ export class LiveView {
 
   renderWall() {
     if (!this.wall) return;
-    if (this.chan0Displayed && this.chan0Single) { this._renderChan0SingleView(); return; }
+    this._closing?.finishNow();
+    if (this.chan0Displayed) { this._renderChan0SingleView(); return; }
     this.disposeTiles();
     const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
     const w = this.wall;
@@ -274,29 +364,17 @@ export class LiveView {
     w.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
     w.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
     w.style.setProperty('--fit', this.d.fit);
+    // Tiles for this page that were started ahead of time (auto-rotate's prewarm) are moved in already
+    // playing; anything else starts fresh.
+    const warm = this._takePrewarm(this._pageKey(this.page));
     w.innerHTML = '';
     layout.cells.forEach((cell, i) => {
       const cam = cams[this.page * slots + i];
       let el;
       if (cam) {
-        // Channel-zero isn't a real DVR channel with its own recording/event timeline, so instant replay
-        // (keyed to a real channel number server-side) doesn't apply to it — the button's hidden outright
-        // (tile.js's noReplay), not just wired up to fail. Bookmarking it instead applies to every real
-        // camera at once (bookmarkAllCams) — the closest honest equivalent to "this moment," since
-        // channel-zero itself has no timeline of its own to find a bookmark on later.
-        const chan0 = isChan0(cam);
-        const t = new Tile(cam, {
-          kind: this.qualityFor(cell, cam), display: this.d, chrome: true, tv: this.tvMode,
-          noReplay: chan0, fixedQuality: chan0, bookmarkLabel: chan0 ? 'Bookmark this moment on every camera' : undefined,
-          zoomInit: this.zoomMem[cam.id],
-          onZoom: (id, st) => { if (st.s > 1.001) this.zoomMem[id] = st; else delete this.zoomMem[id]; },
-          onFocus: () => this.ctx.go(`#/live/${cam.id}`),
-          onUpdate: () => this.countLive(),
-          onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
-          onKindFail: (tile, kind) => toast(`${cam.name || 'Camera'}: the ${kind === 'main' ? 'HD' : 'SD'} stream could not be started. Keeping the current stream.`, 'bad', 6000),
-          onReplay: chan0 ? null : () => this.openReplay(cam),
-          onBookmark: chan0 ? () => this.bookmarkAllCams() : () => this.bookmarkNow(cam),
-        });
+        const t = warm?.get(cam.id) || this._makeTile(cam, cell);
+        warm?.delete(cam.id);
+        t.opts.onUpdate = () => this.countLive();
         t.cellIndex = i;
         this.tiles.push(t);
         el = t.el;
@@ -310,16 +388,113 @@ export class LiveView {
       el.style.gridRow = `${cell.r} / span ${cell.h}`;
       w.append(el);
     });
-    this.liveCount = 0;
+    warm?.forEach((t) => t.dispose());   // started but not needed after all
+    this.liveCount = 0; this.wallSince = Date.now();
     if (this.tvMode) {
       this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, this.tvIndex));
       this.tiles[this.tvIndex]?.el.querySelector('.hit')?.focus({ preventScroll: true });
     }
   }
 
-  /** Channel-zero's own single view — just that one stream, filling the wall — no grid, no per-camera
+  _makeTile(cam, cell) {
+    // Channel-zero isn't a real DVR channel with its own recording/event timeline, so instant replay
+    // (keyed to a real channel number server-side) doesn't apply to it — the button's hidden outright
+    // (tile.js's noReplay), not just wired up to fail. Bookmarking it instead applies to every real
+    // camera at once (bookmarkAllCams) — the closest honest equivalent to "this moment," since
+    // channel-zero itself has no timeline of its own to find a bookmark on later.
+    const chan0 = isChan0(cam);
+    return new Tile(cam, {
+      kind: this.qualityFor(cell, cam), display: this.d, chrome: true, tv: this.tvMode,
+      noReplay: chan0, fixedQuality: chan0, bookmarkLabel: chan0 ? 'Bookmark this moment on every camera' : undefined,
+      zoomInit: this.zoomMem[cam.id],
+      onZoom: (id, st) => { if (st.s > 1.001) this.zoomMem[id] = st; else delete this.zoomMem[id]; },
+      onFocus: () => this.ctx.go(`#/live/${cam.id}`),
+      onUpdate: () => this.countLive(),
+      onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
+      onKindFail: (tile, kind) => toast(`${cam.name || 'Camera'}: the ${kind === 'main' ? 'HD' : 'SD'} stream could not be started. Keeping the current stream.`, 'bad', 6000),
+      onReplay: chan0 ? null : () => this.openReplay(cam),
+      onBookmark: chan0 ? () => this.bookmarkAllCams() : () => this.bookmarkNow(cam),
+    });
+  }
+
+  // ---------------------------------------------------------------- auto-rotate prewarm
+  // So a rotation lands on cameras that are already playing instead of "Connecting…": a few seconds
+  // before it, the next page's tiles are started in an invisible layer, and at the switch they're moved
+  // into the grid (a moved player keeps its connection — the same thing Focus does with a grid tile).
+  // Only with headroom, and never at the expense of what's on screen:
+  //  - every camera on screen must already be live (nothing still connecting or stalled);
+  //  - the streams on screen plus the next page's fit this device's budget (SD 1, HD 3; TVs and phones
+  //    get far less than a computer);
+  //  - if any camera on screen stops being live while the next page is warming up, the warm-up is
+  //    dropped at once, and prewarming rests for two minutes.
+  _pageKey(page) {
+    const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
+    return JSON.stringify([this.effLayout(), this.effQuality(), page, layout.cells.map((c, i) => cams[page * slots + i]?.id || null)]);
+  }
+
+  _takePrewarm(key) {
+    const pre = this._pre;
+    this._pre = null;
+    if (!pre) return null;
+    pre.host.remove();
+    if (pre.key === key) return pre.tiles;
+    pre.tiles.forEach((t) => t.dispose());
+    return null;
+  }
+
+  _dropPrewarm(rest = false) {
+    if (!this._pre) return;
+    this._pre.tiles.forEach((t) => t.dispose());
+    this._pre.host.remove();
+    this._pre = null;
+    if (rest) this._prewarmRestUntil = Date.now() + 120000;
+  }
+
+  /** Stream budget for this device, in SD-stream units. */
+  _streamBudget() {
+    const mem = navigator.deviceMemory || 8, cores = navigator.hardwareConcurrency || 4;
+    if (this.tvMode) return 4;
+    if (matchMedia('(max-width: 900px)').matches || mem <= 2) return 8;
+    return mem >= 8 && cores >= 8 ? 24 : 14;
+  }
+
+  _prewarm(page) {
+    // Not on a TV: adopting means moving playing <video> elements, which a TV browser renders black (see
+    // openFocus) — and its budget rarely has room for two pages anyway.
+    if (this.tvMode || this.chan0Displayed || (this._prewarmRestUntil || 0) > Date.now()) return;
+    const key = this._pageKey(page);
+    if (this._pre?.key === key) return;
+    this._dropPrewarm();
+    // Headroom: everything on screen is live, and on-screen plus next-page streams fit the budget.
+    if (!this.tiles.length || this.tiles.some((t) => t.state !== 'live')) return;
+    const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
+    const cost = (kind) => (kind === 'main' ? 3 : 1);
+    const next = layout.cells.map((cell, i) => ({ cell, cam: cams[page * slots + i] })).filter((x) => x.cam && !this.tiles.some((t) => t.cam.id === x.cam.id));
+    const load = this.tiles.reduce((n, t) => n + cost(t.kind), 0) + next.reduce((n, x) => n + cost(this.qualityFor(x.cell, x.cam)), 0);
+    if (!next.length || load > this._streamBudget()) return;
+    const host = document.createElement('div');
+    host.className = 'prewarm';
+    host.setAttribute('aria-hidden', 'true');
+    host.inert = true;
+    const tiles = new Map();
+    for (const { cell, cam } of next) {
+      const t = this._makeTile(cam, cell);
+      t.opts.onUpdate = () => {};
+      tiles.set(cam.id, t);
+      host.append(t.el);
+    }
+    this.live.append(host);
+    this._pre = { key, page, tiles, host };
+  }
+
+  /** While the next page warms up, anything on screen faltering cancels it (and rests prewarming). */
+  _checkPrewarm() {
+    if (this._pre && this.tiles.some((t) => t.state !== 'live')) this._dropPrewarm(true);
+  }
+
+  /** Channel-zero's own Overview mode — just that one stream, filling the wall — no grid, no per-camera
    * actions that don't apply to it (see the chan0 comment in renderWall), no Arrange. TV mode defaults
-   * here; any device can reach it once channel-zero is showing (the subbar's "Grid"/"Channel 0" toggle). */
+   * here; any device can reach it via the subbar's single Overview/Grid toggle (redesign v2). */
   _renderChan0SingleView() {
     this.disposeTiles();
     const w = this.wall;
@@ -342,8 +517,14 @@ export class LiveView {
     this.tiles.push(t);
     t.el.style.gridColumn = '1 / span 1';
     t.el.style.gridRow = '1 / span 1';
+    // The Live board's Overview: full-bleed, an OVERVIEW pill + what it is, and the one action that means
+    // something different here (bookmark = every real camera at this moment).
+    t.el.classList.add('overview-tile');
+    t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>Channel zero</span></div>
+      ${this.ctx.can('operator') && !this.tvMode ? `<div class="overview-cap bottom"><span class="spacer"></span><button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button></div>` : ''}`);
+    t.el.querySelector('[data-a=bookmark-all]')?.addEventListener('click', (e) => { e.stopPropagation(); this.bookmarkAllCams(); });
     w.append(t.el);
-    this.liveCount = 0;
+    this.liveCount = 0; this.wallSince = Date.now();
     if (this._autoFs) {
       this._autoFs = false;
       // Only ever fires once, right after the confirm-dialog flow in settings.js (ctx.armTvFullscreen) —
@@ -355,14 +536,11 @@ export class LiveView {
   }
 
   countLive() {
-    const n = this.tiles.filter((t) => t.state === 'live').length;
-    if (n === this.liveCount) return;
-    this.liveCount = n;
-    const pill = this.bar?.querySelector('.livecount');
-    if (pill) {
-      pill.textContent = `${n}/${this.tiles.length} live`;
-      pill.previousElementSibling.className = `dot ${n === this.tiles.length ? 'live' : 'wait'}`;
-    }
+    this.liveCount = this.tiles.filter((t) => t.state === 'live').length;
+    const pill = this.bar?.querySelector('.health');
+    if (!pill) return;
+    const html = this._healthHTML();
+    if (pill.outerHTML !== html) pill.outerHTML = html;
   }
 
   disposeTiles() { this.tiles.forEach((t) => t.dispose()); this.tiles = []; }
@@ -370,7 +548,6 @@ export class LiveView {
   // ---------------------------------------------------------------- actions
   async setDisplay(patch, rebuild) {
     const next = { ...this.d, ...patch };
-    this.menuOpen = false;
     try {
       const saved = await this.ctx.saveDisplay(next);
       Object.assign(this.s.display, saved);
@@ -387,6 +564,7 @@ export class LiveView {
     this.rotSince = Date.now();
     this.renderBar();
     this.renderWall();
+    if (this.tvMode) this._tvDefaultFocus();
   }
 
   toggleEdit(force) {
@@ -399,8 +577,13 @@ export class LiveView {
 
   rotate() {
     const sec = this.d.rotate_seconds;
-    if (!sec || !this.rotating || this.edit || this.focus || this.pages() < 2 || document.hidden) return;
-    if (Date.now() - this.rotSince >= sec * 1000) this.goPage(this.page + 1);
+    if (!sec || !this.rotating || this.edit || this.focus || this.pages() < 2 || document.hidden) { this._dropPrewarm(); return; }
+    const left = sec * 1000 - (Date.now() - this.rotSince);
+    if (left <= 0) { this.goPage(this.page + 1); return; }
+    this._checkPrewarm();
+    // Start the next page early enough to connect (a couple of seconds), but not so early that two pages
+    // run side by side for long: 3.5 s ahead, or 60% of a short interval.
+    if (left <= Math.min(3500, sec * 600)) this._prewarm((this.page + 1) % this.pages());
   }
 
   bindDrag(el, id) {
@@ -443,6 +626,12 @@ export class LiveView {
     // (standard behaviour, not something this code controls), so without re-requesting it on the new
     // element below, every camera swap silently dropped out of fullscreen (found directly, not assumed).
     const wasFullscreen = this.focus && document.fullscreenElement === this.focus.el;
+    this._closing?.finishNow();
+    // How it arrives: switching cameras slides the new picture in over a still of the old one; opening
+    // from the grid flies the tile up to fill the screen (see _focusIn).
+    const stepping = !!this.focus, dir = this._stepDir || 1;
+    const ghost = stepping && this._motionOK() ? this.focus.tile.frameCanvas() : null;
+    this._stepDir = 0;
     this.closeFocus(true);
     this.toggleEdit(false);
     const cams = this.cams();
@@ -453,7 +642,11 @@ export class LiveView {
     // of disposing it and opening a fresh one — no reconnect, no black frame, and the grid's other tiles
     // (and this one, once we hand it back) keep playing behind the overlay. If the camera isn't on the
     // current page (e.g. a direct link), there's no running tile to reuse — fall back to a fresh one.
-    const fromGrid = this.tiles.find((t) => t.cam.id === cam.id) || null;
+    // Not on a TV, though: a TV browser (Tizen's, at least) draws video on a hardware plane bound to where
+    // the <video> element sits, and moving a playing one leaves it black — reported: opening a camera from
+    // TV mode's grid showed black, while the next camera (a fresh player) played. There, Focus starts its
+    // own player and the grid's keeps running behind it.
+    const fromGrid = this.tvMode ? null : this.tiles.find((t) => t.cam.id === cam.id) || null;
     const tile = fromGrid || new Tile(cam, { kind, display: this.d, chrome: false,
       onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
       onKindFail: (t, k) => toast(`The ${k === 'main' ? 'HD' : 'SD'} stream could not be started.`, 'bad', 6000) });
@@ -461,30 +654,47 @@ export class LiveView {
     // The focus bar is its own header, not the grid tile's own chrome (which is hidden while in focus —
     // see .tile.in-focus's own CSS comment), so the "filters active" pill needs its own copy kept in sync.
     tile.opts.onFxChange = (active) => { const t = this.focus?.el.querySelector('.tag.fx'); if (t) t.hidden = !active; };
+    const fromRect = !stepping && fromGrid && this._motionOK() ? fromGrid.el.getBoundingClientRect() : null;
+    let slot = null;
     if (fromGrid) {
-      tile.el.remove();               // detach from the wall; the tile/player object itself stays alive
+      // Detach from the wall (the tile/player object itself stays alive), leaving a hidden stand-in in its
+      // place: the grid doesn't reflow underneath (a phone's grid is a flowing list), and the tile comes
+      // back to exactly where it was.
+      slot = document.createElement('div');
+      slot.className = 'tile-slot';
+      slot.style.cssText = `grid-column:${tile.el.style.gridColumn};grid-row:${tile.el.style.gridRow}`;
+      tile.el.replaceWith(slot);
       tile.el.classList.add('in-focus');
     }
 
     const f = document.createElement('div');
     f.className = 'focus' + (this.fitMode() === 'cover' ? ' fill' : '');
+    f.dataset.tvScope = '';   // a remote moves among Focus's own controls, not the grid behind it
+    const c0 = isChan0(cam), op = this.ctx.can('operator');
+    // Focus board: glass bars over the picture (fading on idle), a zoom navigator once you're zoomed in,
+    // and the actions that matter one tap away. Everything the old control strip had is still here — the
+    // rarer ones (fit/fill, zoom buttons, shortcuts) live under ⋯.
     f.innerHTML = `<div class="focus-bar">
-        <button class="btn" data-a="close">${icon('left')} Back</button>
-        <h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span><span class="pill stat"></span><span class="spacer"></span>
-        ${isChan0(cam) ? '' : `<div class="seg" role="group" aria-label="Video quality"><button data-k="sub">SD</button><button data-k="main">HD</button></div>`}
-        <div class="zoomctl" role="group" aria-label="Zoom"><button class="btn icon" data-a="zout" title="Zoom out (-)" aria-label="Zoom out">${icon('minus')}</button>
-          <button class="btn pct" data-a="zreset" title="Reset zoom (0)">100%</button><button class="btn icon" data-a="zin" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button></div>
-        <button class="btn icon" data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
-        ${isChan0(cam) ? '' : `<button class="btn icon" data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>`}
-        <button class="btn icon" data-a="bookmark" title="${isChan0(cam) ? 'Bookmark this moment on every camera' : 'Bookmark this moment'}" aria-label="${isChan0(cam) ? 'Bookmark this moment on every camera' : 'Bookmark this moment'}">${icon('flag')}</button>
-        <div class="menu-wrap enh-wrap"><button class="btn icon" data-a="enhance" title="Live enhancement" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button></div>
-        <button class="btn icon" data-a="fit" aria-pressed="${this.fitMode() === 'cover'}"
-          title="${this.fitMode() === 'cover' ? 'Filling (cropped) — tap to letterbox instead. This session only.' : 'Letterboxed to fit — tap to fill instead (crops). This session only.'}"
-          aria-label="Toggle fit or fill">${icon('crop')}</button>
-        <button class="btn icon" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>
-        <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
-      </div><div class="stage-host" style="position:relative;flex:1;min-height:0"></div>
-      ${cams.length > 1 ? `<button class="nav-arrow prev" aria-label="Previous camera">${icon('left')}</button><button class="nav-arrow next" aria-label="Next camera">${icon('right')}</button>` : ''}`;
+        <button class="btn icon ghost bar-back" data-a="close" title="Back to all cameras (Esc)" aria-label="Back to all cameras">${icon('left')}</button>
+        <div class="bar-title"><h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2>
+          <div class="bar-sub"><span class="dot live"></span><span class="stat"></span><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span></div></div>
+        <span class="spacer"></span>
+        ${c0 ? '' : '<div class="seg" role="group" aria-label="Video quality"><button data-k="main">HD</button><button data-k="sub">SD</button></div>'}
+        <button class="btn icon ghost" data-a="bookmark" title="${c0 ? 'Bookmark this moment on every camera (B)' : 'Bookmark this moment (B)'}" aria-label="Bookmark this moment">${icon('bookmark')}</button>
+        <button class="btn icon ghost" data-a="more" title="More" aria-label="More options" aria-haspopup="true">${icon('more')}</button>
+      </div>
+      <div class="focus-bottom">
+        ${c0 ? '<span></span>' : `<button class="btn replay-pill" data-a="replay" title="Instant replay">${icon('back2')}<b>Instant replay</b><span>· last 15s</span></button>`}
+        <span class="spacer"></span>
+        ${c0 ? '' : `<button class="btn ghost" data-a="playback" title="${op ? 'Open this camera in Playback' : 'Playback needs an Operator or Admin account'}">${icon('calendar')}<b>Playback</b></button>`}
+        <div class="menu-wrap enh-wrap"><button class="btn icon ghost" data-a="enhance" title="Picture adjustments" aria-label="Picture adjustments" aria-haspopup="true">${icon('sparkle')}</button></div>
+        <button class="btn icon ghost" data-a="snap" title="Save snapshot (S)" aria-label="Save snapshot">${icon('share')}</button>
+        <button class="btn icon ghost" data-a="fs" title="Full screen (F)" aria-label="Full screen">${icon('expand')}</button>
+      </div>
+      ${cams.length > 1 ? `<button class="nav-arrow prev" aria-label="Previous camera">${icon('left')}</button><button class="nav-arrow next" aria-label="Next camera">${icon('right')}</button>` : ''}
+      <div class="stage-host"></div>`;
+    // The stage is last on purpose: the borrowed grid tile inside it carries its own (hidden) zin/snap/
+    // replay/enhance buttons, and every querySelector below must find the Focus view's own controls first.
     tile.el.style.cssText = 'position:absolute;inset:0;border:0;border-radius:0';
     f.querySelector('.stage-host').append(tile.el);
     const hit = document.createElement('div');
@@ -492,53 +702,105 @@ export class LiveView {
     f.querySelector('.stage-host').append(hit);
     tile.enableZoom(hit, { dbl: true });   // single click does nothing (never pauses); double click/tap toggles zoom
     this.live.append(f);
-    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid };
+    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, keepWall: this.tvMode && !!this.wall, slot, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
     // Carry fullscreen across the swap (see the wasFullscreen comment above) — the old element's removal
     // above already dropped the browser out of fullscreen, so this is a fresh request, not a toggle.
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
     f.querySelector('[data-a=close]').addEventListener('click', () => this.ctx.go('#/live'));
-    f.querySelector('[data-a=x]').addEventListener('click', () => this.ctx.go('#/live'));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
     f.querySelector('[data-a=replay]')?.addEventListener('click', () => this.openReplay(cam));
-    f.querySelector('[data-a=bookmark]').addEventListener('click', () => (isChan0(cam) ? this.bookmarkAllCams() : this.bookmarkNow(cam)));
-    f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
-    f.querySelector('[data-a=fit]').addEventListener('click', () => {
-      this.toggleFit();
-      const btn = f.querySelector('[data-a=fit]');
-      const on = this.fitMode() === 'cover';
-      btn.setAttribute('aria-pressed', String(on));
-      btn.title = on ? 'Filling (cropped) — tap to letterbox instead. This session only.' : 'Letterboxed to fit — tap to fill instead (crops). This session only.';
+    f.querySelector('[data-a=playback]')?.addEventListener('click', () => {
+      if (!op) { toast('Playback needs an Operator or Admin account — ask an admin to change your role.', 'bad', 5000); return; }
+      this.ctx.go(`#/playback/${cam.id}/${Math.round(Date.now() / 1000 - 60)}`);
     });
+    f.querySelector('[data-a=bookmark]').addEventListener('click', () => (c0 ? this.bookmarkAllCams() : this.bookmarkNow(cam)));
+    f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
     f.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleFocusEnhanceMenu(tile));
-    f.querySelector('[data-a=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
-    f.querySelector('[data-a=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
-    f.querySelector('[data-a=zreset]').addEventListener('click', () => tile.zoom.reset());
+    f.querySelector('[data-a=more]').addEventListener('click', (e) => this._openFocusMore(e.currentTarget, tile));
     f.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => tile.setKind(b.dataset.k)));
     f.querySelector('.prev')?.addEventListener('click', () => this.stepFocus(-1));
     f.querySelector('.next')?.addEventListener('click', () => this.stepFocus(1));
     if (tile.kind !== kind) tile.setKind(kind);   // upgrade in place (gapless swap already built into Tile)
     this.paintFocus(tile);
     this._bindFocusAutoHide(f);
+    if (ghost) this._focusSwap(f, ghost, dir);
+    else if (fromRect) this._focusFly(f, tile, fromRect, true);
+    else if (!stepping && this._motionOK(true)) f.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+  }
+
+  // ---------------------------------------------------------------- focus transitions
+  // One continuous picture: the tile you clicked grows into Focus and shrinks back into its cell on the way
+  // out (a uniform scale of the stage plus a rounded clip, so the video is never stretched), and the
+  // previous/next camera slides in over a still of the one you left. Off for reduced motion, and on a TV
+  // (weak GPUs; a plain fade there instead).
+  _motionOK(fadeOnly = false) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !Element.prototype.animate) return false;
+    return fadeOnly || !this.tvMode;
+  }
+
+  /** The stage's keyframe for "shown where `rect` is": scale so the picture inside matches its size in the
+   * tile (fit or fill alike), centred on the tile, clipped to the tile's rounded shape. */
+  _flightFrame(stage, tile, rect, radius) {
+    const sr = stage.getBoundingClientRect(), W = sr.width, H = sr.height;
+    const v = tile.cur?.player.video, ar = v?.videoWidth ? v.videoWidth / v.videoHeight : 16 / 9;
+    const fill = this.fitMode() === 'cover';
+    const box = (w, h) => (fill ? Math.max(w, h * ar) : Math.min(w, h * ar));
+    const s = box(rect.width, rect.height) / box(W, H);
+    const dx = rect.left + rect.width / 2 - (sr.left + W / 2), dy = rect.top + rect.height / 2 - (sr.top + H / 2);
+    const ix = Math.max(0, (W - rect.width / s) / 2), iy = Math.max(0, (H - rect.height / s) / 2);
+    return { transform: `translate(${dx}px, ${dy}px) scale(${s})`, clipPath: `inset(${iy}px ${ix}px round ${radius / s}px)` };
+  }
+
+  _focusFly(f, tile, rect, opening, done) {
+    const stage = f.querySelector('.stage-host');
+    const radius = parseFloat(getComputedStyle(this.wall?.querySelector('.tile') || document.body).borderTopLeftRadius) || 12;
+    const at = this._flightFrame(stage, tile, rect, radius), full = { transform: 'none', clipPath: 'inset(0px 0px round 0px)' };
+    const ease = opening ? 'cubic-bezier(.2, .85, .25, 1)' : 'cubic-bezier(.4, 0, .2, 1)';
+    const ms = opening ? 420 : 340;
+    const fly = stage.animate(opening ? [at, full] : [full, at], { duration: ms, easing: ease, fill: 'both' });
+    // Only this flight's own animations are cleared when it lands (never the page's CSS ones — a cancelled
+    // CSS animation stays stopped, e.g. the live dot's pulse).
+    const mine = [fly, f.animate(opening ? [{ backgroundColor: 'rgba(0,0,0,0)' }, { backgroundColor: '#000' }] : [{ backgroundColor: '#000' }, { backgroundColor: 'rgba(0,0,0,0)' }],
+      { duration: ms * 0.8, easing: 'ease-out', fill: 'both' })];
+    f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow').forEach((el) => mine.push(el.animate(opening ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
+      { duration: opening ? 260 : 160, delay: opening ? 160 : 0, easing: 'ease-out', fill: 'both' })));
+    fly.onfinish = () => { if (opening) mine.forEach((a) => a.cancel()); done?.(); };
+    return fly;
+  }
+
+  /** Previous/next camera: the old picture (a still) slides out and fades as the new one slides in. */
+  _focusSwap(f, ghost, dir) {
+    ghost.className = 'focus-ghost';
+    f.querySelector('.stage-host').before(ghost);
+    const d = 6 * dir, opt = { duration: 300, easing: 'cubic-bezier(.2, .85, .25, 1)' };
+    ghost.animate([{ transform: 'translateX(0)', opacity: 1 }, { transform: `translateX(${-d}%)`, opacity: 0 }], { ...opt, fill: 'forwards' }).onfinish = () => ghost.remove();
+    f.querySelector('.stage-host').animate([{ transform: `translateX(${d}%)`, opacity: 0 }, { transform: 'none', opacity: 1 }], opt);
   }
 
   // Same show-on-activity/hide-while-idle cycle Playback's topline/controls use, not a :hover reveal — see
   // .focus:fullscreen's own CSS comment for why. A harmless no-op in windowed mode (nothing there reads the
   // .show class the CSS only applies under .focus:fullscreen). Listeners live on `f` itself, so they're
   // discarded along with it on close/swap — no separate teardown needed.
-  _bindFocusAutoHide(f) {
-    const bar = f.querySelector('.focus-bar');
-    const arrows = f.querySelectorAll('.nav-arrow');
+  _bindFocusAutoHide(f, stayUp = () => false) {
+    const chrome = f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow, .focus-zoom');
     let hideTimer;
-    const hide = () => { bar.classList.remove('show'); arrows.forEach((a) => a.classList.remove('show')); };
+    // Stays up while the pointer is over the bars or the zoom HUD, or a remote has focus in them (and, for
+    // Instant replay, while it's paused — like any player).
+    const hide = () => {
+      if (stayUp() || f.querySelector('.focus-bar:hover, .focus-bottom:hover, .focus-zoom:hover, .focus-bar :focus-visible, .focus-bottom :focus-visible, .focus-zoom :focus-visible')) { hideTimer = setTimeout(hide, 2600); return; }
+      chrome.forEach((a) => a.classList.remove('show'));
+    };
     const show = () => {
-      bar.classList.add('show');
-      arrows.forEach((a) => a.classList.add('show'));
+      chrome.forEach((a) => a.classList.add('show'));
       clearTimeout(hideTimer);
       hideTimer = setTimeout(hide, 2600);
     };
     f.addEventListener('mousemove', show);
     f.addEventListener('mouseenter', show);
     f.addEventListener('touchstart', show, { passive: true });
+    f.addEventListener('focusin', show);
+    if (f.classList.contains('focus')) this._focusShowFocus = show;
+    this._focusShow = show;
     show();
   }
 
@@ -546,21 +808,43 @@ export class LiveView {
     const f = this.focus?.el;
     if (!f || this.focus.tile !== tile) return;
     f.querySelectorAll('[data-k]').forEach((b) => b.setAttribute('aria-pressed', String(tile.kind === b.dataset.k)));
-    const z = tile.zoom;
-    if (z) {
-      f.querySelector('.pct').textContent = `${z.percent}%`;
-      f.querySelector('[data-a=zin]').disabled = z.atMax;
-      f.querySelector('[data-a=zout]').disabled = !z.zoomed;
-      f.querySelector('[data-a=zreset]').disabled = !z.zoomed;
-    }
-    const pill = f.querySelector('.stat');
+    // A zoom (wheel, pinch, keys) brings the chrome up, so the minimap and its controls are there to use.
+    if (tile.zoom && tile.zoom.s !== this.focus.lastS) { if (this.focus.lastS !== undefined) this._focusShow?.(); this.focus.lastS = tile.zoom.s; }
+    this.focus.hud?.update();
     const pending = tile.pend ? ` · loading ${tile.pend.kind === 'main' ? 'HD' : 'SD'}…` : '';
-    pill.textContent = (tile.summary() || (tile.state === 'live' ? 'live' : 'connecting…')) + pending;
+    const live = tile.state === 'live';
+    f.querySelector('.bar-sub .dot').className = `dot ${live ? 'live' : tile.state === 'off' ? 'off' : 'wait'}`;
+    f.querySelector('.stat').textContent = (live ? `Live${tile.summary() ? ' · ' + tile.summary() : ''}` : tile.state === 'off' ? 'No signal — retrying' : 'Connecting…') + pending;
+  }
+
+  /** ⋯ in the Focus bar: the less-frequent controls (fit/fill, zoom, shortcuts). */
+  _openFocusMore(btn, tile) {
+    const fill = this.fitMode() === 'cover';
+    const menu = openPopover(btn, `<div class="view-menu">
+      <div class="pop-row"><span>Picture</span><div class="seg" role="group" aria-label="Fit or fill">
+        <button data-f="contain" aria-pressed="${!fill}">Fit</button><button data-f="cover" aria-pressed="${fill}">Fill</button></div></div>
+      <div class="pop-sep"></div>
+      <button class="pop-item" data-m="zin">${icon('plus')}<span>Zoom in</span><kbd>+</kbd></button>
+      <button class="pop-item" data-m="zout">${icon('minus')}<span>Zoom out</span><kbd>−</kbd></button>
+      <button class="pop-item" data-m="zreset">${icon('refresh')}<span>Reset zoom</span><kbd>0</kbd></button>
+      <div class="pop-sep"></div>
+      <button class="pop-item" data-m="keys">${icon('layout')}<span>Keyboard shortcuts</span><kbd>?</kbd></button>
+    </div>`, { className: 'view-pop' });
+    if (!menu) return;
+    menu.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
+      if ((this.fitMode() === 'cover') !== (b.dataset.f === 'cover')) this.toggleFit();
+      menu.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    menu.querySelector('[data-m=zin]').addEventListener('click', () => tile.zoom.zoomBy(1.6));
+    menu.querySelector('[data-m=zout]').addEventListener('click', () => tile.zoom.zoomBy(1 / 1.6));
+    menu.querySelector('[data-m=zreset]').addEventListener('click', () => { closePopover(); tile.zoom.reset(); });
+    menu.querySelector('[data-m=keys]').addEventListener('click', () => { closePopover(); shortcutsDialog(); });
   }
 
   stepFocus(dir) {
     const cams = this.cams();
     if (cams.length < 2 || !this.focus) return;
+    this._stepDir = dir;
     const i = (cams.findIndex((c) => c.id === this.focus.id) + dir + cams.length) % cams.length;
     this.ctx.go(`#/live/${cams[i].id}`);
   }
@@ -569,8 +853,25 @@ export class LiveView {
     if (!this.focus) return;
     // silent: this is openFocus() swapping to a different camera, not a genuine close — the caller decides
     // whether to carry fullscreen over to the new element (see openFocus's wasFullscreen), not this exit.
-    if (!silent && document.fullscreenElement === this.focus.el) document.exitFullscreen?.();
-    const { tile, fromGrid } = this.focus;
+    const fo = this.focus;
+    const wasFs = document.fullscreenElement === fo.el;
+    if (!silent && wasFs) document.exitFullscreen?.();
+    this.focus = null;
+    // A real close from a grid tile shrinks back into its cell first (the cell is empty meanwhile — the
+    // tile is still up here); the tile goes home when the flight lands. Anything else closes at once.
+    const cell = !silent && !wasFs && fo.slot?.isConnected && this.tiles.includes(fo.tile) && this._motionOK() ? fo.slot.getBoundingClientRect() : null;
+    if (cell) {
+      fo.el.style.pointerEvents = 'none';
+      const done = () => { if (this._closing === closing) this._closing = null; this._teardownFocus(fo, silent); };
+      const fly = this._focusFly(fo.el, fo.tile, cell, false, done);
+      const closing = this._closing = { finishNow: () => { fly.onfinish = null; fly.cancel(); done(); } };
+      return;
+    }
+    this._teardownFocus(fo, silent);
+  }
+
+  _teardownFocus(fo, silent) {
+    const { tile, fromGrid } = fo;
     if (fromGrid && this.tiles.includes(tile)) {
       // hand the still-running tile back to its grid cell — no reconnect, no black frame
       tile.zoom?.reset(false);
@@ -582,13 +883,14 @@ export class LiveView {
       if (cell) { tile.el.style.gridColumn = `${cell.c} / span ${cell.w}`; tile.el.style.gridRow = `${cell.r} / span ${cell.h}`; }
       const wantKind = this.qualityFor(cell || {}, tile.cam);
       if (tile.kind !== wantKind) tile.setKind(wantKind);
-      this.wall.append(tile.el);
+      if (fo.slot?.isConnected) fo.slot.replaceWith(tile.el); else this.wall.append(tile.el);
     } else {
       tile.dispose();
+      fo.slot?.remove();
     }
-    this.focus.el.remove();
-    this.focus = null;
-    if (!silent && !fromGrid) this.renderWall();   // the borrowed-tile case needs no rebuild — everything else kept running
+    fo.hud?.destroy();
+    fo.el.remove();
+    if (!silent && !fromGrid && !fo.keepWall) this.renderWall();   // TV: the grid's own players never stopped   // the borrowed-tile case needs no rebuild — everything else kept running
   }
 
   // ---------------------------------------------------------------- live event badges
@@ -596,18 +898,48 @@ export class LiveView {
   // alertStream subscriber — see app/events.py AlertStreamSubscriber) for anything active or that
   // just ended, and paints small badges onto each grid tile for its channel.
   async pollEvents() {
+    this.countLive();   // also lets "Recorder unreachable" appear once its grace period passes
     try {
       const since = new Date(Date.now() - 20000).toISOString();
       if (!this.ctx.can('operator')) return;   // the event index is review data: operator and up
       const rows = await getJSON(`/api/timeline/events?start_utc=${encodeURIComponent(since)}&limit=200`);
       const byChannel = new Map();
       for (const row of rows) {
+        if (row.kind === 'bookmark') continue;   // a person's note, not an alert — the bell lists it, tiles don't ring for it
         if (!byChannel.has(row.channel)) byChannel.set(row.channel, new Set());
         byChannel.get(row.channel).add(row.kind);
       }
       for (const t of this.tiles) t.setBadges(byChannel.get(t.cam.channel));
+      this._toastNewEvents(rows);
+      this._lastEventRows = rows;
+      markBell(this.bar, rows);
     } catch { /* transient network hiccup — next poll retries */ }
   }
+
+  /** States board: a new event pops a top-centre toast ("Motion at Driveway, just now") that opens that
+   * camera in Focus when tapped. Only events that start after Live opened; one toast per camera a minute
+   * and one every 15 s overall, so a busy motion afternoon reads as a few nudges, not a stream. */
+  _toastNewEvents(rows) {
+    const now = Date.now();
+    this._evSeen ||= new Set(rows.map((r) => r.id));   // first poll: what's already happening isn't news
+    this._evCamAt ||= new Map();
+    const KIND = {
+      motion: ['Motion', 'motion', 'var(--ev-motion)'], line: ['Line crossed', 'range', 'var(--ev-line)'], intrusion: ['Intrusion', 'shield', 'var(--ev-line)'],
+      tamper: ['Tamper', 'alert', 'var(--tamper)'], videoloss: ['Video lost', 'offline', 'var(--ev-videoloss)'],
+    };
+    for (const r of rows) {
+      if (this._evSeen.has(r.id)) continue;
+      this._evSeen.add(r.id);
+      if (!KIND[r.kind] || this.focus || document.hidden) continue;
+      const cam = this.cams().find((c) => c.channel === r.channel);
+      if (!cam || now - (this._evCamAt.get(cam.id) || 0) < 60000 || now - (this._evToastAt || 0) < 15000) continue;
+      this._evCamAt.set(cam.id, now); this._evToastAt = now;
+      const [title, glyph, color] = KIND[r.kind];
+      const tile = this.tiles.find((t) => t.cam.id === cam.id);
+      notify({ title: `${title} · ${cam.name || 'Camera ' + cam.channel}`, body: 'Just now — open to watch', glyph, color, thumb: tile?.thumbnail(), onClick: () => this.ctx.go(`#/live/${cam.id}`) });
+    }
+  }
+
 
   // ---------------------------------------------------------------- bookmarks (spec section 9/11.6)
   async bookmarkNow(cam) {
@@ -659,40 +991,127 @@ export class LiveView {
   }
 
   // ---------------------------------------------------------------- instant replay
-  // A dedicated small overlay that opens a real playback session (WCPlayer over /api/playback/ws)
-  // starting ~10s in the past and playing forward at 1x, rather than a client-side ring buffer — this
-  // reuses the already-verified DVR playback path instead of new plumbing. Counts against the DVR's
-  // 4-session playback cap like any other playback stream; released the moment it's closed.
-  openReplay(cam, seconds = 10) {
+  // A real playback session (WCPlayer over /api/playback/ws) from 15 s ago, playing forward at 1x — it reuses
+  // the verified DVR playback path instead of a client-side ring buffer, counts against the recorder's
+  // playback budget like any review, and is released the moment it's closed. It looks and behaves like
+  // Focus: the picture fills the screen, glass bars fade away while you watch. The bottom bar keeps it
+  // simple: start over and play/pause in the middle, the footage's own time and how far behind live it is
+  // on the left, Back to live on the right. Start over is instant while that moment is still decoded
+  // (WCPlayer keeps ~30 s); otherwise it asks the recorder.
+  openReplay(cam, seconds = 15) {
     this.closeReplay();
     const r = document.createElement('div');
-    r.className = 'replay-overlay';
-    r.innerHTML = `<div class="replay-bar">
-        ${icon('rewind')} <span>Instant replay · ${esc(cam.name || 'Camera ' + cam.channel)}</span>
-        <span class="pill stat">starting…</span><span class="spacer"></span>
-        <button class="btn primary" data-a="live">${icon('play')} Back to live</button>
-        <button class="btn icon ghost" data-a="x" title="Close (Esc)" aria-label="Close">${icon('close')}</button>
-      </div><div class="replay-stage"><canvas></canvas></div>`;
-    this.live.append(r);
+    r.className = 'replay-overlay' + (this.fitMode() === 'cover' ? ' fill' : '');
+    r.dataset.tvScope = '';
+    r.innerHTML = `<div class="focus-bar">
+        <button class="btn icon ghost bar-back" data-a="x" title="Close (Esc)" aria-label="Close instant replay">${icon('left')}</button>
+        <div class="bar-title"><h2>Instant replay</h2><div class="bar-sub"><span class="dot wait"></span><span class="stat">Starting…</span><span>· ${esc(cam.name || 'Camera ' + cam.channel)}</span></div></div>
+        <span class="spacer"></span>
+      </div><div class="replay-stage"><canvas></canvas></div>
+      <div class="focus-bottom rp-bottom">
+        <div class="rp-row">
+          <span class="rp-clock" aria-live="off"></span>
+          <div class="rp-transport">
+            <button class="btn icon ghost" data-a="restart" title="Start over" aria-label="Start over">${icon('rewind')}</button>
+            <button class="btn rp-play" data-a="play" title="Pause (Space)" aria-label="Pause" data-tv-default>${icon('pause')}</button>
+            <span class="rp-gap" aria-hidden="true"></span>
+          </div>
+          <button class="btn primary rp-live" data-a="live">${icon('play')}Back to live</button>
+        </div>
+      </div>`;
+    // In full screen only the full-screen element is drawn, so the replay goes inside it (Focus, usually).
+    const fs = document.fullscreenElement;
+    (fs && this.live.contains(fs) ? fs : this.live).append(r);
     const canvas = r.querySelector('canvas');
-    const pill = r.querySelector('.stat');
+    const startEpoch = Date.now() / 1000 - seconds;
+    const rp = { el: r, cam, startEpoch, at: null, playing: true, holdAfterSeek: false };
     const player = new WCPlayer(canvas, {
-      onState: (s) => { pill.textContent = s === 'playing' ? 'replaying' : s === 'queued' ? 'waiting for a recorder session…' : s; },
-      onError: (msg) => { pill.textContent = 'error'; toast(`Instant replay: ${msg}`, 'bad', 6000); },
+      onState: () => this._replayPaint(),
+      onError: (msg) => toast(`Instant replay: ${msg}`, 'bad', 6000),
+      onFrame: (t) => {
+        rp.at = t;
+        // The recorder only serves footage it has finished writing, so playback can begin further back than
+        // asked — "start over" then goes back to where it really began.
+        if (t < rp.startEpoch) rp.startEpoch = t;
+        // The picture's own shape, so the stage can size it to fill the screen whatever its resolution.
+        if (canvas.width && canvas.height) r.style.setProperty('--ar', (canvas.width / canvas.height).toFixed(4));
+        if (rp.holdAfterSeek) { rp.holdAfterSeek = false; player.pauseHere(); }
+        this._replayPaint();
+      },
     });
     if (!player.supported) { toast(`Instant replay unavailable: ${unsupportedReason()}`, 'bad', 8000); r.remove(); return; }
-    const startIso = new Date(Date.now() - seconds * 1000).toISOString();
-    player.connect(cam.id, startIso, '1');
-    this.replay = { el: r, player, cam };
-    r.querySelector('[data-a=live]').addEventListener('click', () => this.closeReplay());
-    r.querySelector('[data-a=x]').addEventListener('click', () => this.closeReplay());
+    rp.player = player;
+    player.connect(cam.id, new Date(startEpoch * 1000).toISOString(), '1');
+    this.replay = rp;
+    rp.tick = setInterval(() => this._replayPaint(), 250);   // "now" keeps moving even while paused
+    const on = (a, fn) => r.querySelector(`[data-a=${a}]`).addEventListener('click', fn);
+    on('live', () => this.closeReplay());
+    on('x', () => this.closeReplay());
+    on('play', () => this.replayToggle());
+    on('restart', () => this.replayJump(rp.startEpoch, true));
+    // Double-click / double-tap the picture: fit ⇄ fill, for this replay only (like a video player's zoom).
+    r.querySelector('.replay-stage').addEventListener('dblclick', () => r.classList.toggle('fill'));
+    this._bindFocusAutoHide(r, () => !this.replay?.playing);
+  }
+
+  /** Pause, or play on from the frame on screen (out of the buffer, so no wait). */
+  replayToggle() {
+    const rp = this.replay;
+    if (!rp) return;
+    if (rp.playing) { rp.player.pauseHere(); rp.playing = false; }
+    else { rp.player.playFromHere(); rp.playing = true; }
+    this._replayPaint();
+    this._focusShow?.();
+  }
+
+  /** Go to `t` (epoch seconds): instantly if it's decoded already, else a seek on the open session. */
+  replayJump(t, play) {
+    const rp = this.replay;
+    if (!rp) return;
+    const now = Date.now() / 1000;
+    t = Math.max(rp.startEpoch - 60, Math.min(t, now - 3));   // up to a minute before it began; the recorder trails live by a moment
+    if (rp.player.showTime(t)) {
+      rp.at = t;
+      if (play) rp.player.playFromHere();
+    } else {
+      rp.holdAfterSeek = !play;
+      rp.player.seek(new Date(t * 1000).toISOString(), '1');
+      rp.at = t;
+    }
+    if (t < rp.startEpoch) rp.startEpoch = t;
+    rp.playing = !!play;
+    this._replayPaint();
+  }
+
+  /** The footage's time, how far behind live, status and the play button, from the replay's state. */
+  _replayPaint() {
+    const rp = this.replay;
+    if (!rp) return;
+    const r = rp.el, now = Date.now() / 1000;
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    r.querySelector('.rp-clock').textContent = rp.at == null ? ''
+      : `${new Date(rp.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${mmss(Math.max(0, now - rp.at))} behind live`;
+    // Status: the session's own state while it's getting going, else what the viewer asked for.
+    const st = rp.player.state, waiting = rp.at == null || st === 'queued' || st === 'connecting' || st === 'error';
+    const pill = r.querySelector('.bar-sub .stat');
+    pill.textContent = st === 'error' ? 'Unavailable' : st === 'queued' ? 'Waiting for a recorder session…' : waiting ? 'Loading…' : rp.playing ? 'Replaying' : 'Paused';
+    pill.previousElementSibling.className = `dot ${st === 'error' ? 'off' : !waiting && rp.playing ? 'armed' : 'wait'}`;
+    const b = r.querySelector('.rp-play');
+    if (b.dataset.on !== String(rp.playing)) {
+      b.dataset.on = String(rp.playing);
+      b.innerHTML = icon(rp.playing ? 'pause' : 'play');
+      b.title = rp.playing ? 'Pause (Space)' : 'Play (Space)';
+      b.setAttribute('aria-label', rp.playing ? 'Pause' : 'Play');
+    }
   }
 
   closeReplay() {
     if (!this.replay) return;
+    clearInterval(this.replay.tick);
     this.replay.player.destroy();
     this.replay.el.remove();
     this.replay = null;
+    this._focusShow = this.focus ? this._focusShowFocus : null;
   }
 
   /** Called by main.js when the tab/installed app regains visibility (see Tile.resume's own comment for
@@ -716,35 +1135,53 @@ export class LiveView {
   // having had a chance to see the labels/controls at all, let alone watch them fade.
   syncFullscreen() {
     if (document.fullscreenElement === this.live) this._fsShow?.();
+    if (this.tvMode && !this.focus) this.renderBar();   // the header's Full screen / Exit full screen label
   }
 
   key(e) {
     if (!this.wall || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.getElementById('modal-root').firstChild) return;
-    const k = e.key;
-    if (this.replay) { if (k === 'Escape') this.closeReplay(); return; }
+    // A TV remote's keys arrive under different names depending on the set's browser (Tizen sends keyCode
+    // 10009 for Back and 10252 for Play/Pause; others send the standard key names).
+    const tvBack = this.tvMode && (/^(Backspace|BrowserBack|GoBack|XF86Back)$/.test(e.key) || e.keyCode === 10009);
+    const tvPlay = this.tvMode && (/^(MediaPlayPause|MediaPlay|MediaPause|MediaStop)$/.test(e.key) || [10252, 415, 19, 413].includes(e.keyCode));
+    const k = tvBack ? 'Escape' : e.key;
+    if (this.tvMode) this._tvWake();
+    if (tvPlay && this.replay) { e.preventDefault(); this.replayToggle(); return; }
+    if (tvPlay) { e.preventDefault(); this._tvPlayPause(); return; }
+    if (tvBack && document.body._openPopover) { e.preventDefault(); closePopover(); return; }
+    if (k === '?') { shortcutsDialog(); return; }
+    if (this.replay) {
+      // Space plays/pauses (unless a remote is on one of the replay's own buttons); Home starts over.
+      const onBtn = document.activeElement?.closest?.('.replay-overlay button');
+      this._focusShow?.();
+      if (k === 'Escape') { e.preventDefault(); this.closeReplay(); }
+      else if (k === ' ' && !onBtn) { e.preventDefault(); this.replayToggle(); }
+      else if (k === 'Home') { e.preventDefault(); this.replayJump(this.replay.startEpoch, true); }
+      return;
+    }
     if (this.focus) {
-      if (k === 'Escape' && !document.fullscreenElement) { if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }
+      // On a remote, Left/Right switch cameras unless a control in Focus's own bars has the focus — then
+      // they move between those controls (tvnav); Up/Down always go to the controls.
+      const inBars = document.activeElement?.closest?.('.focus-bar, .focus-bottom, .focus-zoom');
+      if (this.tvMode && (k === 'ArrowUp' || k === 'ArrowDown' || ((k === 'ArrowLeft' || k === 'ArrowRight') && inBars))) { this._focusShow?.(); return; }
+      if (k === 'Escape' && !document.fullscreenElement) { e.preventDefault(); if (this.focus.tile.zoom?.zoomed) this.focus.tile.zoom.reset(); else this.ctx.go('#/live'); }
       else if (k === '+' || k === '=') this.focus.tile.zoom?.zoomBy(1.6);
       else if (k === '-' || k === '_') this.focus.tile.zoom?.zoomBy(1 / 1.6);
       else if (k === '0') this.focus.tile.zoom?.reset();
-      else if (k === 'ArrowLeft') this.stepFocus(-1);
-      else if (k === 'ArrowRight') this.stepFocus(1);
+      else if (k === 'ArrowLeft') { e.preventDefault(); this.stepFocus(-1); }
+      else if (k === 'ArrowRight') { e.preventDefault(); this.stepFocus(1); }
       else if (k === 'f' || k === 'F') this.toggleFullscreen(this.focus.el);
       else if (k === 's' || k === 'S') this.focus.tile.snapshot();
       else if ((k === 'h' || k === 'H') && !isChan0(this.focus.tile.cam)) this.focus.tile.setKind(this.focus.tile.kind === 'main' ? 'sub' : 'main');
       else if (k === 'b' || k === 'B') { const c = this.focus.tile.cam; isChan0(c) ? this.bookmarkAllCams() : this.bookmarkNow(c); }
       return;
     }
-    // TV mode: arrow keys move a selection cursor between tiles instead of paging — a D-pad's arrow keys
-    // don't move focus between elements on their own (that's a Tab-key thing on every browser tested,
-    // Tizen's Chromium-based one included — there's no built-in "spatial navigation" to lean on), so this
-    // drives it by hand rather than assuming the browser does it. Enter/Space then opens the selected tile
-    // via the real keydown handler already on its .hit element (tile.js, under the same flag).
-    if (this.tvMode && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown')) {
-      e.preventDefault();
-      const cols = LAYOUTS[this.effLayout()].cols || 1;
-      this._tvMove(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : k === 'ArrowUp' ? -cols : cols);
+    if (this.tvMode) {
+      // Arrows belong to tvnav (spatial focus across tiles and the header); Back from the grid returns to
+      // the Overview — the TV's resting state.
+      if (k === 'Escape') { e.preventDefault(); if (!this.chan0Displayed && this.channelZeroOn) this._setOverview(true); }
+      else if (k === 'f' || k === 'F') this.toggleFullscreen(this.live);
       return;
     }
     if (k === 'Escape') { if (this.edit) this.toggleEdit(false); }
@@ -755,15 +1192,65 @@ export class LiveView {
     else if (/^[1-9]$/.test(k)) { const t = this.tiles[+k - 1]; if (t) this.ctx.go(`#/live/${t.cam.id}`); }
   }
 
+
   // ---------------------------------------------------------------- TV mode grid navigation
   /** Moves the TV-mode selection cursor by `delta` tiles (±1 for left/right, ±cols for up/down) and gives
    * that tile's hit-target real keyboard focus — works identically on a real TV remote and a laptop
    * keyboard, since nothing here depends on the browser's own focus-traversal order. */
-  _tvMove(delta) {
-    if (!this.tiles.length) return;
-    this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, this.tvIndex + delta));
-    this.tiles[this.tvIndex]?.el.querySelector('.hit')?.focus({ preventScroll: true });
+  /** tvnav found nothing further left/right from a tile: turn the page (a remote has no other way to). */
+  _tvEdge(e) {
+    const { dx, from } = e.detail;
+    if (!this.tvMode || this.focus || this.chan0Displayed || !dx || this.pages() < 2 || !from?.closest?.('.wall')) return;
+    this.goPage(this.page + dx);
+    const t = dx > 0 ? this.tiles[0] : this.tiles[this.tiles.length - 1];
+    t?.el.querySelector('.hit')?.focus();
   }
+
+  _setOverview(on) {
+    if (!this.channelZeroOn || this.overviewOn === on) return;
+    this.overviewOn = on;
+    this.ctx.setOverviewOn?.(on);
+    if (!this.wall) { this.build(); return; }
+    this.renderBar(); this.renderWall();
+    if (this.tvMode) this._tvDefaultFocus();
+  }
+
+  /** Play/Pause on the remote: Overview ⇄ grid; from a camera in Focus, back out to where it came from. */
+  _tvPlayPause() {
+    if (this.focus) { this.ctx.go('#/live'); return; }
+    if (this.channelZeroOn) this._setOverview(!this.chan0Displayed);
+  }
+
+  /** Where a remote's first arrow press lands: the Overview/Grid button on the Overview, else the first
+   * camera. Marked for tvnav and focused straight away if nothing has focus yet. */
+  _tvDefaultFocus() {
+    this.root.querySelectorAll('[data-tv-default]').forEach((el) => el.removeAttribute('data-tv-default'));
+    const el = this.chan0Displayed ? this.bar?.querySelector('[data-a=overview]') : this.tiles[0]?.el.querySelector('.hit');
+    el?.setAttribute('data-tv-default', '');
+  }
+
+  /** TV chrome (header, hints) shows on any key or pointer movement and fades after a few quiet seconds,
+   * unless a header control has the focus. Five quiet minutes on the grid go back to the Overview, the
+   * TV's resting state. */
+  _tvWake() {
+    if (!this.tvMode || !this.live) return;
+    this.live.classList.add('tv-awake');
+    clearTimeout(this.tvHideTimer);
+    const hide = () => {
+      if (this.bar?.contains(document.activeElement) || document.body._openPopover) { this.tvHideTimer = setTimeout(hide, 4000); return; }
+      this.live?.classList.remove('tv-awake');
+    };
+    this.tvHideTimer = setTimeout(hide, 6000);
+    clearTimeout(this.tvIdleTimer);
+    this.tvIdleTimer = setTimeout(() => { if (!this.focus && !this.chan0Displayed && this.channelZeroOn) this._setOverview(true); }, 5 * 60 * 1000);
+  }
+
+  /** Keep the TV from dimming or sleeping while it's showing cameras (where the browser allows it). */
+  async _tvWakeLock() {
+    if (!this.tvMode || !navigator.wakeLock || document.hidden) return;
+    try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch { /* not allowed here */ }
+  }
+
 
   /** Keeps tvIndex in sync when a tile is focused by some other means (mouse click, Tab) — so arrow-key
    * navigation picks up from wherever focus actually is, not a stale cursor position. */
@@ -775,15 +1262,23 @@ export class LiveView {
   }
 
   destroy() {
+    this._closing?.finishNow();   // a camera still flying back to the grid lands now, before the grid goes
+    this._dropPrewarm();
     this.disposeTiles();
     this.focus?.tile.dispose();
+    this.focus?.hud?.destroy();
     this.focus = null;
     this.closeReplay();
     document.removeEventListener('keydown', this.onKey);
     document.removeEventListener('fullscreenchange', this.onFs);
-    document.removeEventListener('click', this.onDoc);
     clearInterval(this.rotTimer);
     clearInterval(this.evTimer);
+    clearInterval(this.clockTimer);
+    clearTimeout(this.tvHideTimer);
+    clearTimeout(this.tvIdleTimer);
+    document.removeEventListener('tvnav-edge', this.onTvEdge);
+    document.removeEventListener('visibilitychange', this.onVis);
+    this.wakeLock?.release?.().catch(() => {});
     if (document.fullscreenElement) document.exitFullscreen?.();
     this.root.innerHTML = '';
   }

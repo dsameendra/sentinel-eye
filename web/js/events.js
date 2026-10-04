@@ -3,8 +3,9 @@
 // thumbnail per event (captured from its midpoint, on demand — app/thumbnails.py), and jumps a result
 // straight into Playback at that instant. Motion/line/tamper spans arrive already stitched into start/end
 // windows by app/events.py, so no further run-collapsing is needed here.
-import { esc, icon, toast, confirmDialog } from './ui.js';
-import { fetchTzOffset } from './dvrtime.js';
+import { barHTML, wireBar } from './bar.js';
+import { closePopover, confirmDialog, esc, icon, openPopover, toast } from './ui.js';
+import { fetchTzOffset, knownTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { openEventPreview } from './eventPreview.js';
@@ -16,12 +17,12 @@ const RESULT_CAP = 500; // no server-side pagination yet — a capped result set
 // page ever has in flight at once, rather than trusting the browser's own per-origin connection limit
 // (~6), which found out to be nowhere near enough of a bound when scrolling a page of hundreds of cards.
 const THUMB_CONCURRENCY = 2;
-const PRESETS = [
-  ['today', 'Today'],
-  ['24h', 'Last 24 hours'],
-  ['7d', 'Last 7 days'],
-  ['custom', 'Custom range'],
-];
+const KINDS = Object.keys(KIND_LABEL);
+const PRESETS = [['today', 'Today'], ['24h', '24h'], ['7d', '7d'], ['custom', 'Custom']];
+
+// The last search's results, kept for the session so returning to Events shows them instantly.
+let lastSearch = null;   // { key, results, capped }
+const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r.id === b[i].id && r.end_utc === b[i].end_utc);
 
 export class EventsView {
   /** @param ctx { settings(), go(hash) } */
@@ -30,7 +31,9 @@ export class EventsView {
     this.ctx = ctx;
     this.tzOffsetMin = 330;
     this.selectedCams = new Set(this.cams().map((c) => c.id)); // every enabled camera, to start — matches the previous "all cameras" default
-    this.kind = 'all';
+    this.kinds = new Set(KINDS); // every type on to start; the chips narrow it
+    this.query = '';               // the bar's search field — filters the loaded results as you type
+    this._seq = 0;
     this.preset = '24h';
     this.customFrom = Date.now() / 1000 - 86400;
     this.customTo = Date.now() / 1000;
@@ -55,61 +58,56 @@ export class EventsView {
   }
   camById(ch) { return this.cams().find((c) => c.channel === ch); }
 
-  // ------------------------------------------------------------- camera filter (same pattern as Playback's own picker)
-  // Always at least one camera selected — an empty result set from "nothing to search" reads as a bug, not
-  // a real "no events" answer, so it's simply not an option. The select-all button doubles as "clear
-  // selection" once everything's already checked, since a true clear-to-zero isn't allowed either.
-  _renderCamList() {
-    const list = this.root.querySelector('.cam-list');
-    if (!list) return;
+  // ------------------------------------------------------------- sidebar (Events board)
+  // Cameras as plain checkboxes, event types as multi-select chips. Both always keep at least one choice
+  // on — an empty result from "search nothing" reads as a bug, not a real "no events" answer.
+  _renderSide() {
     const cams = this.cams();
     const allOn = cams.length > 0 && this.selectedCams.size === cams.length;
-    const soleSelected = this.selectedCams.size === 1 ? [...this.selectedCams][0] : null;
-    const selectAllBtn = this.root.querySelector('[data-a=selectall]');
-    if (selectAllBtn) {
-      selectAllBtn.innerHTML = allOn ? `${icon('close')} Clear selection` : `${icon('check')} Select all`;
-      selectAllBtn.onclick = () => {
-        this.selectedCams = new Set(allOn ? (cams[0] ? [cams[0].id] : []) : cams.map((c) => c.id));
-        this._renderCamList();
-        this.search();
-      };
-    }
-    list.innerHTML = cams.map((c) => {
+    const sole = this.selectedCams.size === 1 ? [...this.selectedCams][0] : null;
+    const camsEl = this.root.querySelector('.ev-cams');
+    camsEl.innerHTML = cams.map((c) => {
       const on = this.selectedCams.has(c.id);
-      const lastOne = on && c.id === soleSelected;
-      return `<label class="cam-item ${on ? 'on' : ''}" data-id="${c.id}" ${lastOne ? 'title="At least one camera must stay selected"' : ''}>
-        <input type="checkbox" ${on ? 'checked' : ''} ${lastOne ? 'disabled' : ''}>
-        <span class="dot ${on ? 'live' : ''}"></span><span class="name">${esc(c.name || 'Camera ' + c.channel)}</span></label>`;
+      const last = on && c.id === sole;
+      return `<label class="ev-check" ${last ? 'title="At least one camera stays selected"' : ''}><input type="checkbox" data-cam="${esc(c.id)}" ${on ? 'checked' : ''} ${last ? 'disabled' : ''}><span>${esc(c.name || 'Camera ' + c.channel)}</span></label>`;
     }).join('');
-    list.querySelectorAll('.cam-item input').forEach((cb) => cb.addEventListener('change', () => {
-      const id = cb.closest('.cam-item').dataset.id;
-      if (cb.checked) this.selectedCams.add(id); else this.selectedCams.delete(id);
-      this._renderCamList();
+    const all = this.root.querySelector('[data-a=allcams]');
+    all.hidden = allOn || cams.length < 2;
+    camsEl.querySelectorAll('input').forEach((cb) => cb.addEventListener('change', () => {
+      if (cb.checked) this.selectedCams.add(cb.dataset.cam); else this.selectedCams.delete(cb.dataset.cam);
+      this._renderSide();
       this.search();
     }));
-    const toggleBtn = this.root.querySelector('[data-a=togglecams]');
-    if (toggleBtn) toggleBtn.innerHTML = `${icon('video')} Cameras (${this.selectedCams.size})`;
+    const kindsEl = this.root.querySelector('.ev-kinds');
+    kindsEl.innerHTML = Object.entries(KIND_LABEL).map(([k, l]) => {
+      const on = this.kinds.has(k);
+      return `<button class="ev-kind ${k}" data-kind="${k}" aria-pressed="${on}" ${on && this.kinds.size === 1 ? 'disabled title="At least one type stays selected"' : ''}>${l}</button>`;
+    }).join('');
+    kindsEl.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.kind;
+      if (this.kinds.has(k)) this.kinds.delete(k); else this.kinds.add(k);
+      this._renderSide();
+      this.search();
+    }));
+    const n = this.root.querySelector('.ev-filter-n');
+    const narrowed = (allOn ? 0 : 1) + (this.kinds.size === KINDS.length ? 0 : 1);
+    if (n) { n.textContent = narrowed ? String(narrowed) : ''; }
   }
 
-  // Same off-canvas drawer pattern Playback uses (and the same .pb-side/.pb-panel-toggle/.pb-panel-scrim
-  // classes, already shared for the panels themselves) — below the width both views stack panels in a
-  // column, opening either one by tapping its topline/toolbar button instead of always taking screen space
-  // away from the results.
-  _bindPanelToggles() {
-    const left = this.root.querySelector('.pb-side-left'), right = this.root.querySelector('.pb-side-right');
-    const scrim = this.root.querySelector('.pb-panel-scrim');
-    const close = () => { left.classList.remove('show'); right.classList.remove('show'); scrim.hidden = true; };
-    const open = (panel) => { const wasOpen = panel.classList.contains('show'); close(); if (!wasOpen) { panel.classList.add('show'); scrim.hidden = false; } };
-    this.root.querySelector('[data-a=togglecams]').addEventListener('click', () => open(left));
-    this.root.querySelector('[data-a=togglefilters]').addEventListener('click', () => open(right));
-    scrim.addEventListener('click', close);
-    this._closeEventPanels = close;
-  }
-
+  // Draws at once (with the DVR offset already known) and searches; the offset is checked in the
+  // background, and only a change — or a first visit ever, with nothing known — waits for it.
   async _init() {
-    this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
+    const known = knownTzOffset();
+    if (known === null) this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
+    else this.tzOffsetMin = known;
+    if (this._dead) return;   // left before a first-ever fetch came back
     this.build();
     this.search();
+    if (known !== null) fetchTzOffset(known).then((m) => {
+      if (m === this.tzOffsetMin || this._dead) return;
+      this.tzOffsetMin = m;
+      if (this.preset === 'today') this.search(); else this.renderResults();
+    });
   }
 
   // ------------------------------------------------------------- range from preset
@@ -118,162 +116,190 @@ export class EventsView {
     if (this.preset === 'custom') return [this.customFrom, this.customTo];
     if (this.preset === '7d') return [now - 7 * 86400, now];
     if (this.preset === 'today') {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      return [d.getTime() / 1000, now];
+      // DVR-local midnight, same clock every timestamp on this page is shown in.
+      const off = this.tzOffsetMin * 60;
+      return [Math.floor((now + off) / 86400) * 86400 - off, now];
     }
     return [now - 86400, now]; // 24h default
   }
 
   // ------------------------------------------------------------- rendering
   build() {
-    this.root.innerHTML = `<div class="events-view">
-      <aside class="pb-side pb-side-left">
-        <h3>Cameras</h3>
-        <button class="btn sm" data-a="selectall" style="width:100%;justify-content:center"></button>
-        <div class="cam-list"></div>
+    const seg = `<div class="seg ev-range" role="group" aria-label="Time range">${PRESETS.map(([v, l]) => `<button data-preset="${v}" aria-pressed="${this.preset === v}">${l}</button>`).join('')}</div>`;
+    this.root.innerHTML = `${barHTML({
+      lead: 'back', title: 'Events', size: 'title', cls: 'ev-bar tabroot',
+      context: `<label class="ev-search">${icon('search')}<input type="search" placeholder="Search events…" aria-label="Search events" autocomplete="off" spellcheck="false"></label>`,
+      actions: `${seg}<button class="btn glass-btn ev-filters-btn" data-a="filters" aria-expanded="false">${icon('layout')} Filters <span class="ev-filter-n"></span></button>`,
+    })}<div class="events-view">
+      <aside class="ev-side" aria-label="Filters">
+        <div class="ev-sheet-head"><b>Filters</b><button class="btn sm ghost" data-a="closefilters">Done</button></div>
+        <section class="ev-sec ev-sec-range"><h3>Range</h3>${seg}</section>
+        <section class="ev-sec"><h3>Cameras <button class="ev-link" data-a="allcams" hidden>Select all</button></h3><div class="ev-cams"></div></section>
+        <section class="ev-sec"><h3>Event type</h3><div class="ev-kinds"></div></section>
+        <section class="ev-sec"><h3>View</h3>
+          <label class="ev-switch"><span class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></span>Show thumbnails</label></section>
       </aside>
-      <main class="events-main">
-        <div class="events-toolbar">
-          <button class="btn sm" data-a="togglecams">${icon('video')} Cameras (${this.selectedCams.size})</button>
-          <button class="btn sm" data-a="togglefilters">${icon('layout')} Filters</button>
-        </div>
-        <div class="events-results"></div>
-      </main>
-      <aside class="pb-side pb-side-right">
-        <h3>Filters</h3>
-        <div class="field"><label for="ev-kind">Event type</label>
-          <select id="ev-kind"><option value="all">All types</option>${Object.entries(KIND_LABEL).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
-        <div class="field"><label>Range</label>
-          <div class="events-presets">${PRESETS.map(([v, l]) => `<button data-preset="${v}" aria-pressed="${this.preset === v}">${l}</button>`).join('')}</div></div>
-        <div class="events-custom" id="ev-custom" ${this.preset === 'custom' ? '' : 'hidden'}>
-          <div class="dtp-host" id="ev-from-host"></div>
-          <div class="dtp-host" id="ev-to-host"></div>
-        </div>
-        <button class="btn primary" data-a="search" style="width:100%;justify-content:center;margin-top:6px">${icon('search')} Apply filters</button>
-        <h3>View</h3>
-        <div class="toggle-row">
-          <label class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></label>
-          <label for="ev-thumbs">Show thumbnails</label>
-        </div>
-      </aside>
-      <div class="pb-panel-scrim" hidden></div>
+      <div class="ev-scrim" hidden></div>
+      <main class="events-main"><div class="events-results"></div></main>
     </div>`;
     this.res = this.root.querySelector('.events-results');
-    this._bindPanelToggles();
-    this._renderCamList();
-    this.root.querySelector('#ev-kind').addEventListener('change', (e) => { this.kind = e.target.value; this.search(); });
+    this._renderSide();
+    this.root.querySelector('[data-a=allcams]').addEventListener('click', () => { this.selectedCams = new Set(this.cams().map((c) => c.id)); this._renderSide(); this.search(); });
     this.root.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
-      this.preset = b.dataset.preset;
-      this.root.querySelectorAll('[data-preset]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-      this.root.querySelector('#ev-custom').hidden = this.preset !== 'custom';
-      if (this.preset !== 'custom') { this.search(); this._closeEventPanels?.(); }
+      if (b.dataset.preset === 'custom') { this._openCustom(b); return; }
+      this._setPreset(b.dataset.preset);
+      this.search();
     }));
-    this.root.querySelector('[data-a=search]').addEventListener('click', () => { this.search(); this._closeEventPanels?.(); });
+    const q = this.root.querySelector('.ev-search input');
+    let t = 0;
+    q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { this.query = q.value.trim().toLowerCase(); this.renderResults(); }, 120); });
+    q.addEventListener('keydown', (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); q.value = ''; this.query = ''; this.renderResults(); } });
+    this._onKey = (e) => {
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !document.getElementById('modal-root')?.firstChild) { e.preventDefault(); q.focus(); }
+    };
+    document.addEventListener('keydown', this._onKey);
     this.root.querySelector('#ev-thumbs').addEventListener('change', (e) => {
       this.showThumbs = e.target.checked;
       try { localStorage.setItem('sentinel.eventsThumbs', this.showThumbs ? '1' : '0'); } catch { /* private mode */ }
       this.renderResults();
     });
-
-    this.fromPicker = new DateTimePicker(this.root.querySelector('#ev-from-host'), {
-      epoch: this.customFrom, tzOffsetMin: this.tzOffsetMin, label: 'From',
-      onChange: (e) => { this.customFrom = e; },
-    });
-    this.toPicker = new DateTimePicker(this.root.querySelector('#ev-to-host'), {
-      epoch: this.customTo, tzOffsetMin: this.tzOffsetMin, label: 'To',
-      onChange: (e) => { this.customTo = e; },
-    });
+    // Narrow windows: the sidebar becomes a sheet behind the bar's Filters button.
+    const side = this.root.querySelector('.ev-side'), scrim = this.root.querySelector('.ev-scrim'), fbtn = this.root.querySelector('[data-a=filters]');
+    const sheet = (open) => { side.classList.toggle('open', open); scrim.hidden = !open; fbtn.setAttribute('aria-expanded', String(open)); };
+    fbtn.addEventListener('click', () => sheet(!side.classList.contains('open')));
+    scrim.addEventListener('click', () => sheet(false));
+    this.root.querySelector('[data-a=closefilters]').addEventListener('click', () => sheet(false));
+    wireBar(this.root, this.ctx);
     this.renderResults();
   }
 
+  _setPreset(p) {
+    this.preset = p;
+    this.root.querySelectorAll('[data-preset]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.preset === p)));
+  }
+
+  /** Custom range: From/To pickers in a popover; nothing searches until Apply. */
+  _openCustom(anchor) {
+    const menu = openPopover(anchor, `<div class="ev-custom">
+      <div class="dtp-host" id="ev-from-host"></div><div class="dtp-host" id="ev-to-host"></div>
+      <div class="ev-custom-foot"><span class="hint" id="ev-custom-err"></span><button class="btn primary" data-a="apply">Show events</button></div></div>`, { className: 'ev-custom-pop', align: 'right' });
+    if (!menu) return;
+    let from = this.customFrom, to = this.customTo;
+    new DateTimePicker(menu.querySelector('#ev-from-host'), { epoch: from, tzOffsetMin: this.tzOffsetMin, label: 'From', onChange: (e) => { from = e; } });
+    new DateTimePicker(menu.querySelector('#ev-to-host'), { epoch: to, tzOffsetMin: this.tzOffsetMin, label: 'To', onChange: (e) => { to = e; } });
+    menu.querySelector('[data-a=apply]').addEventListener('click', () => {
+      if (to <= from) { menu.querySelector('#ev-custom-err').textContent = 'The end has to be after the start.'; return; }
+      this.customFrom = from; this.customTo = to;
+      closePopover();
+      this._setPreset('custom');
+      this.search();
+    });
+  }
+
   async search() {
-    // Every camera unchecked isn't "no filter", it's "show nothing" — matches what the checkboxes
-    // themselves imply, and skips a query that would otherwise silently ignore the (empty) selection.
-    if (this.selectedCams.size === 0) { this.results = []; this.loading = false; this.renderResults(); return; }
-    this.loading = true;
+    if (this.selectedCams.size === 0 || this.kinds.size === 0) { this.results = []; this.loading = false; this.renderResults(); return; }
+    // The same search as last time (coming back to Events, say) shows its results at once and refreshes
+    // them quietly; only a new search shows the spinner.
+    const key = JSON.stringify([this.preset, this.preset === 'custom' ? [this.customFrom, this.customTo] : 0, [...this.selectedCams].sort(), [...this.kinds].sort()]);
+    const cached = lastSearch?.key === key ? lastSearch : null;
+    if (cached) { this.results = cached.results; this.capped = cached.capped; this.loading = false; }
+    else this.loading = true;
     this.renderResults();
     const [fromEpoch, toEpoch] = this._range();
-    const params = new URLSearchParams({
+    const base = new URLSearchParams({
       start_utc: new Date(fromEpoch * 1000).toISOString(),
       end_utc: new Date(toEpoch * 1000).toISOString(),
       limit: String(RESULT_CAP),
     });
-    if (this.kind !== 'all') params.set('kind', this.kind);
     const allCams = this.cams();
     if (this.selectedCams.size < allCams.length) {
-      for (const c of allCams) if (this.selectedCams.has(c.id)) params.append('channel', String(c.channel));
+      for (const c of allCams) if (this.selectedCams.has(c.id)) base.append('channel', String(c.channel));
     }
+    // Every type → one query. A subset → one query per type, merged: filtering a single capped query
+    // client-side could silently drop the rarer kinds behind hundreds of motion rows.
+    const kinds = this.kinds.size === KINDS.length ? [''] : [...this.kinds];
+    const seq = ++this._seq;
     try {
-      const rows = await getJSON(`/api/timeline/events?${params}`);
+      const parts = await Promise.all(kinds.map((k) => {
+        const p = new URLSearchParams(base);
+        if (k) p.set('kind', k);
+        return getJSON(`/api/timeline/events?${p}`);
+      }));
+      if (seq !== this._seq) return; // a newer search has started; its results win
+      const rows = parts.flat();
       rows.sort((a, b) => b.start_utc.localeCompare(a.start_utc)); // newest first
+      const capped = parts.some((r) => r.length >= RESULT_CAP);
+      lastSearch = { key, results: rows, capped };
+      // Nothing new since the cached results on screen: leave them (and their loaded thumbnails) alone.
+      if (cached && sameRows(cached.results, rows) && cached.capped === capped && !this.loading) return;
+      this.capped = capped;
       this.results = rows;
     } catch (e) {
-      this.results = [];
-      toast(e.message || 'Search failed', 'bad');
+      if (seq !== this._seq) return;
+      if (!cached) { this.results = []; toast(e.message || 'Search failed', 'bad'); }
     }
     this.loading = false;
     this.renderResults();
+  }
+
+  /** DVR-local "Today · 23:50:28" / "Yesterday · …" / "Oct 1 · …". */
+  _when(iso) {
+    const off = this.tzOffsetMin * 60000;
+    const t = new Date(new Date(iso).getTime() + off);
+    const dayOf = (ms) => Math.floor(ms / 86400000);
+    const d = dayOf(Date.now() + off) - dayOf(t.getTime());
+    const day = d === 0 ? 'Today' : d === 1 ? 'Yesterday' : t.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' });
+    const p = (n) => String(n).padStart(2, '0');
+    return `${day} · ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
   }
 
   renderResults() {
     if (!this.res) return;
     this._io.disconnect();
     this._thumbQueue = []; // any queued images belonged to the previous result set — the DOM is about to be replaced
-    if (this.loading) { this.res.innerHTML = `<div class="center-card"><div class="spin"></div><p>Searching…</p></div>`; return; }
+    if (this.loading) { this.res.innerHTML = `<div class="ev-empty"><span class="spin"></span><p>Searching…</p></div>`; return; }
     if (this.results === null) { this.res.innerHTML = ''; return; }
-    if (!this.results.length) {
-      this.res.innerHTML = `<div class="center-card"><div class="cc-icon muted">${icon('search')}</div><h2>No events found</h2><p>Try a different camera, type, or a wider date range.</p></div>`;
-      return;
-    }
-    const items = this.results.map((ev) => {
+    const rows = this.results.map((ev) => {
       const cam = this.camById(ev.channel);
-      const start = new Date(ev.start_utc), end = new Date(ev.end_utc);
-      const durSec = Math.max(0, (end - start) / 1000);
-      const dur = durSec < 1 ? '' : durSec < 60 ? `${Math.round(durSec)}s` : `${Math.round(durSec / 60)}m`;
-      // DVR-local wall clock: shift by the offset, then read UTC fields (avoids re-deriving parts by hand
-      // here) — date AND time must both come from this shifted value, or an event between local midnight
-      // and the UTC offset (e.g. 00:00-05:30 at UTC+5:30) shows the wrong day (caught by review, not by
-      // testing: every screenshot taken so far happened to be mid-afternoon local, where they agree).
-      const localStart = new Date(start.getTime() + this.tzOffsetMin * 60000);
-      const dateStr = localStart.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' });
-      const timeStr = `${String(localStart.getUTCHours()).padStart(2, '0')}:${String(localStart.getUTCMinutes()).padStart(2, '0')}:${String(localStart.getUTCSeconds()).padStart(2, '0')}`;
       let attrs = null;
       if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
-      const camName = esc(cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`);
-      const previewBtn = `<button class="btn sm primary" data-a="preview" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('play')} Preview</button>`;
-      const openBtn = `<button class="btn sm" data-a="open" ${cam ? '' : 'disabled title="This camera is not enabled"'}>${icon('video')} Open</button>`;
-      const delBtn = attrs?.bookmark_id ? `<button class="btn icon ghost sm" data-a="delbm" data-bmid="${attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : '';
-      if (this.showThumbs) {
-        return `<div class="ev-card" data-id="${ev.id}">
-          <div class="ev-thumb" data-a="preview" title="Preview"><img data-ev-id="${ev.id}" alt="" loading="lazy"><div class="ev-thumb-fallback">${icon('video')}</div></div>
-          <div class="ev-card-body">
-            <div class="ev-card-top"><span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span><span class="ev-card-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span></div>
-            <div class="ev-card-cam">${camName}</div>
-            ${attrs?.title ? `<div class="ev-card-title">${esc(attrs.title)}</div>` : ''}
-            <div class="ev-card-actions">${delBtn}<span class="spacer"></span>${openBtn}${previewBtn}</div>
-          </div>
-        </div>`;
-      }
-      // List view: same data, no thumbnail — skips the per-event /thumbnail fetch entirely, which is the
-      // point (each one can cost a real DVR playback session — see THUMB_CONCURRENCY's own comment above).
-      return `<div class="ev-row" data-id="${ev.id}">
-        <span class="ev-badge ${ev.kind}">${KIND_LABEL[ev.kind] || ev.kind}</span>
-        <span class="ev-row-cam">${camName}</span>
-        <span class="ev-row-date">${dateStr} · ${timeStr}${dur ? ` (${dur})` : ''}</span>
-        <span class="ev-row-title">${attrs?.title ? esc(attrs.title) : ''}</span>
-        <span class="spacer"></span>
-        ${delBtn}${openBtn}${previewBtn}
-      </div>`;
-    }).join('');
-    const capNote = this.results.length >= RESULT_CAP
-      ? `<p class="hint" style="padding:10px 4px">Showing the first ${RESULT_CAP} results — narrow the date range, camera or type to see more.</p>` : '';
+      const camName = cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`;
+      const when = this._when(ev.start_utc);
+      const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
+      const dur = durSec < 1 ? '' : durSec < 60 ? `${Math.round(durSec)} s` : `${Math.round(durSec / 60)} min`;
+      return { ev, cam, attrs, camName, when, dur, hay: `${camName} ${KIND_LABEL[ev.kind] || ev.kind} ${attrs?.title || ''} ${attrs?.notes || ''} ${when}`.toLowerCase() };
+    }).filter((r) => !this.query || this.query.split(/\s+/).every((w) => r.hay.includes(w)));
+    if (!rows.length) {
+      const searching = !!this.query && this.results.length;
+      this.res.innerHTML = `<div class="ev-empty"><div class="ev-empty-ico">${icon('search')}</div><h2>${searching ? 'No matches' : 'No events'}</h2>
+        <p>${searching ? `Nothing here matches “${esc(this.query)}”.` : 'Nothing in this range for these cameras and types. Try a wider range, or turn more of them on.'}</p></div>`;
+      return;
+    }
+    const pill = (k) => `<span class="ev-badge ${k}">${k === 'bookmark' ? icon('bookmark') : ''}${KIND_LABEL[k] || esc(k)}</span>`;
+    const actions = (r) => `
+      ${r.attrs?.bookmark_id ? `<button class="ev-act" data-a="delbm" data-bmid="${r.attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : ''}
+      <button class="ev-act" data-a="open" ${r.cam ? '' : 'disabled title="This camera is not enabled"'} title="Open in Playback" aria-label="Open in Playback">${icon('calendar')}</button>`;
+    const items = rows.map((r, i) => this.showThumbs
+      ? `<article class="ev-card" data-i="${i}" tabindex="0" aria-label="${esc(`${KIND_LABEL[r.ev.kind] || r.ev.kind}, ${r.camName}, ${r.when}`)}">
+          <div class="ev-thumb"><img data-ev-id="${r.ev.id}" alt="" loading="lazy">${pill(r.ev.kind)}${r.dur ? `<span class="ev-dur">${r.dur}</span>` : ''}<div class="ev-acts">${actions(r)}</div></div>
+          <div class="ev-card-body"><b>${esc(r.camName)}</b><span>${esc(r.when)}</span>${r.attrs?.title ? `<span class="ev-title">${esc(r.attrs.title)}</span>` : ''}</div>
+        </article>`
+      : `<article class="ev-row" data-i="${i}" tabindex="0">${pill(r.ev.kind)}<b>${esc(r.camName)}</b><span class="ev-row-when">${esc(r.when)}${r.dur ? ` · ${r.dur}` : ''}</span>
+          <span class="ev-title">${r.attrs?.title ? esc(r.attrs.title) : ''}</span><span class="ev-acts">${actions(r)}</span></article>`).join('');
+    const capNote = this.capped
+      ? `<p class="ev-cap-note">Showing the first ${RESULT_CAP} of each type — narrow the range, cameras or types to see the rest.</p>` : '';
     this.res.innerHTML = `<div class="${this.showThumbs ? 'events-grid' : 'events-list'}">${items}</div>${capNote}`;
-    this.res.querySelectorAll(this.showThumbs ? '.ev-card' : '.ev-row').forEach((row, i) => {
-      row.querySelector('[data-a=open]')?.addEventListener('click', () => this.openInPlayback(this.results[i]));
-      row.querySelectorAll('[data-a=preview]').forEach((el) => el.addEventListener('click', () => this.openPreview(this.results[i])));
-      row.querySelector('[data-a=delbm]')?.addEventListener('click', (e) => this.deleteBookmark(+e.currentTarget.dataset.bmid));
-      if (this.showThumbs) this._io.observe(row.querySelector('img'));
+    this.res.querySelectorAll('[data-i]').forEach((el) => {
+      const r = rows[+el.dataset.i];
+      el.addEventListener('click', (e) => {
+        const act = e.target.closest('[data-a]');
+        if (act?.dataset.a === 'open') { e.stopPropagation(); this.openInPlayback(r.ev); return; }
+        if (act?.dataset.a === 'delbm') { e.stopPropagation(); this.deleteBookmark(+act.dataset.bmid); return; }
+        this.openPreview(r.ev);
+      });
+      el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); this.openPreview(r.ev); } });
+      const img = el.querySelector('img');
+      if (img) this._io.observe(img);
     });
   }
 
@@ -318,6 +344,8 @@ export class EventsView {
   }
 
   destroy() {
+    this._dead = true;
+    document.removeEventListener('keydown', this._onKey);
     this._io.disconnect();
     this.root.innerHTML = '';
   }

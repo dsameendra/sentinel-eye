@@ -2,12 +2,15 @@
 // sign-in page, names the device and picks what it may do.
 import { authApi, signInAgain } from './api.js';
 import { esc, icon } from './ui.js';
+// Remote-control navigation for a TV signing in — loaded optionally, so these pages still work against a
+// server whose sign-in allow-list predates tvnav.js (a static import that fails would blank the page).
+import('./tvnav.js').then((m) => m.installTvNav()).catch(() => {});
 
 const card = document.getElementById('card');
-const brand = `<div class="auth-brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>`;
+const brand = '<div class="auth-mark" aria-hidden="true"><span class="brand-mark"></span></div>';
 
 function form(code = '') {
-  card.innerHTML = `${brand}<h1>Pair a device</h1>
+  card.innerHTML = `${brand}<h1>Pair a TV or screen</h1>
     <p class="auth-lead">Enter the code the TV or screen is showing on its sign-in page.</p>
     <form class="auth-form" novalidate>
       <div class="field"><label for="c">Code</label><input id="c" type="text" class="pair-input" value="${esc(code)}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX" required></div>
@@ -43,7 +46,7 @@ function form(code = '') {
 
 function done(name) {
   card.innerHTML = `${brand}<div class="cc-icon">${icon('check')}</div><h1>${esc(name)} is paired</h1>
-    <p class="auth-lead">It opens Sentinel Eye by itself in a few seconds. You can rename or remove it any time in Settings → Security.</p>
+    <p class="auth-lead">It opens Sentinel Eye by itself in a few seconds. Rename or remove it any time in Settings → Security &amp; sign-in.</p>
     <div class="auth-alt"><a class="btn primary" href="/">Back to Sentinel Eye</a><button class="btn ghost" data-a="more">Pair another</button></div>`;
   card.querySelector('[data-a=more]').addEventListener('click', () => form());
 }
@@ -51,7 +54,7 @@ function done(name) {
 async function boot() {
   const me = await authApi.me().catch(() => null);
   if (me && !me.auth_enabled) {
-    card.innerHTML = `${brand}<h1>Sign-in is off</h1><p class="auth-lead">Every device can already open Sentinel Eye. Turn sign-in on in Settings → Security to pair devices.</p>
+    card.innerHTML = `${brand}<h1>Sign-in is off</h1><p class="auth-lead">Every device can already open Sentinel Eye. Turn sign-in on in Settings → Security &amp; sign-in to pair devices.</p>
       <div class="auth-alt"><a class="btn primary" href="/#/settings/security">Open Settings</a></div>`;
     return;
   }

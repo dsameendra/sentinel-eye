@@ -3,6 +3,7 @@
 // since each action is a separate server-side change (and most can't be "discarded" anyway).
 import { authApi } from './api.js';
 import { deviceName, fmtWhen, wireCopy } from './account.js';
+import { avatarInner } from './avatar.js';
 import { confirmDialog, esc, icon, toast } from './ui.js';
 
 const ROLE_LABEL = { viewer: 'Viewer', operator: 'Operator', admin: 'Admin' };
@@ -43,7 +44,7 @@ export class SecurityPanel {
 
   // ------------------------------------------------------------------ sign-in off
   paintOff() {
-    this.root.innerHTML = `<h1>Security</h1><p class="lead">Sign-in is off: anyone who can reach this address can watch the cameras and change every setting, including the recorder's password.</p>
+    this.root.innerHTML = `<header class="pane-head"><h1>Security &amp; sign-in</h1><p>Sign-in is off: anyone who can reach this address can watch the cameras and change every setting, including the recorder's password.</p></header>
       <section class="card"><h3>${icon('lock')} Turn on sign-in</h3>
         <p class="sub">Create the first admin account. From then on everyone signs in; you can add more people and pair TVs afterwards. If you ever get locked out, <code>python app/auth.py reset-password &lt;user&gt;</code> on the server fixes it.</p>
         <form class="form" data-f="enable" novalidate>
@@ -75,7 +76,7 @@ export class SecurityPanel {
       (kind === 'device' ? ['viewer', 'operator'] : ['viewer', 'operator', 'admin']).map((r) => `<option value="${r}" ${r === role ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>`;
 
     const userRows = users.map((u) => `<tr class="${u.disabled ? 'off' : ''}">
-        <td><b>${esc(u.username)}</b>${u.id === me.user?.id ? ' <span class="badge">you</span>' : ''}</td>
+        <td><span class="who"><span class="av-mini" aria-hidden="true">${avatarInner(u)}</span><b>${esc(u.username)}</b>${u.id === me.user?.id ? ' <span class="badge">you</span>' : ''}</span></td>
         <td>${roleSelect(u.id, u.role)}</td>
         <td>${u.has_totp ? '<span class="badge ok">2FA</span>' : '<span class="badge">No 2FA</span>'}</td>
         <td class="muted">${fmtWhen(u.last_seen_ts)}</td>
@@ -98,7 +99,7 @@ export class SecurityPanel {
     const auditRows = audit.map((a) => `<tr><td class="muted" style="white-space:nowrap">${new Date(a.ts * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
         <td>${esc(a.actor || '—')}</td><td>${esc(ACTION_LABEL[a.action] || a.action)}${a.target && a.target !== a.actor ? ` · ${esc(a.target)}` : ''}</td><td class="muted">${esc(a.ip)}</td></tr>`).join('');
 
-    this.root.innerHTML = `<h1>Security</h1><p class="lead">Who can open Sentinel Eye and what they can do. ${ROLE_HELP}</p>
+    this.root.innerHTML = `<header class="pane-head"><h1>Security &amp; sign-in</h1><p>Who can open Sentinel Eye and what they can do. ${ROLE_HELP}</p></header>
     <section class="card"><h3>${icon('user')} Accounts</h3><p class="sub">People who sign in with a username and password.</p>
       <div class="tbl-scroll"><table class="tbl sec-tbl"><thead><tr><th>Username</th><th>Role</th><th>2FA</th><th>Last active</th><th></th></tr></thead><tbody>${userRows}</tbody></table></div>
       <form class="form" data-f="add" novalidate style="margin-top:16px">

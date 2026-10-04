@@ -104,7 +104,7 @@ class Display(BaseModel):
     quality: Literal["sub", "main", "auto"] = "auto"
     main_codec: Literal["passthrough", "h264"] = "h264"   # h264 = convert H.265 on the server (smooth everywhere); passthrough = play H.265 directly
     fit: Literal["contain", "cover"] = "contain"
-    rotate_seconds: int = Field(0, ge=0, le=600)
+    rotate_seconds: int = Field(0, ge=0, le=600)   # 0 = off; otherwise at least 10 s (see _rotate)
     theme: Literal["auto", "dark", "light"] = "auto"
     order: list[str] = []
     # Overlay transport controls (Playback, Live focus) fade out after this many idle seconds while
@@ -119,6 +119,13 @@ class Display(BaseModel):
     # "auto"/0.5; 0.5 is still the recommended fidelity default (spec 2d), now just changeable.
     enhance_default_mode: Literal["auto", "face", "plate", "general"] = "auto"
     enhance_default_fidelity: float = Field(0.5, ge=0.0, le=1.0)
+
+    @field_validator("rotate_seconds")
+    @classmethod
+    def _rotate(cls, v):
+        # Every 10 s is the fastest auto-rotate: a page needs a moment to connect and then be watched.
+        # A shorter saved interval (5 s used to be offered) becomes 10 s when settings load or are saved.
+        return 10 if 0 < v < 10 else v
 
 
 class Settings(BaseModel):

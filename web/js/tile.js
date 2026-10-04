@@ -3,6 +3,7 @@
 // watches for stalls and reconnects, and reports stats.
 import { createPlayer } from './player.js';
 import { ZoomPan } from './zoom.js';
+import { ZoomHud } from './zoomhud.js';
 import { esc, icon, openPopover } from './ui.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
@@ -26,7 +27,21 @@ export const streamName = (cam, kind, display) =>
 
 const UPGRADE_TIMEOUT = 30000;   // main streams can take a few seconds (keyframe interval ~5 s)
 const STALL_RECONNECT = 12000;
-const BADGE_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss' };
+// The player's raw errors are go2rtc/MSE internals ("webrtc/offer: streams: codecs not matched: …") —
+// useful in a tooltip, not as the tile's headline. One plain sentence per known cause, raw text as the title.
+const friendlyError = (err) => {
+  if (!err) return 'Connecting…';
+  if (/codecs? not matched|h265|hevc|hvc1/i.test(err)) return "This browser can't play this camera's video format";
+  if (/timeout|timed out|unreachable|refused|no route|network/i.test(err)) return "Can't reach the camera — retrying";
+  if (/auth|401|unauthori[sz]ed/i.test(err)) return 'The recorder rejected the login';
+  return 'Connecting…';
+};
+const BADGE_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss' };
+
+// A tap anywhere outside a tile whose quick actions were long-pressed open puts them away again.
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest?.('.tile.show-actions')) document.querySelectorAll('.tile.show-actions').forEach((t) => t.classList.remove('show-actions'));
+}, true);
 
 export class Tile {
   /**
@@ -47,9 +62,8 @@ export class Tile {
     this.el.innerHTML = `<div class="stage"><canvas class="enh-canvas" hidden></canvas></div>
       <div class="veil"><div class="spin"></div><div class="msg">Connecting…</div></div>
       ${opts.chrome ? `<div class="hit"></div>
-      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="dot wait"></span><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span><span class="tag kind">SD</span></div>
-      <div class="ov bottom"><span class="stat"></span></div>
-      <button class="zoomtag" hidden title="Reset zoom" aria-label="Reset zoom">Reset</button>
+      <div class="ov top"><span class="grip">${icon('move')} drag</span><span class="pill tile-status"><span class="dot wait"></span></span><span class="ev-badges"></span><span class="grow"></span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span><span class="loadhd" hidden><span class="tag">Loading HD…</span></span></div>
+      <div class="ov bottom"><span class="name">${esc(cam.name || 'Camera ' + cam.channel)}</span><span class="stat"></span><span class="grow"></span><span class="tag kind">SD</span><span class="offline-label">Offline</span></div>
       <div class="tile-actions">
         <div class="tile-actions-group">
           <div class="tile-actions-row">
@@ -57,17 +71,16 @@ export class Tile {
             <button data-a="zin" title="Zoom in (or scroll / pinch on the picture)" aria-label="Zoom in">${icon('plus')}</button>
             ${opts.fixedQuality ? '' : `<button class="txt" data-a="quality" title="Switch between SD and HD">HD</button>`}
             <button data-a="snap" title="Save snapshot" aria-label="Save snapshot">${icon('camera')}</button>
-            ${opts.noReplay ? '' : `<button data-a="replay" title="Instant replay (last 10s)" aria-label="Instant replay">${icon('rewind')}</button>`}
-            <button data-a="bookmark" title="${opts.bookmarkLabel || 'Bookmark this moment'}" aria-label="${opts.bookmarkLabel || 'Bookmark this moment'}">${icon('flag')}</button>
+            ${opts.noReplay ? '' : `<button data-a="replay" title="Instant replay (last 15 s)" aria-label="Instant replay">${icon('back2')}</button>`}
             <div class="menu-wrap enh-wrap">
               <button data-a="enhance" title="Live enhancement (brightness/contrast/sharpen)" aria-label="Live enhancement" aria-haspopup="true">${icon('wand')}</button>
             </div>
-            <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
           </div>
         </div>
-        <button class="tile-actions-toggle" data-a="moreactions" title="Camera controls" aria-label="Camera controls" aria-expanded="false" aria-haspopup="true">${icon('left')}</button>
-      </div>
-      <div class="ev-badges"></div>` : ''}`;
+        <button class="tile-actions-toggle" data-a="moreactions" title="More camera controls" aria-label="More camera controls" aria-expanded="false">${icon('more')}</button>
+        <button data-a="bookmark" title="${opts.bookmarkLabel || 'Bookmark this moment'}" aria-label="${opts.bookmarkLabel || 'Bookmark this moment'}">${icon('bookmark')}</button>
+        <button data-a="focus" title="Open large view" aria-label="Open large view">${icon('expand')}</button>
+      </div>` : ''}`;
     this.stage = this.el.querySelector('.stage');
     this.veil = this.el.querySelector('.veil');
     this.enhCanvas = this.el.querySelector('.enh-canvas');
@@ -77,7 +90,28 @@ export class Tile {
     this.enhParams = { ...(ENHANCE_PRESETS[opts.display?.enhance_default_preset] || ENHANCE_PRESETS.off) };
     if (opts.chrome) {
       const hit = this.el.querySelector('.hit');
-      hit.addEventListener('click', () => opts.onFocus?.(this));
+      // Touch (Mobile board): a tap opens Focus; a long press reveals this tile's quick actions instead
+      // (on a phone they're hidden until asked for — seven buttons on every small tile is clutter).
+      let pressTimer = 0, pressed = false, pressAt = null;
+      hit.addEventListener('pointerdown', (e) => {
+        if (e.pointerType !== 'touch') return;
+        pressed = false; pressAt = [e.clientX, e.clientY];
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(() => {
+          pressed = true;
+          document.querySelectorAll('.tile.show-actions').forEach((t) => t !== this.el && t.classList.remove('show-actions'));
+          this.el.classList.add('show-actions');
+          navigator.vibrate?.(10);
+        }, 480);
+      });
+      hit.addEventListener('pointermove', (e) => { if (pressAt && Math.hypot(e.clientX - pressAt[0], e.clientY - pressAt[1]) > 10) clearTimeout(pressTimer); });
+      ['pointerup', 'pointercancel'].forEach((ev) => hit.addEventListener(ev, () => { clearTimeout(pressTimer); pressAt = null; }));
+      hit.addEventListener('contextmenu', (e) => { if (pressed || pressAt) e.preventDefault(); });
+      hit.addEventListener('click', () => {
+        if (pressed) { pressed = false; return; }   // the long press already did its thing
+        if (this.el.classList.contains('show-actions')) { this.el.classList.remove('show-actions'); return; }
+        opts.onFocus?.(this);
+      });
       // TV mode: the picture itself has to be a real (tabbable) keyboard target — arrow keys don't move
       // focus between elements in any tested browser on their own (that's LiveView._tvMove's job, driven
       // by hand rather than assumed), but this tabindex is still what makes a tile reachable via Tab, gives
@@ -105,10 +139,11 @@ export class Tile {
         const open = actionsEl.classList.toggle('expanded');
         toggleBtn.setAttribute('aria-expanded', String(open));
       });
+      // Zoomed in, the tile shows the same minimap and − / % / + as Focus (replacing the old Reset pill).
+      this.hud = new ZoomHud(this.el, () => this.zoom, { compact: true });
       this.enableZoom(this.el.querySelector('.hit'), { dbl: false });   // a click opens the large view, so no double-click zoom here
       this.el.querySelector('[data-a=zin]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1.6); });
       this.el.querySelector('[data-a=zout]').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.zoomBy(1 / 1.6); });
-      this.el.querySelector('.zoomtag').addEventListener('click', (e) => { e.stopPropagation(); this.zoom.reset(); });
     }
     // Always start with the SD stream (it is already flowing, so the picture is instant) and swap to HD when it is ready.
     this.cur = this._spawn('sub', false);
@@ -132,8 +167,7 @@ export class Tile {
   _paintZoom() {
     const z = this.zoom;
     if (!z) return;
-    const tag = this.el.querySelector('.zoomtag');
-    if (tag) { tag.hidden = !z.zoomed; tag.textContent = `${z.s.toFixed(1)}× · Reset`; }
+    this.hud?.update();
     const zin = this.el.querySelector('[data-a=zin]'), zout = this.el.querySelector('[data-a=zout]');
     if (zin) zin.disabled = z.atMax;
     if (zout) zout.disabled = !z.zoomed;
@@ -250,13 +284,15 @@ export class Tile {
     const el = this.el;
     const dot = el.querySelector('.dot');
     if (dot) dot.className = `dot ${this.state === 'live' ? 'live' : this.state === 'off' ? 'off' : 'wait'}`;
+    el.classList.toggle('is-off', this.state === 'off');
+    el.classList.toggle('is-wait', this.state === 'wait');
     if (this.state === 'live') this.veil.hidden = true;
     else {
       this.veil.hidden = false;
       const err = s.player.info.error;
       this.veil.innerHTML = this.state === 'off'
-        ? `<div class="msg"><b>No signal</b><br>${esc(err || 'The camera is not responding. Retrying…')}</div>`
-        : `<div class="spin"></div><div class="msg">${esc(err ? err : 'Connecting…')}</div>`;
+        ? `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(err || 'The camera is not responding — retrying')}">No signal — retrying</div>`
+        : `<div class="msg" title="${esc(err || '')}">${esc(friendlyError(err))}</div>`;
     }
     const tag = el.querySelector('.kind');
     if (tag) { tag.textContent = s.kind === 'main' ? 'HD' : 'SD'; tag.classList.toggle('hd', s.kind === 'main'); }
@@ -341,8 +377,42 @@ export class Tile {
   setBadges(kinds) {
     const el = this.el.querySelector('.ev-badges');
     if (!el) return;
-    if (!kinds || !kinds.size) { if (el.childElementCount) el.innerHTML = ''; return; }
+    if (!kinds || !kinds.size) {
+      if (el.childElementCount) el.innerHTML = '';
+      delete this.el.dataset.ev;
+      return;
+    }
+    // The most urgent active kind colours the tile's border (Live board: the motion tile's 2px motion-colour
+    // ring) — tamper/video loss outrank a line crossing, which outranks plain motion.
+    const order = ['tamper', 'videoloss', 'intrusion', 'line', 'motion'];
+    this.el.dataset.ev = order.find((k) => kinds.has(k)) || [...kinds][0];
     el.innerHTML = [...kinds].map((k) => `<span class="ev-badge ${k}">${BADGE_LABEL[k] || k}</span>`).join('');
+  }
+
+  /** A small JPEG of the picture on screen right now (event notifications), or null with nothing decoded. */
+  thumbnail(w = 160) {
+    const v = this.cur?.player.video;
+    if (!v || !v.videoWidth) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = Math.round(w * v.videoHeight / v.videoWidth);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.7);
+    } catch { return null; }
+  }
+
+  /** A canvas holding the picture on screen right now (Focus's camera-switch crossfade), or null. */
+  frameCanvas() {
+    const enhanced = !this.enhCanvas.hidden, v = this.cur?.player.video;
+    const src = enhanced ? this.enhCanvas : v;
+    const w = enhanced ? src.width : v?.videoWidth, h = enhanced ? src.height : v?.videoHeight;
+    if (!w || !h) return null;
+    try {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(src, 0, 0);
+      return c;
+    } catch { return null; }
   }
 
   /** Captures whichever picture is actually on screen — the L0-enhanced frame if enhancement is on, the
@@ -384,6 +454,7 @@ export class Tile {
   dispose() {
     clearInterval(this.timer);
     this.zoom?.destroy();
+    this.hud?.destroy();
     this.enhancer?.destroy();
     this.cur?.player.dispose();
     this.pend?.player.dispose();

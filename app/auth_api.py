@@ -2,13 +2,13 @@
 cookie, and the /api/auth/* endpoints. Storage and the security primitives live in auth.py.
 
 With no accounts every request is an admin principal (via="none"), so routes never special-case "auth off"."""
-import math, re
+import base64, math, re
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -84,7 +84,7 @@ ROUTE_ROLES = [(m, re.compile(rx), role) for m, rx, role in [
     ("*", r"/api/auth/.*", "viewer"),
 ]]
 PUBLIC = re.compile(r"/(login|pair|login\.html|pair\.html|manifest\.json|sw\.js|favicon\.ico|css/app\.css"
-                    r"|js/(login|pair|ui|api|qr)\.js|vendor/qrcode\.js|icons/[^/]+"
+                    r"|js/(login|pair|ui|api|qr|tvnav)\.js|vendor/qrcode\.js|icons/[^/]+"
                     r"|api/status|api/auth/(me|login|login/totp|logout|pair/start|pair/poll))")
 LIMITED_OK = re.compile(r"/api/auth/(me|logout|password|totp/.*)")   # admin who must enrol 2FA first
 
@@ -172,7 +172,7 @@ def _account(request: Request) -> Principal:
 def _me(p: Principal) -> dict:
     return {"auth_enabled": auth.enabled(), "via": p.via, "role": p.role or None, "limited": p.limited,
             "session_id": p.session_hash[:16] if p.session else None,
-            "user": ({k: p.user[k] for k in ("id", "username", "kind", "label", "role", "has_totp")}
+            "user": ({k: p.user.get(k) for k in ("id", "username", "kind", "label", "role", "has_totp", "avatar")}
                      if p.user else None)}
 
 
@@ -272,10 +272,54 @@ class PasswordReq(BaseModel):
 @router.post("/password")
 async def change_password(req: PasswordReq, request: Request):
     p = _account(request)
-    if await run_in_threadpool(auth.authenticate, p.username, req.current) is None:
-        raise HTTPException(400, "The current password isn't right")
+    await _recheck_password(p, req.current, request, "The current password isn't right")
     await run_in_threadpool(auth.set_password, p.user_id, req.new, except_hash=p.session_hash, ip=ip_of(request))
     return {"ok": True}
+
+
+class ProfileReq(BaseModel):
+    username: str
+    password: str   # changing the name you sign in with asks for your password, like changing the password
+
+
+@router.patch("/profile")
+async def update_profile(req: ProfileReq, request: Request):
+    p = _account(request)
+    await _recheck_password(p, req.password, request)
+    u = await run_in_threadpool(auth.rename_user, p.user_id, req.username, actor=p.username, ip=ip_of(request))
+    return {"ok": True, "username": u["username"]}
+
+
+class AvatarReq(BaseModel):
+    kind: str | None = None
+    color: str | None = None
+    id: str | None = None
+    photo: str | None = None   # data: URL of the browser-downscaled JPEG
+
+
+@router.put("/avatar")
+async def update_avatar(req: AvatarReq, request: Request):
+    p = _account(request)
+    photo = None
+    if req.kind == "photo":
+        try:
+            photo = base64.b64decode((req.photo or "").split(",", 1)[-1], validate=True)
+        except ValueError:
+            raise HTTPException(422, "That photo couldn't be read")
+    u = await run_in_threadpool(auth.set_avatar, p.user_id, {"kind": req.kind, "color": req.color, "id": req.id}, photo,
+                                ip=ip_of(request))
+    return {"ok": True, "avatar": u["avatar"]}
+
+
+@router.get("/avatar/{user_id}")
+def avatar_photo(user_id: int, request: Request):
+    _p(request)   # anyone signed in sees people's pictures (the avatar in the bar, the accounts list)
+    path = auth.avatar_photo_path(user_id)
+    if not path.exists():
+        raise HTTPException(404, "No photo")
+    with open(path, "rb") as f:   # stored as sent: a JPEG from the app, or a PNG
+        png = f.read(8) == b"\x89PNG\r\n\x1a\n"
+    return FileResponse(path, media_type="image/png" if png else "image/jpeg", headers={"Cache-Control": "private, max-age=31536000"})
 
 
 class CodeReq(BaseModel):
@@ -302,15 +346,25 @@ def totp_confirm(req: CodeReq, request: Request):
     return {"recovery_codes": codes}
 
 
-async def _recheck_password(p: Principal, password: str) -> None:
+async def _recheck_password(p: Principal, password: str, request: Request, msg="The password isn't right") -> None:
+    """Confirms the signed-in person's password before a sensitive change, under the sign-in limiter (same
+    keys as /login): a stolen session can't be used to guess the password any faster than the login form."""
+    ip = ip_of(request)
+    keys = (("ip", ip), ("user", p.username.strip().lower()))
+    if wait := auth.login_limiter.check(*keys):
+        secs = math.ceil(wait)
+        raise HTTPException(429, f"Too many attempts; try again in {secs} s", headers={"Retry-After": str(secs)})
     if await run_in_threadpool(auth.authenticate, p.username, password) is None:
-        raise HTTPException(400, "The password isn't right")
+        auth.login_limiter.fail(*keys)
+        auth.audit(p.username, "password.recheck_fail", p.username, ip)
+        raise HTTPException(400, msg)
+    auth.login_limiter.ok(*keys)
 
 
 @router.post("/totp/disable")
 async def totp_disable(req: PasswordOnlyReq, request: Request):
     p = _account(request)
-    await _recheck_password(p, req.password)
+    await _recheck_password(p, req.password, request)
     if p.role == "admin" and auth.get_config()["require_2fa_admin"]:
         raise HTTPException(409, "Two-factor authentication is required for admins")
     auth.totp_disable(p.user_id, ip=ip_of(request))
@@ -320,7 +374,7 @@ async def totp_disable(req: PasswordOnlyReq, request: Request):
 @router.post("/totp/recovery")
 async def totp_recovery(req: PasswordOnlyReq, request: Request):
     p = _account(request)
-    await _recheck_password(p, req.password)
+    await _recheck_password(p, req.password, request)
     if not p.user["has_totp"]:
         raise HTTPException(409, "Turn on two-factor authentication first")
     auth.audit(p.username, "totp.recovery_codes", p.username, ip_of(request))

@@ -9,7 +9,7 @@
 // always be live), the playback/live WebSocket and WebRTC/MSE streams (the browser never routes these
 // through a service worker's fetch event in the first place — no special-casing needed), and anything
 // cross-origin.
-const CACHE_NAME = 'sentinel-eye-shell-v4'; // bumped: v3 could have cached a redirected /login body under a JS/CSS key
+const CACHE_NAME = 'sentinel-eye-shell-v9'; // bumped with each release whose modules change (v9: avatars, account, replay, plate reader UI): drops every installed client's old shell on activate rather than serving it once more
 const STATIC_RE = /\.(?:js|css|png|svg|json|ico|webmanifest)$/;
 
 self.addEventListener('install', () => {
@@ -34,29 +34,26 @@ self.addEventListener('fetch', (event) => {
   if (/^\/(login|pair)(\.html)?$|^\/js\/(login|pair)\.js$/.test(url.pathname)) return;
   const isShell = url.pathname === '/' || url.pathname === '/index.html' || STATIC_RE.test(url.pathname);
   if (!isShell) return;
-  event.respondWith(staleWhileRevalidate(event, req));
+  event.respondWith(networkFirst(req));
 });
 
-// Stale-while-revalidate, not network-first: answer from cache immediately (when there is one) so an
-// installed app resumes instantly — an iOS home-screen app that got fully evicted from memory while
-// backgrounded has to reload this shell from scratch to come back at all, and waiting on a real network
-// round-trip for that (network-first's old behaviour) is exactly the kind of pause that reads as "the app
-// went black". The network request still always goes out and updates the cache for next time, so this
-// keeps network-first's actual goal (never stuck on a stale shell once a real update ships) without paying
-// for it on every single resume — just once, in the background, after the page already painted.
-async function staleWhileRevalidate(event, request) {
+// Network-first with a short timeout: a running server always gets its current shell to the browser (a
+// cache-first worker kept TVs and installed apps one reload behind every fix — the TV's black-screen fix
+// didn't reach it). The cache only answers when the server can't: offline, or too slow to wait for (an
+// installed app resuming over a sleepy network still comes back quickly).
+async function networkFirst(request) {
   const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
-  const network = fetch(request).then((response) => {
-    // response.redirected excludes a followed redirect (e.g. an unauthenticated app-shell request bounced
-    // to /login by the server) from being cached under the original request's key — a 200 login-page body
-    // is a valid fetch() outcome (fetch follows redirects by default) but must never be served back later
-    // in place of the real js/css it was requested as.
+  const network = fetch(request, { cache: 'no-cache' }).then((response) => {
+    // Never cache a followed redirect (e.g. an app-shell request bounced to /login) under the original key.
     if (response && response.ok && !response.redirected) cache.put(request, response.clone());
     return response;
-  }).catch(() => null);
-  if (cached) { event.waitUntil(network); return cached; }
-  const fresh = await network;
-  if (fresh) return fresh;
-  throw new Error('offline and nothing cached yet');
+  });
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 2500));
+  try {
+    const fresh = await Promise.race([network, timeout]);
+    if (fresh) return fresh;
+  } catch { /* offline: fall through to the cache */ }
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  return network;   // nothing cached either: wait it out (or surface the real network error)
 }

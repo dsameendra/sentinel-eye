@@ -1,34 +1,59 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-23T12:09:54Z",
+  "generatedAt": "2026-10-03T00:00:00Z",
   "title": "Design System: Sentinel Eye",
   "extensions": {
     "colorMeta": {
-      "sentinel-green": { "role": "primary", "displayName": "Sentinel Green", "canonical": "#34d399", "tonalRamp": ["#17694b", "#209369", "#29bd87", "#42d6a0", "#6cdfb5", "#96e8ca", "#c0f1df", "#eafaf4"] },
-      "gunmetal-bg": { "role": "neutral", "displayName": "Gunmetal Night — Bg", "canonical": "#0b0e13", "tonalRamp": ["#2f3c51", "#415371", "#546b91", "#6e85ab", "#8ea0be", "#aebbd0", "#cfd6e3", "#eff1f6"] },
-      "gunmetal-panel": { "role": "neutral", "displayName": "Gunmetal Night — Panel", "canonical": "#131820", "tonalRamp": ["#303c50", "#425470", "#566c90", "#6f86aa", "#8fa0bc", "#afbcd0", "#cfd6e3", "#eff2f5"] },
+      "accent-blue": { "role": "primary", "displayName": "Accent Blue", "canonical": "#0074e8", "tonalRamp": ["#042c54", "#063d73", "#084e93", "#0a66bc", "#0074e8", "#4a9bee", "#8cc0f4", "#d6eafb"] },
+      "accent-blue-text": { "role": "primary-text", "displayName": "Accent Blue Text", "canonical": "#2e97ff", "tonalRamp": ["#06233f", "#0a3157", "#0f4274", "#1760a6", "#2e97ff", "#63b0ff", "#9ccaff", "#dcedff"] },
+      "armed-green": { "role": "success", "displayName": "Armed Green", "canonical": "#30d158", "tonalRamp": ["#0d3a18", "#145a25", "#1c7e33", "#26a843", "#30d158", "#64dd85", "#9be9b0", "#d9f7e2"] },
+      "armed-green-text": { "role": "success-text", "displayName": "Armed Green Text", "canonical": "#30d158", "tonalRamp": ["#0d3a18", "#145a25", "#1c7e33", "#26a843", "#30d158", "#64dd85", "#9be9b0", "#d9f7e2"] },
+      "live-red": { "role": "status", "displayName": "Live Red", "canonical": "#ff453a", "tonalRamp": ["#6e0b06", "#9c0f08", "#cc140b", "#ff453a", "#ff7268", "#ff9d96", "#ffc7c3", "#ffeeec"] },
+      "tamper-purple": { "role": "status", "displayName": "Tamper Purple", "canonical": "#bf5af2", "tonalRamp": ["#4a0d6e", "#671497", "#8a1ec4", "#bf5af2", "#d085f6", "#dfabf9", "#eed1fc", "#faeefe"] },
+      "graphite-bg": { "role": "neutral", "displayName": "Graphite — Bg", "canonical": "#09090b", "tonalRamp": ["#030304", "#09090b", "#141417", "#222226", "#3a3a40", "#5c5c63", "#8e8e96", "#d4d4d9"] },
+      "graphite-panel": { "role": "neutral", "displayName": "Graphite — Panel", "canonical": "#18181b", "tonalRamp": ["#0a0a0c", "#18181b", "#232327", "#323237", "#4a4a51", "#6a6a72", "#9c9ca3", "#dadade"] },
+      "graphite-panel-2": { "role": "neutral", "displayName": "Graphite — Panel-2", "canonical": "#222226", "tonalRamp": ["#0f0f11", "#1c1c20", "#222226", "#363640", "#50505a", "#737380", "#a3a3ac", "#dfdfe4"] },
       "danger-red": { "role": "error", "displayName": "Danger Red", "canonical": "#f87171", "tonalRamp": ["#7a0606", "#aa0808", "#db0b0b", "#f42424", "#f75555", "#f98585", "#fbb6b6", "#fee7e7"] },
-      "warn-amber": { "role": "warning", "displayName": "Warn Amber", "canonical": "#fbbf24", "tonalRamp": ["#7d5b02", "#af7f03", "#e1a404", "#fbbd1e", "#fccc50", "#fdda82", "#fee9b4", "#fff8e6"] },
-      "info-blue": { "role": "info", "displayName": "Info Blue", "canonical": "#60a5fa", "tonalRamp": ["#043a7c", "#0551ad", "#0768df", "#2081f8", "#529dfa", "#83b9fb", "#b5d5fd", "#e6f1fe"] }
+      "warn-amber": { "role": "warning", "displayName": "Warn Amber", "canonical": "#ffd60a", "tonalRamp": ["#5c4c00", "#8a7200", "#b89800", "#e6be00", "#ffd60a", "#ffe04a", "#ffea8a", "#fff7d1"] },
+      "info-teal": { "role": "info", "displayName": "Info Teal", "canonical": "#2dd4bf", "tonalRamp": ["#04433c", "#065d53", "#09786b", "#0e9d8b", "#2dd4bf", "#6ee3d4", "#a7eee3", "#def8f3"] }
     },
     "typographyMeta": {
       "title": { "displayName": "Title", "purpose": "Pane headings and modal/section titles only (20px, 19px, 15px variants share this role)." },
       "body": { "displayName": "Body", "purpose": "The base UI size — nearly all text in the app." },
+      "small": { "displayName": "Small", "purpose": "Secondary text — hints, sub-labels, result rows, muted supporting lines under a heading." },
+      "micro": { "displayName": "Micro", "purpose": "Compact badges and tags (.tag, event badges) where Label's uppercase 12px treatment would be too loud." },
       "label": { "displayName": "Label", "purpose": "Uppercase structural labels: table headers, form group labels, section headers." }
     },
     "shadows": [
-      { "name": "float", "value": "0 10px 30px rgba(0, 0, 0, 0.45)", "purpose": "The one shadow in the system, for layers that float above normal page flow: popover menus, dialogs, toasts, the settings save bar." }
+      { "name": "shadow-1", "value": "0 1px 2px rgba(0, 0, 0, .4)", "purpose": "The lightest lift in the elevation scale (redesign v2 foundation, new token) — currently wired only to a segmented control's pressed option (`.seg button[aria-pressed=\"true\"]`); otherwise reserved for future fine-grained use." },
+      { "name": "float", "value": "0 10px 30px rgba(0, 0, 0, .45)", "purpose": "`--shadow` / `--shadow-2`: the general floating-chrome shadow, paired with Glass fill on menus/popovers (dialogs, toasts, and the save bar instead pair Float's heavier sibling, Shadow-3)." },
+      { "name": "shadow-3", "value": "0 24px 64px -8px rgba(0, 0, 0, .55)", "purpose": "The heavier lift for Glass-Heavy surfaces — popovers/menus, dialogs, toasts, the save bar, the auth card, the evp-dialog, and the Playback/Events touch drawers — usually paired with an inset Glass Highlight top edge (`inset 0 1px 0 var(--glass-highlight)`)." },
+      { "name": "shadow-float", "value": "0 14px 32px -6px rgba(0, 0, 0, .55), 0 2px 10px rgba(0, 0, 0, .4)", "purpose": "`--shadow-float` (documented in DESIGN.md as Hover-Lift): a live-grid tile (`.tile:hover`) or an Events card (`.ev-card:hover`) under a real pointer, gated on `(hover: hover)`, paired with `translateY(-2px)` to `-3px`." }
     ],
     "motion": [
-      { "name": "transition-fast", "value": "0.15s ease", "purpose": "Hover/press micro-feedback: borders, backgrounds, opacity (tile actions, toast entrance easing pairs with this)." },
-      { "name": "transition-base", "value": "0.2s ease", "purpose": "Zoom/pan transforms and pressed-state background shifts." },
-      { "name": "transition-slow", "value": "0.22s ease", "purpose": "Larger UI motion: auto-hiding playback controls, fullscreen side-panel slide-ins." }
+      { "name": "dur-instant", "value": ".11s", "purpose": "Renumbered in the foundation pass (new token, was not a separate step before). Reserved for the snappiest micro-feedback; not yet wired to a specific rule as of this pass." },
+      { "name": "dur-fast", "value": ".18s", "purpose": "Renumbered from .15s. Hover/press micro-feedback: button background/border/filter transitions, `.btn:active{scale(.96)}`, segmented-control and nav-link state changes, the toggle-switch knob." },
+      { "name": "dur-base", "value": ".26s", "purpose": "Renumbered from .2s. Zoom/pan transforms and general mid-weight UI motion." },
+      { "name": "dur-slow", "value": ".42s", "purpose": "Renumbered from .22s. Larger UI motion: slide-ins, auto-hiding playback controls." },
+      { "name": "dur-chrome-out", "value": ".22s", "purpose": "New token (foundation pass): the duration for glass chrome (touch drawers, fullscreen side panels) animating closed/away." },
+      { "name": "dur-chrome-in", "value": ".46s", "purpose": "New token (foundation pass): the duration for glass chrome animating into view — intentionally slower than chrome-out so entrances read as settling, not snapping." },
+      { "name": "ease-out-expo", "value": "cubic-bezier(.16, 1, .3, 1)", "purpose": "Default easing for ordinary UI motion: `.btn`, `.seg button`, nav/tile hover and press transitions." },
+      { "name": "ease-standard", "value": "cubic-bezier(.4, 0, .2, 1)", "purpose": "Material-style standard easing, defined alongside the others; general-purpose fallback." },
+      { "name": "ease-in-out", "value": "cubic-bezier(.45, 0, .55, 1)", "purpose": "Symmetric ease for motion with no clear directional bias." },
+      { "name": "ease-spring", "value": "cubic-bezier(.34, 1.56, .64, 1)", "purpose": "Overshoot spring, defined for gesture-release and toggle-confirmation moments." },
+      { "name": "spring-gentle", "value": "cubic-bezier(.22, 1.12, .36, 1)", "purpose": "New token (foundation pass): a softer, lower-overshoot spring than `--ease-spring`, used for glass chrome settling into place." }
     ],
     "breakpoints": [
+      { "name": "xs", "value": "480px" },
       { "name": "sm", "value": "560px" },
+      { "name": "touch", "value": "640px" },
       { "name": "md", "value": "760px" },
       { "name": "lg", "value": "800px" },
-      { "name": "xl", "value": "980px" }
+      { "name": "lg-2", "value": "820px" },
+      { "name": "xl", "value": "900px" },
+      { "name": "xl-2", "value": "980px" },
+      { "name": "source-inline", "value": "1100px" },
+      { "name": "coarse-pointer", "value": "1400px" }
     ]
   },
   "components": [
@@ -36,25 +61,65 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The one emphasized action in a group — save, confirm, primary CTA.",
+      "description": "The one emphasized action in a group — save, confirm, primary CTA. Fully pill-shaped (redesign v2 foundation, was an 8px-radius rectangle) with real press feedback.",
       "html": "<button class=\"ds-btn ds-btn-primary\">Save changes</button>",
-      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid transparent; font: 600 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: filter 0.15s ease, background 0.15s ease, border-color 0.15s ease; } .ds-btn-primary { background: #34d399; border-color: #34d399; color: #052e22; } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; }"
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r-full, 999px); border: 1px solid var(--line-2, #2c2c31); background: var(--panel-2, #222226); font: 600 14px/1 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: transform var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)), background var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)), border-color var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)), filter var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)); } .ds-btn:active { transform: scale(.96); } .ds-btn-primary { background: var(--accent, #0074e8); border-color: var(--accent, #0074e8); color: var(--accent-ink, #ffffff); } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent, #0074e8); outline-offset: 2px; }"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Default button style for non-primary actions.",
+      "description": "Default button style for non-primary actions (the plain `.btn`) — pill-shaped, bordered, no fill emphasis.",
       "html": "<button class=\"ds-btn ds-btn-secondary\">Cancel</button>",
-      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; font: 500 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; } .ds-btn-secondary { background: #1a2029; border: 1px solid #313b4a; color: #e7ebf1; } .ds-btn-secondary:hover { border-color: #5c6878; }"
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r-full, 999px); font: 600 14px/1 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: border-color var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)); } .ds-btn:active { transform: scale(.96); } .ds-btn-secondary { background: var(--panel-2, #222226); border: 1px solid var(--line-2, #2c2c31); color: var(--text, #f5f5f7); } .ds-btn-secondary:hover { border-color: var(--faint, #6e6e73); }"
     },
     {
       "name": "Ghost Button",
       "kind": "button",
       "refersTo": "button-ghost",
-      "description": "Low-emphasis action, transparent until hovered.",
+      "description": "Low-emphasis action, transparent until hovered — same pill shape and 600-weight label as every other button.",
       "html": "<button class=\"ds-btn ds-btn-ghost\">Dismiss</button>",
-      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 8px; border: 1px solid transparent; font: 500 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; } .ds-btn-ghost { background: transparent; color: #8b97a8; } .ds-btn-ghost:hover { background: #1a2029; color: #e7ebf1; }"
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: var(--r-full, 999px); border: 1px solid transparent; font: 600 14px/1 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)), color var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)); } .ds-btn:active { transform: scale(.96); } .ds-btn-ghost { background: transparent; color: var(--muted, #a1a1a6); } .ds-btn-ghost:hover { background: var(--panel-2, #222226); color: var(--text, #f5f5f7); }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "nav",
+      "refersTo": "seg",
+      "description": "The `.seg` view/filter switcher — fully pill-shaped and borderless now (redesign v2 foundation, was a bordered 9px-radius rectangle); its pressed option lifts on a Panel background with the Shadow-1 token.",
+      "html": "<div class=\"ds-seg\"><button aria-pressed=\"true\">Overview</button><button aria-pressed=\"false\">Grid</button></div>",
+      "css": ".ds-seg { display: inline-flex; padding: 3px; border-radius: var(--r-full, 999px); background: var(--panel-2, #222226); border: 0; } .ds-seg button { border: 0; background: transparent; height: 28px; padding: 0 14px; border-radius: var(--r-full, 999px); color: var(--muted, #a1a1a6); font-weight: 600; font-size: 14px; cursor: pointer; transition: background var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)), color var(--dur-fast, .18s) var(--ease-out-expo, cubic-bezier(.16,1,.3,1)); } .ds-seg button[aria-pressed=\"true\"] { background: var(--panel, #18181b); color: var(--text, #f5f5f7); box-shadow: var(--shadow-1, 0 1px 2px rgba(0,0,0,.4)); }"
+    },
+    {
+      "name": "Live-Count Pill",
+      "kind": "chip",
+      "refersTo": "pill-status",
+      "description": "The `.pill` + `.dot` combination used in Live's topbar ('N/M live'); the dot is Live Red when every tile is live, Warn Amber ('wait') otherwise. Full-round, borderless (redesign v2 — border removed).",
+      "html": "<span class=\"ds-pill\"><span class=\"ds-dot ds-dot-live\"></span><span>4/4 live</span></span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: var(--r-full, 999px); background: var(--panel-2, #222226); font-size: 12px; color: var(--muted, #a1a1a6); white-space: nowrap; } .ds-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint, #6e6e73); flex: none; } .ds-dot-live { background: var(--live, #ff453a); box-shadow: 0 0 0 3px var(--live-soft, rgba(255,69,58,.16)); }"
+    },
+    {
+      "name": "Toggle Switch",
+      "kind": "input",
+      "refersTo": "switch",
+      "description": "The only binary on/off control style in the system — unchanged shape across the foundation pass (already fully round).",
+      "html": "<label class=\"ds-switch\"><input type=\"checkbox\" checked /><span></span></label>",
+      "css": ".ds-switch { position: relative; display: inline-block; width: 38px; height: 22px; } .ds-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; } .ds-switch span { position: absolute; inset: 0; border-radius: var(--r-full, 999px); background: var(--line-2, #2c2c31); transition: background .15s; } .ds-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; } .ds-switch input:checked + span { background: var(--accent, #0074e8); } .ds-switch input:checked + span::after { transform: translateX(16px); } .ds-switch input:focus-visible + span { outline: 2px solid var(--accent, #0074e8); outline-offset: 2px; }"
+    },
+    {
+      "name": "Nav Link",
+      "kind": "nav",
+      "refersTo": "nav",
+      "description": "Topbar/side-rail navigation item (icon + label). The active state uses Accent Blue Soft background with Accent Blue Text (the foreground-optimized variant) as the label color, not the fill-optimized Accent Blue itself.",
+      "html": "<a class=\"ds-nav-link ds-nav-link-active\" aria-current=\"page\" href=\"#\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/></svg><span>Live</span></a>",
+      "css": ".ds-nav-link { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: var(--r-sm, 10px); color: var(--muted, #a1a1a6); text-decoration: none; font-weight: 500; } .ds-nav-link:hover { background: var(--panel-2, #222226); color: var(--text, #f5f5f7); } .ds-nav-link-active { background: var(--accent-soft, rgba(0, 116, 232, .16)); color: var(--accent-text, #2e97ff); } .ds-nav-icon { width: 18px; height: 18px; flex: none; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The primary content container across Settings and Events — flat at rest, no shadow, a hairline border is the only separation. Corner radius widened in the foundation pass (22px, was 12px).",
+      "html": "<div class=\"ds-card\"><h3>Recorder connection</h3><p class=\"ds-card-sub\">Address, login, and encryption.</p></div>",
+      "css": ".ds-card { background: var(--panel, #18181b); border: 1px solid var(--line, rgba(255,255,255,.09)); border-radius: var(--r-lg, 22px); padding: 18px 20px; } .ds-card h3 { margin: 0 0 3px; font-size: 14.5px; font-weight: 700; color: var(--text, #f5f5f7); } .ds-card-sub { margin: 0; color: var(--muted, #a1a1a6); font-size: 13px; }"
     },
     {
       "name": "Text Input",
@@ -62,68 +127,66 @@
       "refersTo": "input",
       "description": "Standard text/password/number field used across Settings.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"192.0.2.10\" />",
-      "css": ".ds-input { width: 100%; height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid #313b4a; background: #0b0e13; color: #e7ebf1; font: 400 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-input:hover { border-color: #5c6878; } .ds-input:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; }"
+      "css": ".ds-input { width: 100%; height: 36px; padding: 0 11px; border-radius: var(--r-sm, 10px); border: 1px solid var(--line-2, #2c2c31); background: var(--bg, #09090b); color: var(--text, #f5f5f7); font: 400 14px/1 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Inter, ui-sans-serif, system-ui, sans-serif; } .ds-input:hover { border-color: var(--faint, #6e6e73); } .ds-input:focus-visible { outline: 2px solid var(--accent, #0074e8); outline-offset: 2px; }"
     },
     {
-      "name": "Toggle Switch",
-      "kind": "input",
-      "refersTo": "switch",
-      "description": "The only binary on/off control style in the system.",
-      "html": "<label class=\"ds-switch\"><input type=\"checkbox\" checked /><span></span></label>",
-      "css": ".ds-switch { position: relative; display: inline-block; width: 38px; height: 22px; } .ds-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; } .ds-switch span { position: absolute; inset: 0; border-radius: 999px; background: #313b4a; transition: background 0.15s ease; } .ds-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; } .ds-switch input:checked + span { background: #34d399; } .ds-switch input:checked + span::after { transform: translateX(16px); }"
-    },
-    {
-      "name": "Status Pill",
+      "name": "Success Badge",
       "kind": "chip",
       "refersTo": "pill-status",
-      "description": "Compact status/quality/filter indicator (connection status, HD/SD tag, live-filter marker).",
-      "html": "<span class=\"ds-pill\"><span class=\"ds-dot\"></span>Live</span>",
-      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; background: #1a2029; border: 1px solid #262e3a; font-size: 12px; color: #8b97a8; } .ds-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.14); }"
+      "description": "The real Armed Green usage: an 'On'/'2FA' status badge (`.badge.ok`) — success/healthy state, never a live indicator. The label color is Armed Green Text, the light-theme-safe foreground variant, not the fill-optimized Armed Green.",
+      "html": "<span class=\"ds-badge-ok\">2FA</span>",
+      "css": ".ds-badge-ok { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--r-full, 999px); font-size: 11.5px; font-weight: 600; background: var(--armed-soft, rgba(48,209,88,.14)); border: 1px solid var(--armed, #34d399); color: var(--armed-text, #34d399); white-space: nowrap; }"
     },
     {
-      "name": "Card",
-      "kind": "card",
-      "refersTo": "card",
-      "description": "The primary content container across Settings and Events.",
-      "html": "<div class=\"ds-card\"><h3>Recorder connection</h3><p class=\"ds-card-sub\">Address, login, and encryption.</p></div>",
-      "css": ".ds-card { background: #131820; border: 1px solid #262e3a; border-radius: 12px; padding: 18px 20px; } .ds-card h3 { margin: 0 0 3px; font-size: 14.5px; font-weight: 600; color: #e7ebf1; } .ds-card-sub { margin: 0; color: #8b97a8; font-size: 13px; }"
+      "name": "Glass Dialog",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "The glass material system (redesign v2 foundation, new): a translucent, blurred surface for chrome that floats above or sits apart from content. This exact fill/blur/border/shadow combination is shared verbatim by `.dialog`, `.menu`, `.toast`, `.savebar > div`, `.evp-dialog`, and `.auth-card`. Never applied to chrome that floats directly over continuously-live video, which keeps an opaque gradient-scrim treatment instead.",
+      "html": "<div class=\"ds-dialog\"><h3>Delete camera?</h3><p>This can't be undone.</p></div>",
+      "css": ".ds-dialog { width: min(440px, 100%); padding: 20px; border-radius: var(--r-xl, 30px); background: var(--glass-fill-heavy, rgba(18,18,20,.86)); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border, rgba(255,255,255,.1)); box-shadow: var(--shadow-3, 0 24px 64px -8px rgba(0,0,0,.55)), inset 0 1px 0 var(--glass-highlight, rgba(255,255,255,.06)); } .ds-dialog h3 { margin: 0 0 6px; color: var(--text, #f5f5f7); } .ds-dialog p { margin: 0; color: var(--muted, #a1a1a6); }"
     },
     {
       "name": "The Eye Mark",
       "kind": "custom",
       "refersTo": "brand-mark",
-      "description": "Signature mark: a green ring-and-dot iris on a dark square. Used as the browser favicon and in the topbar brand lockup — the only purely-identity use of the accent color.",
+      "description": "Signature mark (`.brand-mark`): a white ring-and-pupil iris with Live Red's record dot at the upper right, on a dark rounded tile (`#141417`, radius 30/108). The bar mark, favicon, app icons, sign-in/pairing mark and Verify header all use this one drawing; the red dot is the only identity use of Live Red.",
       "html": "<span class=\"ds-eyemark\"></span>",
-      "css": ".ds-eyemark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: #111827; } .ds-eyemark::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid #34d399; box-shadow: inset 0 0 0 2px #111827, inset 0 0 0 5px #34d399; }"
+      "css": ".ds-eyemark { position: relative; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: #141417; } .ds-eyemark::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #f5f5f7; box-shadow: inset 0 0 0 2.5px #141417, inset 0 0 0 6px #f5f5f7; } .ds-eyemark::after { content: ''; position: absolute; top: 4px; right: 4px; width: 4px; height: 4px; border-radius: 50%; background: #ff3b30; }"
     }
   ],
   "narrative": {
-    "northStar": "The Watch Room",
-    "overview": "Sentinel Eye reads like the inside of a quiet, dark operations room: everything stays low-contrast and still at rest, built to be stared at for long unattended sessions without wearing on the eyes. Nothing is decorative. Spacing is tight, controls are compact (28–36px), numbers are tabular so they don't jitter, and the interface gets out of the way of the footage it exists to show. The one deliberate exception is color: a single accent green means \"this is live, this is on, this is selected\" everywhere in the app, and it is used sparingly enough that its appearance is always meaningful, never ambient. Amber and red are reserved the same way — warning and danger, never decoration. The whole system is engineered so that when something actually needs attention, it is the only colored thing on the screen.\n\nThe controls themselves lean refined rather than purely mechanical: hover and pressed states get real (if subtle) treatment — brightness shifts, soft accent washes, ring outlines — so the density reads as considered, not thrown together.",
+    "northStar": "The Watch Room, Redesigned",
+    "overview": "Redesign v2 (see `ROADMAP.md`) rebuilt the Watch Room twice. The first pass kept the pre-redesign app's dense, flat, blue-tinted architecture and only swapped its single accent color for four single-job colors. The second, larger pass — this one — rebuilt the foundation itself to actually match the approved mockups: a neutral graphite ground (not blue-tinted), glass material on floating and page chrome (not flat panel fills), a bigger and rounder radius scale topped out by fully-pill buttons (not an 8px-radius rectangle), and real press feedback. The calm, low-contrast, stare-at-it-for-hours character survives intact — spacing stays tight, numbers stay tabular, the interface still gets out of the way of the footage it exists to show — but the material language is now genuinely Apple-adjacent rather than merely re-colored.\n\nFour colors, four jobs: a system blue for everything interactive (selected, primary, focus, in progress), red for \"this is live right now,\" green for \"this succeeded / is healthy,\" and purple for tamper events specifically. Status and selection never compete for the same pixel the way a single accent used to force them to.",
     "keyCharacteristics": [
-      "Dark by default (color-scheme: dark), with a fully-specified light theme as a first-class alternate, not an afterthought.",
-      "One accent color, used for state (live/selected/primary), never for branding flourish.",
-      "Flat surfaces at rest; shadow appears only on things that float above the normal layout.",
+      "Dark by default (`color-scheme: dark`), with a fully-specified light theme as a first-class alternate, not an afterthought.",
+      "Four semantic colors, each with exactly one job: blue = interactive, red = live, green = success/healthy, purple = tamper. Never mixed, never decorative.",
+      "Glass material on chrome that floats above or sits apart from content (topbar, subbar, popovers, dialogs, toasts, the auth card); flat borders everywhere else. Never blurred directly over continuously-live video.",
+      "A six-step radius scale running from a 6px chip to a fully-round 999px pill — buttons, segmented controls and status pills are pills now, not rounded rectangles.",
       "Small, functional type scale — no hero/display type anywhere; this is an instrument panel, not a marketing page.",
       "Tabular numerals on every timestamp, clock, duration, zoom percentage, and count."
     ],
     "rules": [
-      { "name": "The Single Accent Rule", "body": "Sentinel Green is the only color used for emphasis, selection, or primary action. If a control isn't live, active, selected, or the primary action in its group, it does not get colored — it stays gunmetal/muted.", "section": "colors" },
-      { "name": "The Tabular Numbers Rule", "body": "Every numeric read-out — the clock, timestamps, durations, percentages, counts — uses font-variant-numeric: tabular-nums, so digits never shift width as they change on a screen meant to be glanced at repeatedly.", "section": "typography" },
-      { "name": "The Floating-Only Shadow Rule", "body": "If it's part of the normal page layout, it's flat with a border. If it floats above the layout (menu, dialog, toast, save bar), it gets the Float shadow. Nothing in between.", "section": "elevation" },
-      { "name": "The Pill-for-Status Rule", "body": "Full-round shape is reserved for things that represent state or a compact choice (status pills, event badges, quality tags, toggles). Containers that hold content — cards, tiles, dialogs — never go fully round; they stay in the 8–14px range.", "section": "shapes" }
+      { "name": "The On-Video Invariance Rule", "body": "Anything painted directly over live footage (badges, overlays, ROI boxes, floating transport controls) stays fixed across light/dark theme and never gets glass/blur — the video itself never re-themes and is itself the \"material\" there.", "section": "colors" },
+      { "name": "The One-Job-Per-Color Rule", "body": "Accent Blue is the only color used for emphasis, selection, or primary action — if a control isn't active, selected, or the primary action in its group, it does not get colored, it stays graphite/muted. Live Red, Armed Green and Tamper Purple are each scoped the same way to their own single status meaning; none of the four ever stands in for another. A mode-switch button whose own label already states which mode you're in (e.g. the live view's Overview/Grid toggle) is *not* a \"selected option\" and does not get the pressed-accent treatment, even though it sets `aria-pressed` for assistive tech — that treatment means \"this is the choice among several,\" not \"this button is currently on.\"", "section": "colors" },
+      { "name": "The Fill-vs-Text Rule", "body": "A semantic color has two numerically distinct values when it's used both as a filled background (optimized for white/ink text on top of it) and as foreground text elsewhere (Accent Blue vs. Accent Blue Text, Armed Green vs. Armed Green Text in light theme) — never assume a fill color passes as text just because the fill itself is accessible.", "section": "colors" },
+      { "name": "The Tabular Numbers Rule", "body": "Every numeric read-out — the clock, timestamps, durations, zoom percentage, event counts — uses `font-variant-numeric: tabular-nums`, so digits never shift width as they change on a screen meant to be glanced at repeatedly.", "section": "typography" },
+      { "name": "The Floating-Only Shadow Rule", "body": "If it's part of the normal page layout at rest, it's flat with a hairline border. A layer floats above or apart from the page → Float or Shadow-3, usually with Glass. A live-grid tile or Events card has the pointer directly on it → Hover-Lift, and only while the pointer stays there. Nothing else gets a shadow.", "section": "elevation" },
+      { "name": "The Glass-Over-One-Stream Rule", "body": "Glass may sit over video only where there is one stream on screen (Focus, full-screen Playback) and only while that chrome is visible — it fades on idle, so continuous backdrop-filter recomputation over moving footage is limited to the moments someone is using the controls. Never across the multi-tile grid." },
+      { "name": "The Pill-for-Status-and-Action Rule", "body": "Full-round shape is reserved for things you act on or that represent a state — buttons, segmented controls, status pills, event badges, quality tags, toggles. Containers that hold content — cards, tiles, dialogs — never go fully round; they stay in the 16–30px range.", "section": "shapes" }
     ],
     "dos": [
-      "Do treat Sentinel Green as a state signal first — reach for it when something is live, selected, primary, or on; not as a general brand color to sprinkle around.",
+      "Do treat each of the four semantic colors as a state signal first — reach for Accent Blue when something is selected, primary, or on; Live Red only for live status; Armed Green only for success/healthy; never as general brand color to sprinkle around.",
+      "Do use Accent Blue Text / Armed Green Text (not the fill color) whenever a semantic color is the *foreground* of text or an icon rather than a filled background.",
       "Do keep numeric displays (clocks, timestamps, durations, percentages, counts) on tabular numerals.",
-      "Do keep containers flat with a 1px border; reserve the Float shadow strictly for popovers, dialogs, toasts, and the save bar.",
-      "Do use full-round shape only for status/selection chips and toggles, never for content containers."
+      "Do keep containers flat with a hairline border; reserve glass + Float/Shadow-3 strictly for chrome that floats above or sits apart from the page.",
+      "Do use full-round shape for buttons, segmented controls, status/selection chips, and toggles — never for content containers (cards, tiles, dialogs stay in the 16–30px range)."
     ],
     "donts": [
-      "Don't introduce a second accent hue for \"brand\" purposes — amber/red/blue are semantic-only and Sentinel Green already carries all positive/selected/live meaning.",
-      "Don't add shadow to any surface that's part of the normal page flow (cards, tiles, panels, topbar) — that's reserved for floating layers only.",
+      "Don't introduce a fifth semantic hue for \"brand\" purposes — warn-amber, danger-red and info-teal stay semantic-only.",
+      "Don't add shadow to any surface that's part of the normal page flow at rest (cards, tiles, panels) — that's reserved for floating/glass layers and the hover-lift exception.",
+      "Don't put glass/`backdrop-filter` over the multi-tile grid, or keep it over a single stream once its chrome has faded (see the Glass-Over-One-Stream Rule).",
       "Don't add a display/hero type size anywhere; this is an Operate-mode instrument panel, not a marketing surface, and the type scale stays functional.",
-      "Don't widen the touch/click targets or padding much past the current compact scale (28–36px control heights) — density is a deliberate trait of a screen meant for long monitoring sessions, not a gap to close."
+      "Don't give a mode-switch button (one whose own label already states which mode is active, like Overview/Grid) the pressed-accent treatment — that treatment means \"the selected option among several,\" not \"this is currently on.\""
     ]
   }
 }

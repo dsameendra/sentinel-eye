@@ -122,6 +122,9 @@ def anonymous():
     check("anon /api/status only says go2rtc", r.status_code == 200 and r.json() == {"go2rtc": True}, r.text)
     r = c.get("/api/settings")
     check("anon API -> 401 JSON", r.status_code == 401 and r.json()["code"] == "auth_required")
+    check("security headers, even on the gate's own answers",
+          r.headers.get("x-frame-options") == "DENY" and r.headers.get("x-content-type-options") == "nosniff"
+          and "frame-ancestors 'none'" in r.headers.get("content-security-policy", ""), dict(r.headers))
     check("anon /ws -> 4401", ws_close_code(c, "/ws?src=cam1") == 4401)
 
 
@@ -325,6 +328,55 @@ def bypass():
     auth.set_config({"bypass_cidrs": []})
 
 
+def profile_and_avatar(clients):
+    """Your own username and picture (Account)."""
+    import base64
+    auth.create_user("pat", PW, "viewer")
+    c = client()
+    login(c, "pat")
+    uid = auth.get_user_by_name("pat")["id"]
+    r = c.patch("/api/auth/profile", json={"username": "patricia", "password": "wrong password!"})
+    check("rename: wrong password refused", r.status_code == 400, r.status_code)
+    check("rename: a taken name refused", c.patch("/api/auth/profile", json={"username": "vic", "password": PW}).status_code == 409)
+    check("rename: taken ignoring case refused", c.patch("/api/auth/profile", json={"username": "VIC", "password": PW}).status_code == 409)
+    check("rename: invalid name refused", c.patch("/api/auth/profile", json={"username": "bad name!", "password": PW}).status_code == 422)
+    r = c.patch("/api/auth/profile", json={"username": "patricia", "password": PW})
+    check("rename: done", r.status_code == 200 and r.json()["username"] == "patricia", r.text[:200])
+    check("rename: still signed in, under the new name", c.get("/api/auth/me").json()["user"]["username"] == "patricia")
+    check("rename: signs in with the new name", client().post("/api/auth/login", json={"username": "patricia", "password": PW}).status_code == 200)
+
+    codes = [c.patch("/api/auth/profile", json={"username": "pat2", "password": "nope nope nope"}).status_code for _ in range(8)]
+    check("password re-checks are rate-limited like sign-in", codes[:5] == [400] * 5 and 429 in codes, codes)
+    with auth.login_limiter._l:   # every test client shares one address: don't leave it locked out
+        auth.login_limiter._m.clear()
+
+    put = lambda body: c.put("/api/auth/avatar", json=body)
+    check("avatar: bad colour refused", put({"kind": "initial", "color": "red"}).status_code == 422)
+    r = put({"kind": "initial", "color": "#FF375F"})
+    check("avatar: initial on a colour", r.status_code == 200 and r.json()["avatar"] == {"kind": "initial", "color": "#ff375f"}, r.text[:200])
+    check("avatar: unknown preset refused", put({"kind": "preset", "id": "p99"}).status_code == 422)
+    check("avatar: preset", put({"kind": "preset", "id": "p5"}).json()["avatar"] == {"kind": "preset", "id": "p5"})
+    check("avatar: in /me", c.get("/api/auth/me").json()["user"]["avatar"] == {"kind": "preset", "id": "p5"})
+    check("avatar: not an image refused", put({"kind": "photo", "photo": "data:image/jpeg;base64," + base64.b64encode(b"hello").decode()}).status_code == 422)
+    check("avatar: unreadable base64 refused", put({"kind": "photo", "photo": "data:image/jpeg;base64,***"}).status_code == 422)
+    png = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+    jpg = b"\xff\xd8\xff\xe0" + b"\0" * 64
+    r = put({"kind": "photo", "photo": "data:image/png;base64," + base64.b64encode(png).decode()})
+    check("avatar: photo (PNG)", r.status_code == 200 and r.json()["avatar"]["kind"] == "photo", r.text[:200])
+    other = client()
+    login(other, "vic")   # the role matrix's viewer was signed out everywhere by revocation_closes_ws
+    g = other.get(f"/api/auth/avatar/{uid}")
+    check("avatar: anyone signed in sees it, served as PNG", g.status_code == 200 and g.headers["content-type"] == "image/png" and g.content == png, g.headers.get("content-type"))
+    check("avatar: signed out can't", client().get(f"/api/auth/avatar/{uid}").status_code == 401)
+    put({"kind": "photo", "photo": "data:image/jpeg;base64," + base64.b64encode(jpg).decode()})
+    check("avatar: a JPEG is served as JPEG", c.get(f"/api/auth/avatar/{uid}").headers["content-type"] == "image/jpeg")
+    put({"kind": "preset", "id": "p2"})
+    check("avatar: choosing another style removes the photo", c.get(f"/api/auth/avatar/{uid}").status_code == 404)
+    put({"kind": "photo", "photo": "data:image/jpeg;base64," + base64.b64encode(jpg).decode()})
+    auth.delete_user(uid, actor="ada")
+    check("avatar: deleting the account removes the photo", not auth.avatar_photo_path(uid).exists())
+
+
 def main():
     auth_off()
     enable_from_ui()
@@ -334,6 +386,7 @@ def main():
     login_flow()
     totp_flow()
     pairing(clients)
+    profile_and_avatar(clients)
     admin_api(clients)
     bypass()
     print(f"\n{sum(PASS)}/{len(PASS)} passed")

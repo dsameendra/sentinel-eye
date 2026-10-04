@@ -8,7 +8,7 @@ import websockets
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 import auth
@@ -56,6 +56,19 @@ async def lifespan(app):
 
 app = FastAPI(title="Sentinel Eye", lifespan=lifespan)
 app.middleware("http")(auth_api.gate)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """On every response, the sign-in gate's own included (registered after it, so it wraps it): no framing
+    by other sites (clickjacking a signed-in admin), no MIME sniffing, no full URLs leaked as Referer."""
+    resp = await call_next(request)
+    h = resp.headers
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "same-origin")
+    return resp
 app.add_exception_handler(auth.AuthError, auth_api.auth_error)
 app.include_router(auth_api.router)
 
@@ -280,7 +293,7 @@ async def timeline_calibration():
 @app.get("/api/playback/pool")
 async def playback_pool():
     """How many of the DVR's 4 playback sessions are in use right now (section 7.3)."""
-    return {"busy": psess.pool.busy, "limit": psess.pool.limit}
+    return {"busy": psess.pool.busy, "limit": psess.pool.limit, "units": psess.pool.used_units, "budget": psess.pool.budget}
 
 
 class BookmarkRequest(BaseModel):
@@ -377,7 +390,7 @@ class EnhanceRequest(BaseModel):
     channel: int
     at_utc: str = ""
     mode: Literal["auto", "face", "plate", "general"] = "auto"
-    images: list[str]  # base64 PNG, oldest -> newest, 1-7 frames
+    images: list[str]  # base64 PNG, oldest -> newest, 1-11 frames
     roi: list[float] | None = None  # optional [x, y, w, h] fractions (0-1) — crop before enhancing
     weight: float = 0.5  # GFPGAN fidelity (0=free reconstruction, 1=barely touched) — spec section 2d
 
@@ -387,8 +400,8 @@ async def create_enhance(req: EnhanceRequest):
     """Starts a background AI frame-enhancement job (docs/SPEC.md section 7.8). Frames come from the
     client's already-decoded playback buffer — no DVR session, doesn't touch the 4-session budget."""
     import secrets as _secrets
-    if not req.images or len(req.images) > 7:
-        raise HTTPException(422, "1-7 frames expected")
+    if not req.images or len(req.images) > 11:
+        raise HTTPException(422, "1-11 frames expected")
     if req.roi is not None and len(req.roi) != 4:
         raise HTTPException(422, "roi must be [x, y, w, h]")
     if not 0.0 <= req.weight <= 1.0:
@@ -422,16 +435,29 @@ async def enhance_source(job_id: str):
     return FileResponse(path, media_type="image/png", filename=f"frame_{job_id}_source.png")
 
 
+class OcrRegion(BaseModel):
+    # The operator's box on the picture: centre and size as fractions (w of the width, h of the height),
+    # angle in degrees clockwise as drawn on screen.
+    cx: float = Field(ge=0, le=1)
+    cy: float = Field(ge=0, le=1)
+    w: float = Field(gt=0, le=1.5)
+    h: float = Field(gt=0, le=1.5)
+    angle: float = Field(default=0, ge=-90, le=90)
+
+
 class OcrRequest(BaseModel):
     which: Literal["result", "source"] = "result"
+    region: OcrRegion | None = None
+    plate: bool = False   # plate characters only, no dictionary "corrections"
 
 
 @app.post("/api/enhance/{job_id}/ocr")
 async def enhance_ocr(job_id: str, req: OcrRequest):
-    """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job.
-    Synchronous: sub-second for a single image, no job/poll needed."""
+    """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job, the
+    whole picture or just the operator's (possibly rotated) box. Synchronous: about a second, no job/poll."""
     try:
-        lines = await run_in_threadpool(enhance_ai.ocr, job_id, req.which)
+        lines, crop, engine = await run_in_threadpool(enhance_ai.ocr, job_id, req.which,
+                                                      req.region.model_dump() if req.region else None, req.plate)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ModuleNotFoundError as e:
@@ -442,7 +468,7 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
                                   "\"AI frame enhancer\" section to install it on a native (non-Docker) run.")
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
-    return {"lines": lines}
+    return {"lines": lines, "crop": crop, "engine": engine}
 
 
 @app.get("/api/timeline/tz")

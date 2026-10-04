@@ -8,7 +8,7 @@ import { partsFromEpoch, epochFromParts } from './dvrtime.js';
 import { getJSON } from './api.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const pad2 = (n) => String(n).padStart(2, '0');
 const clampInt = (v, lo, hi, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback; };
 
@@ -22,6 +22,8 @@ export class DateTimePicker {
    *   coverageChannel: optional DVR channel number — shades days with recordings, disables days without,
    *   showTime: include the HH:MM:SS row (default true),
    *   label: optional heading text,
+   *   timeHost: optional element to render the HH:MM:SS row into instead (Playback's calendar popover puts
+   *     it in its own card beside the month, per the Calendar board),
    * }
    */
   constructor(host, opts) {
@@ -48,41 +50,23 @@ export class DateTimePicker {
     if (!silent) this.opts.onChange?.(epoch);
   }
 
-  /** Cheap passive update for high-frequency callers (e.g. once per decoded frame during playback): just
-   * the time fields and the selected-day highlight, never a network refetch or full grid rebuild — and,
-   * importantly, never changes which month is displayed. It used to jump the calendar back to whatever
-   * month the video happened to be playing at whenever they differed, which made browsing to a different
-   * month to pick a day impossible: the very next decoded frame (milliseconds later, playback hadn't
-   * actually moved) would see the now-different month and snap the view straight back. The displayed month
-   * only ever changes from an explicit user action now (prevmonth/nextmonth, or picking a day/time, which
-   * calls setEpoch directly) — never as a side effect of playback continuing in the background. */
-  syncDisplay(epoch) {
-    this.epoch = epoch;
-    const p = partsFromEpoch(epoch, this.tzOffsetMin);
-    if (this.opts.showTime !== false) {
-      const hh = this.host.querySelector('.dtp-hh'), mm = this.host.querySelector('.dtp-mm'), ss = this.host.querySelector('.dtp-ss');
-      if (hh && document.activeElement !== hh) hh.value = pad2(p.hh);
-      if (mm && document.activeElement !== mm) mm.value = pad2(p.mi);
-      if (ss && document.activeElement !== ss) ss.value = pad2(p.ss);
-    }
-    this.host.querySelectorAll('.cal-day.sel').forEach((el) => el.classList.remove('sel'));
-    // Only highlight a day if the epoch is actually in the month currently on screen — otherwise (browsing
-    // a different month than where playback is) this would wrongly light up the same day-of-month number
-    // in the wrong month.
-    if (p.y === this.view.y && p.mo === this.view.mo) this.host.querySelector(`.cal-day[data-day="${p.da}"]`)?.classList.add('sel');
-  }
-
-  setChannel(channel) {
-    this.opts.coverageChannel = channel;
-    this._loadCoverage();
-  }
-
   setTzOffset(min) {
     this.tzOffsetMin = min;
     this.setEpoch(this.epoch, { silent: true });
   }
 
+  _q(sel) { return this.host.querySelector(sel) || this.opts.timeHost?.querySelector(sel); }
+
   _build() {
+    const timeRow = `<div class="time-inputs dtp-time">
+        <div class="time-field"><input type="number" min="0" max="23" class="dtp-hh" aria-label="Hours"><label>hh</label></div>
+        <span class="time-sep">:</span>
+        <div class="time-field"><input type="number" min="0" max="59" class="dtp-mm" aria-label="Minutes"><label>mm</label></div>
+        <span class="time-sep">:</span>
+        <div class="time-field"><input type="number" min="0" max="59" class="dtp-ss" aria-label="Seconds"><label>ss</label></div>
+      </div>`;
+    const inline = this.opts.showTime !== false && !this.opts.timeHost;
+    if (this.opts.showTime !== false && this.opts.timeHost) this.opts.timeHost.innerHTML = timeRow;
     this.host.innerHTML = `<div class="dtp">
       ${this.opts.label ? `<h4 class="dtp-label">${this.opts.label}</h4>` : ''}
       <div class="cal-head">
@@ -92,18 +76,12 @@ export class DateTimePicker {
       </div>
       <div class="cal-week">${WEEKDAYS.map((w) => `<span>${w}</span>`).join('')}</div>
       <div class="cal-grid"></div>
-      ${this.opts.showTime !== false ? `<div class="time-inputs dtp-time">
-        <div class="time-field"><input type="number" min="0" max="23" class="dtp-hh"><label>hh</label></div>
-        <span class="time-sep">:</span>
-        <div class="time-field"><input type="number" min="0" max="59" class="dtp-mm"><label>mm</label></div>
-        <span class="time-sep">:</span>
-        <div class="time-field"><input type="number" min="0" max="59" class="dtp-ss"><label>ss</label></div>
-      </div>` : ''}
+      ${inline ? timeRow : ''}
     </div>`;
     this.host.querySelector('[data-a=prevmonth]').addEventListener('click', () => this._shiftMonth(-1));
     this.host.querySelector('[data-a=nextmonth]').addEventListener('click', () => this._shiftMonth(1));
     if (this.opts.showTime !== false) {
-      const hh = this.host.querySelector('.dtp-hh'), mm = this.host.querySelector('.dtp-mm'), ss = this.host.querySelector('.dtp-ss');
+      const hh = this._q('.dtp-hh'), mm = this._q('.dtp-mm'), ss = this._q('.dtp-ss');
       const commit = () => {
         const p = partsFromEpoch(this.epoch, this.tzOffsetMin);
         const H = clampInt(hh.value, 0, 23, p.hh), M = clampInt(mm.value, 0, 59, p.mi), S = clampInt(ss.value, 0, 59, p.ss);
@@ -140,15 +118,19 @@ export class DateTimePicker {
     for (let i = 0; i < firstWeekday; i++) cells.push('<span class="cal-day empty"></span>');
     for (let d = 1; d <= daysInMonth; d++) {
       const key = `${y}-${pad2(mo + 1)}-${pad2(d)}`;
-      const has = gatedByCoverage ? this.coverageDays.get(key) : true;
       const isSel = sel.y === y && sel.mo === mo && sel.da === d;
       const isToday = today.y === y && today.mo === mo && today.da === d;
-      cells.push(`<button class="cal-day${has ? ' has' : ''}${isSel ? ' sel' : ''}${isToday ? ' today' : ''}" data-day="${d}" ${gatedByCoverage && !has ? 'disabled' : ''} title="${gatedByCoverage ? (has ? 'Recordings available' : 'No recordings') : ''}">${d}</button>`);
+      const future = y > today.y || (y === today.y && (mo > today.mo || (mo === today.mo && d > today.da)));
+      // Gated: only days with footage are pickable, and carry the green "has footage" dot. Ungated (Events'
+      // range): any day up to today is pickable, with no dot — it would claim footage nobody checked.
+      const has = gatedByCoverage ? this.coverageDays.get(key) : false;
+      const pickable = gatedByCoverage ? has : !future;
+      cells.push(`<button class="cal-day${has ? ' has' : ''}${pickable && !has ? ' avail' : ''}${isSel ? ' sel' : ''}${isToday ? ' today' : ''}" data-day="${d}" ${pickable ? '' : 'disabled'} title="${gatedByCoverage ? (has ? 'Recordings available' : 'No recordings') : ''}">${d}</button>`);
     }
     this.host.querySelector('.cal-label').textContent = `${MONTHS[mo]} ${y}`;
     const grid = this.host.querySelector('.cal-grid');
     grid.innerHTML = cells.join('');
-    grid.querySelectorAll('.cal-day.has, .cal-day:not([disabled])').forEach((b) => {
+    grid.querySelectorAll('.cal-day:not([disabled])').forEach((b) => {
       if (b.classList.contains('empty')) return;
       b.addEventListener('click', () => {
         const day = +b.dataset.day;
@@ -163,9 +145,9 @@ export class DateTimePicker {
   _renderTimeFields() {
     if (this.opts.showTime === false) return;
     const p = partsFromEpoch(this.epoch, this.tzOffsetMin);
-    this.host.querySelector('.dtp-hh').value = pad2(p.hh);
-    this.host.querySelector('.dtp-mm').value = pad2(p.mi);
-    this.host.querySelector('.dtp-ss').value = pad2(p.ss);
+    this._q('.dtp-hh').value = pad2(p.hh);
+    this._q('.dtp-mm').value = pad2(p.mi);
+    this._q('.dtp-ss').value = pad2(p.ss);
   }
 
   _shiftMonth(delta) {
@@ -179,5 +161,6 @@ export class DateTimePicker {
 
   destroy() {
     this.host.innerHTML = '';
+    if (this.opts.timeHost) this.opts.timeHost.innerHTML = '';
   }
 }

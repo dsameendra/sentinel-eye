@@ -10,6 +10,7 @@ Forensic-integrity requirements (spec section 6) are enforced here, not just in 
 says ENHANCED — there is no code path that returns an AI output without it.
 """
 import io
+import os
 import shutil
 import threading
 import time
@@ -68,7 +69,7 @@ def get_job(job_id):
 
 
 def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
-    """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-7 frames, same dimensions.
+    """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-11 frames, same dimensions.
     roi: optional (x, y, w, h) fractions (0-1) of the frame to crop to *before* alignment/upscaling — lets
     the operator isolate a plate or face so the AI's fixed output resolution is spent on that subject
     instead of the whole scene (see docs/SPEC.md section 7.8.2c). weight: GFPGAN's own fidelity/
@@ -198,7 +199,7 @@ def source_path(job_id):
 
 
 # ------------------------------------------------------------------ OCR (optional, on demand — spec section 4a)
-def _ocr_pass(img):
+def _ocr_pass(img, psm=None, min_conf=40):
     """Runs Tesseract once on a PIL image. Returns (lines, mean_confidence, n_words, score) — the last two
     are how the caller below picks the best of several candidate rotations, not shown to the operator.
     Words below MIN_WORD_CONF are dropped entirely, not just down-weighted: at a wrong rotation angle,
@@ -209,8 +210,8 @@ def _ocr_pass(img):
     mean) so it rewards both finding more real text and being confident about it, rather than either alone
     letting a degenerate case win."""
     import pytesseract
-    MIN_WORD_CONF = 40
-    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+    MIN_WORD_CONF = min_conf
+    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=f"--psm {psm}" if psm else "")   # psm may carry more options after it
     lines, confs = {}, []
     for i, text in enumerate(data["text"]):
         text = text.strip()
@@ -231,11 +232,9 @@ def _ocr_pass(img):
     return lines, (sum(confs) / len(confs) if confs else 0.0), len(confs), sum(confs)
 
 
-def ocr(job_id, which):
-    """Reads whichever image ('result' or 'source') is already on disk for this job with Tesseract.
-    A *read*, not a generative step: nothing here can invent a character, but Tesseract can still misread
-    real DVR footage (glare, low res, angle), so every line carries its own confidence and the caller is
-    expected to show it as "read this, verify by eye" — never as a determined value on its own.
+def _ocr_whole(base):
+    """Reads a whole picture (a PIL RGB image) with Tesseract, when the operator hasn't marked where the
+    text is (ocr() below; a marked region reads far better — _ocr_region).
 
     Tesseract's default page segmentation assumes roughly horizontal lines and does badly on text that
     isn't square to the camera (a plate or sign viewed at an angle, not a whole-frame rotation, which is
@@ -249,10 +248,6 @@ def ocr(job_id, which):
     (no job/poll), and still bounded, since it only ever runs when the operator explicitly asks to read
     text on one already-in-hand image."""
     from PIL import Image as PILImage
-    path = result_path(job_id) if which == "result" else source_path(job_id)
-    if not path:
-        raise FileNotFoundError("That frame isn't ready yet")
-    base = PILImage.open(path).convert("RGB")
 
     # Grayscale + CLAHE local contrast before every OCR attempt — Tesseract reads clean, high-contrast text
     # far more reliably than a raw photographic frame, and like the classical sharpen pass elsewhere in
@@ -264,12 +259,21 @@ def ocr(job_id, which):
     gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     pre = PILImage.fromarray(gray)
 
-    lines, conf, n, score = _ocr_pass(pre)
+    # Page segmentation: Tesseract's default (psm 3) looks for a page of text and reads nothing at all off
+    # a lone plate-sized block on an otherwise empty frame — found directly: a clean, upright "7CBR 481"
+    # read as empty under psm 3 but exactly under psm 6 (one uniform block). So try the default first, then
+    # one-block and sparse-text segmentation, keeping whichever reads the most with the most confidence.
+    best = None
+    for psm in (None, 6, 11):
+        cand = _ocr_pass(pre, psm)
+        if best is None or cand[3] > best[0][3]:
+            best = (cand, psm)
+    (lines, conf, n, score), psm = best
     if n == 0 or conf < 75:  # weak or empty first pass — the shape a meaningfully angled line of text takes
         best = (lines, conf, n, score)
         for angle in (-20, -15, -10, -5, 5, 10, 15, 20):
             rotated = pre.rotate(angle, resample=PILImage.BICUBIC, expand=True, fillcolor=255)
-            cand = _ocr_pass(rotated)
+            cand = _ocr_pass(rotated, psm)
             if cand[3] > best[3]:  # total confidence-weighted evidence wins, not raw word count (see _ocr_pass)
                 best = cand
         lines = best[0]
@@ -277,6 +281,298 @@ def ocr(job_id, which):
     for v in lines.values():
         out.append({"text": " ".join(v["words"]), "confidence": round(sum(v["confs"]) / len(v["confs"]), 1)})
     return out
+
+
+PLATE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+
+
+def _region_patch(gray, region):
+    """Cuts the operator's box out of a grayscale frame and turns it level: `region` is {cx, cy, w, h} as
+    fractions of the image (w of its width, h of its height — the same scale both ways, since the box was
+    drawn on the picture at its own aspect) plus `angle`, degrees clockwise as drawn on screen. The frame
+    is rotated about the box centre by that angle so the box becomes upright, then the box (plus a small
+    margin) is cropped — a geometric resample, nothing added."""
+    import cv2
+    H, W = gray.shape[:2]
+    cx, cy = float(region["cx"]) * W, float(region["cy"]) * H
+    bw, bh = max(4.0, float(region["w"]) * W), max(4.0, float(region["h"]) * H)
+    angle = float(region.get("angle") or 0.0)
+    if abs(angle) > 0.05:
+        # cv2's positive angle turns the picture counter-clockwise on screen, undoing a clockwise box.
+        M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
+        gray = cv2.warpAffine(gray, M, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    mx, my = bw * 0.06, bh * 0.12
+    x0, y0 = int(max(0, cx - bw / 2 - mx)), int(max(0, cy - bh / 2 - my))
+    x1, y1 = int(min(W, cx + bw / 2 + mx)), int(min(H, cy + bh / 2 + my))
+    return gray[y0:y1, x0:x1]
+
+
+def _slant(bw):
+    """How far the letters lean, as a horizontal shear (x shift per row, relative to the middle row).
+    Levelling the box fixes the line's tilt, but a plate seen from the side also has every letter leaning,
+    like italics, and Tesseract reads upright text. Found the classic way: shear the ink by each candidate
+    amount and keep the one whose column profile is sharpest — upright strokes stack into tall, narrow
+    columns."""
+    import cv2
+    import numpy as np
+    ink = (bw < 128).astype(np.float32)
+    h, w = ink.shape
+    best, best_s = -1.0, 0.0
+    for sh in np.arange(-0.6, 0.601, 0.04):
+        M = np.float32([[1, sh, -sh * h / 2], [0, 1, 0]])
+        col = cv2.warpAffine(ink, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=0).sum(0)
+        score = float((col * col).sum())
+        if score > best:
+            best, best_s = score, float(sh)
+    return best_s
+
+
+def _unslant(img, sh):
+    """Shear `img` by `sh` (see _slant), on a canvas wide enough to keep every letter, white around it."""
+    import cv2
+    import numpy as np
+    h, w = img.shape[:2]
+    extra = int(abs(sh) * h / 2) + 2
+    M = np.float32([[1, sh, -sh * h / 2 + extra], [0, 1, 0]])
+    return cv2.warpAffine(img, M, (w + 2 * extra, h), flags=cv2.INTER_CUBIC, borderValue=255)
+
+
+def _ocr_line_variants(patch, target_h=110, plate=False):
+    """Tesseract reads text best at roughly 30-60 px cap height, dark on light, with a clean margin — and
+    reads badly far above that as well as below (an enhanced 4x result can put a plate's letters at 120 px+).
+    So the patch is scaled, up or down, to `target_h` px tall (a line of text filling most of the
+    operator's box lands near 45 px), then offered three ways: local-contrast gray, Otsu black-and-white
+    after a light blur, and that inverted (light-on-dark plates). Deterministic per-pixel remaps — nothing
+    here can invent a character."""
+    import cv2
+    import numpy as np
+    h, w = patch.shape[:2]
+    scale = min(8.0, target_h / max(1, h))
+    big = cv2.resize(patch, (max(1, int(w * scale)), max(1, int(h * scale))),
+                     interpolation=cv2.INTER_CUBIC if scale > 1 else cv2.INTER_AREA)
+    gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(big)
+    _, bw = cv2.threshold(cv2.GaussianBlur(gray, (3, 3), 0), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Text should end up dark on light. Judge that from the middle of the box, where the text is — a dark
+    # scene around a light plate would otherwise outvote the plate itself (found: "ND 5138" read as junk).
+    hh, ww = bw.shape[:2]
+    if np.mean(bw[hh // 5: hh - hh // 5, ww // 8: ww - ww // 8]) < 127:
+        bw = 255 - bw
+        gray = 255 - gray
+    # The box usually takes in some scene around the plate or sign; as a solid dark frame that makes
+    # Tesseract treat the whole patch as a picture and read nothing. A cleaned copy whites out dark areas
+    # that touch the box's edge AND span most of its width or height — a surround, not a letter (a box
+    # drawn tight can touch a letter: found when a tight box lost the "C" of "CAB 4821").
+    # Found on a thinned copy of the dark mask: a letter that nearly touches the plate's edge (blurred into
+    # it at low resolution) hangs on by a thin bridge, which thinning breaks — so the letter isn't taken
+    # for part of the surround (found: "CAB 4821" lost its "C" that way).
+    dark = (bw < 128).astype(np.uint8)
+    k = max(1, round(hh / 70))
+    thin = cv2.erode(dark, np.ones((3, 3), np.uint8), iterations=k)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(thin, connectivity=8)
+    edge = np.zeros(bw.shape, np.uint8)
+    for i in range(1, n):
+        x, y, w2, h2 = stats[i][:4]
+        touches = x <= k or y <= k or x + w2 >= ww - k or y + h2 >= hh - k
+        if touches and (w2 >= 0.5 * ww or h2 >= 0.85 * hh):
+            edge[labels == i] = 1
+    edge = (cv2.dilate(edge, np.ones((3, 3), np.uint8), iterations=k + 1) > 0) & (dark > 0)
+    clean, gclean = bw.copy(), gray.copy()
+    clean[edge] = 255
+    gclean[cv2.dilate(edge.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0] = 255   # gray keeps blurred strokes thin
+    pad = lambda im: cv2.copyMakeBorder(im, 16, 16, 16, 16, cv2.BORDER_CONSTANT, value=255)
+    out = [("bw-clean", pad(clean)), ("gray-clean", pad(gclean)), ("gray", pad(gray)), ("bw", pad(bw)), ("bw-inv", pad(255 - bw))]
+    # The plate (or sign) itself: the largest light area in the box, read on its own with white around it —
+    # its border and whatever surrounds it gone, even where a letter runs into the border (found: a tight
+    # plate whose "C" touched its frame read as "AB 4821").
+    n2, lab2, st2, _ = cv2.connectedComponentsWithStats((bw >= 128).astype(np.uint8), connectivity=4)
+    if plate and n2 > 1:
+        i = 1 + int(np.argmax(st2[1:, cv2.CC_STAT_AREA]))
+        x, y, w2, h2, area = st2[i]
+        if area > 0.15 * hh * ww and (w2 < ww - 4 or h2 < hh - 4) and h2 > 0.25 * hh:
+            # The box is levelled already, so the plate is upright: its light area's bounds are inside its
+            # printed border, which the crop leaves out.
+            out += [("plate-bw", pad(bw[y:y + h2, x:x + w2])), ("plate-gray", pad(gray[y:y + h2, x:x + w2]))]
+    # Leaning letters: the same variants straightened, when they lean noticeably.
+    sh = _slant(bw)
+    if abs(sh) >= 0.08:
+        out += [(f"{name}-upright", _unslant(img, sh)) for name, img in out]
+    return out, gray
+
+
+def _ocr_region(base_rgb, region, plate):
+    """Reads the text inside the operator's (possibly rotated) box: level it, enlarge it, try the variants
+    above under single-line and single-block segmentation, keep the most confident read. In Plate mode
+    Tesseract may only use plate characters and its English dictionaries are off (they "correct" plates
+    into words)."""
+    import cv2
+    import numpy as np
+    from PIL import Image as PILImage
+    gray = cv2.cvtColor(np.array(base_rgb), cv2.COLOR_RGB2GRAY)
+    patch = _region_patch(gray, region)
+    if patch.size == 0:
+        return [], None
+    # Two sizes: a box drawn snugly (text fills it) and one drawn loosely (text is a smaller part of it).
+    variants, shown = _ocr_line_variants(patch, 110, plate)
+    variants += _ocr_line_variants(patch, 190, plate)[0]
+    cfg = "--oem 1"
+    if plate:
+        # The space must be in the whitelist (quoted): without it Tesseract glues a plate's groups into one
+        # "word" and reports 0% confidence for it — found reading "7CBR 481".
+        cfg += f' -c "tessedit_char_whitelist={PLATE_CHARS} " -c load_system_dawg=0 -c load_freq_dawg=0'
+    # Every variant x segmentation is a separate witness. The answer is the reading most of them agree
+    # on, weighted by their confidence — sturdier than trusting the single most confident one, which a
+    # crisp-looking misread can be. Ties go to the reading with more characters (a confident fragment
+    # shouldn't beat the whole plate).
+    groups = {}
+    for psm in (7, 6):
+        for _name, img in variants:
+            # A lower floor than a whole-picture read: the operator has said where the text is, so a shaky
+            # read is worth showing (with its confidence) rather than nothing.
+            lines, mean, n, _score = _ocr_pass(PILImage.fromarray(img), f"{psm} {cfg}", min_conf=20)
+            if not n:
+                continue
+            key = "".join(ch for v in lines.values() for w in v["words"] for ch in w if ch.isalnum()).upper()
+            if not key:
+                continue
+            g = groups.setdefault(key, {"votes": 0.0, "n": 0, "best": None, "best_mean": -1.0})
+            g["votes"] += mean
+            g["n"] += 1
+            if mean > g["best_mean"]:
+                g["best"], g["best_mean"] = lines, mean
+    best = None
+    if groups:
+        key, g = max(groups.items(), key=lambda kv: (kv[1]["votes"] + min(len(kv[0]), 10) * 1.5))
+        # A confident reading that contains the winner and adds to it — agreed on by at least two witnesses,
+        # so one stray mark can't add a letter — wins: dropping a letter (one touching the plate's border,
+        # say) is far more common than inventing one.
+        longer = [(k, v) for k, v in groups.items() if len(k) > len(key) and key in k and v["best_mean"] >= 75 and v["n"] >= 2]
+        if plate and longer:
+            key, g = max(longer, key=lambda kv: (len(kv[0]), kv[1]["best_mean"]))
+        best = g["best"]
+    out = []
+    for v in (best or {}).values():
+        out.append({"text": " ".join(v["words"]), "confidence": round(sum(v["confs"]) / len(v["confs"]), 1)})
+    return out, shown
+
+
+# ------------------------------------------------------------------ plate reader (optional)
+# A licence-plate recognizer (fast-plate-ocr's global CCT model, ONNX, ~5 MB, fetched once on first use into
+# the user's cache): Tesseract reads printed documents, and fails on plates — condensed plate lettering, seen
+# side-on so every letter leans. Measured on 16 side-on synthetic plates through the real enhancer: Tesseract
+# 0 exact (29-32% of characters); this reader 12-13 exact (91-96%). Optional like the rest of the enhancer
+# (tools/install_enhance_deps.sh); without it, Plate mode reads with Tesseract as before.
+PLATE_MODEL = "cct-s-v2-global-model"
+_plate_rec = None          # None = not tried yet, False = not installed
+_plate_lock = threading.Lock()
+
+
+def _trust_certifi():
+    """Model weights download over HTTPS with Python's urllib, and a python.org build ships with no CA
+    bundle configured: point it at certifi's (run.sh does the same for the server it starts — this covers
+    one started any other way). Leaves an explicit SSL_CERT_FILE alone."""
+    try:
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    except ModuleNotFoundError:
+        pass
+
+
+def _plate_reader():
+    global _plate_rec
+    with _plate_lock:
+        if _plate_rec is None:
+            try:
+                from fast_plate_ocr import LicensePlateRecognizer
+            except ModuleNotFoundError:
+                _plate_rec = False
+                return None
+            _trust_certifi()
+            try:
+                _plate_rec = LicensePlateRecognizer(PLATE_MODEL, device="cpu")
+            except Exception as e:   # first use offline, say: read with Tesseract now, try again next time
+                print(f"[enhance] plate reader unavailable ({type(e).__name__}: {e}) — reading with Tesseract", flush=True)
+                return None
+        return _plate_rec or None
+
+
+def _read_plate(images_rgb, region):
+    """The plate reader on the operator's box, levelled, from each image given (the enhanced result and the
+    original frame), as drawn and with its letters upright; the most confident reading wins — they miss on
+    different plates. Returns (text, confidence 0-100) or None if the reader isn't installed."""
+    import cv2
+    import re
+    rec = _plate_reader()
+    if rec is None:
+        return None
+    best = None
+    for rgb in images_rgb:
+        patch = _region_patch(rgb, region)
+        if patch.size == 0:
+            continue
+        g = cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY)
+        sh = _slant(cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1])
+        tries = [patch] + ([_unslant(patch, sh)] if abs(sh) >= 0.08 else [])
+        for img in tries:
+            p = rec.run(np.ascontiguousarray(img), return_confidence=True)[0]
+            text = re.sub(r"[^A-Z0-9]", "", (p.plate or "").upper())
+            if not text:
+                continue
+            conf = float(np.mean(p.char_probs[: len(p.plate)])) if p.char_probs is not None else 0.0
+            if best is None or conf > best[1]:
+                best = (text, conf)
+    if best is None:
+        return ("", 0.0)
+    # Letters and digits as groups, the way a plate reads: CBG4264 -> CBG 4264.
+    spaced = re.sub(r"(?<=[A-Z])(?=[0-9])|(?<=[0-9])(?=[A-Z])", " ", best[0])
+    return spaced, round(best[1] * 100, 1)
+
+
+def ocr(job_id, which, region=None, plate=False):
+    """Reads text off whichever image ('result' or 'source') is already on disk for this job, with Tesseract
+    — the whole picture, or just the operator's box (`region`, see _region_patch), which is far more
+    reliable: the box says where the text is and which way it runs. In Plate mode, with the plate reader
+    installed, that reads the box instead (_read_plate). Returns (lines, crop, engine): `crop` is a PNG data
+    URL of the levelled patch that was read (region reads only), so the operator can see exactly what the
+    reading came from; `engine` is "plate" or "tesseract".
+    A *read*, not a generative step: nothing here can invent a character, but Tesseract can still misread
+    real DVR footage (glare, low res, angle), so every line carries its own confidence and the caller shows
+    it as "read this, verify by eye" — never as a determined value on its own."""
+    import base64
+    import io
+    from PIL import Image as PILImage
+    path = result_path(job_id) if which == "result" else source_path(job_id)
+    if not path:
+        raise FileNotFoundError("That frame isn't ready yet")
+    base = PILImage.open(path).convert("RGB")
+    if not region:
+        return _ocr_whole(base), None, "tesseract"
+    engine = "tesseract"
+    read = None
+    if plate:
+        images = [np.array(base)]
+        other = source_path(job_id) if which == "result" else None
+        if other:
+            src = PILImage.open(other).convert("RGB")
+            # Same box on the original frame: the result is that frame upscaled, so the same fractions.
+            if abs(src.width / src.height - base.width / base.height) < 0.01:
+                images.append(np.array(src))
+        read = _read_plate(images, region)
+    if read is not None:
+        import cv2
+        engine = "plate"
+        lines = [{"text": read[0], "confidence": read[1]}] if read[0] else []
+        shown = cv2.cvtColor(_region_patch(np.array(base), region), cv2.COLOR_RGB2GRAY)
+    else:
+        lines, shown = _ocr_region(base, region, plate)
+    crop = None
+    if shown is not None:
+        im = PILImage.fromarray(shown)
+        if im.width > 640:
+            im = im.resize((640, max(1, round(im.height * 640 / im.width))))
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        crop = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return lines, crop, engine
 
 
 # ------------------------------------------------------------------ multi-frame align + fuse (classical)
@@ -375,6 +671,7 @@ def _load_models(progress=None):
             return
         if progress:
             progress("Loading models (first use downloads ~700MB, cached after)…")
+        _trust_certifi()
         import torch
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
@@ -443,6 +740,7 @@ def _load_models_upsampler_only(progress=None):
             return
         if progress:
             progress("Loading models (first use downloads ~700MB, cached after)…")
+        _trust_certifi()
         import torch
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
@@ -456,10 +754,15 @@ def _load_models_upsampler_only(progress=None):
 
 def _classical_sharpen(bgr, strong=False):
     """Non-AI legibility pass for plates/text and the no-face-found fallback (spec section 2/6): a levels-
-    style contrast stretch, CLAHE local contrast, and an unsharp mask. Makes real detail more legible;
-    invents nothing — every step here is a deterministic per-pixel remap, not a learned model. `strong` (used
-    for plate mode specifically) pushes CLAHE and the unsharp amount further, since there's no face/skin
-    region here to worry about oversharpening into ringing artifacts — legibility is the only goal."""
+    style contrast stretch, CLAHE local contrast, and a halo-free sharpen. Makes real detail more legible;
+    invents nothing — every step is a deterministic per-pixel remap, not a learned model.
+
+    Runs on the 4x-upscaled picture, which shaped two choices (found on a real plate, whose letters came out
+    hollow — dark outlines round a light middle — with a light halo outside, and which OCR then misread):
+    CLAHE's tiles are sized to the picture, not a fixed 8x8 grid (a tile small next to a thick stroke
+    brightens the stroke's middle — that was the hollowing); and the sharpen is clamped to the range of each
+    pixel's own neighbourhood before sharpening, so edges get crisper without overshooting into a halo.
+    `strong` (plate mode) sharpens a little more — legibility is the only goal there."""
     import cv2
     # Levels: stretch the image's own 1-99th percentile to the full 0-255 range. DVR footage — especially
     # IR/low-light — rarely uses the full range to begin with, so a plate's dark digits and light background
@@ -470,11 +773,13 @@ def _classical_sharpen(bgr, strong=False):
         bgr = np.clip((bgr.astype(np.float32) - lo) * (255.0 / (hi - lo)), 0, 255).astype(np.uint8)
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0 if strong else 2.0, tileGridSize=(8, 8))
-    l = clahe.apply(l)
-    lab = cv2.merge((l, a, b))
-    contrasted = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    h, w = l.shape
+    tiles = (max(1, min(8, w // 256)), max(1, min(8, h // 256)))   # tiles of at least ~256 px
+    l = cv2.createCLAHE(clipLimit=2.0 if strong else 1.6, tileGridSize=tiles).apply(l)
+    contrasted = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
     blurred = cv2.GaussianBlur(contrasted, (0, 0), sigmaX=2)
-    alpha = 2.0 if strong else 1.5
+    alpha = 1.8 if strong else 1.5
     sharpened = cv2.addWeighted(contrasted, alpha, blurred, 1 - alpha, 0)
-    return sharpened
+    # No overshoot: never darker or lighter than the darkest/lightest pixel nearby was before sharpening.
+    k = np.ones((5, 5), np.uint8)
+    return np.clip(sharpened, cv2.erode(contrasted, k), cv2.dilate(contrasted, k))

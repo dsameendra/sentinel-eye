@@ -16,34 +16,85 @@ import db
 import hikrelay as h
 
 MAX_SESSIONS = 4
+# The recorder's playback bandwidth budget, in "real-time streams": measured directly against it, the sum of
+# every open session's speed may not exceed 16 — 4 cameras at 4x, 2 at 8x or 1 at 16x are all served, while
+# 3 at 8x or 2 at 16x get "453 Not Enough Bandwidth" for the ones past the line. A session below 1x still
+# costs a whole stream.
+SPEED_BUDGET = 16
 NICE_SPEEDS = ("0.125", "0.25", "0.5", "1", "2", "4", "8", "16")
+BANDWIDTH_MSG = "The recorder can't play this many cameras this fast — lower the speed, or show fewer cameras."
+
+
+def units(speed) -> float:
+    try:
+        return max(1.0, float(speed))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 class SessionPool:
-    """Counting gate on the DVR's 4-session limit, shared by every open playback pane."""
+    """Gate on the recorder's two playback limits, shared by every playback pane, thumbnail and export:
+    at most 4 sessions, and at most SPEED_BUDGET real-time streams' worth of speed across them."""
 
-    def __init__(self, limit=MAX_SESSIONS):
-        self._sem = threading.Semaphore(limit)
-        self._lock = threading.Lock()
+    def __init__(self, limit=MAX_SESSIONS, budget=SPEED_BUDGET):
+        self._cv = threading.Condition()
         self._in_use = 0
+        self._units = 0.0
         self.limit = limit
+        self.budget = budget
 
-    def acquire(self, timeout=20):
-        got = self._sem.acquire(timeout=timeout)
-        if got:
-            with self._lock:
-                self._in_use += 1
-        return got
+    def _fits(self, u):
+        return self._in_use < self.limit and self._units + u <= self.budget + 1e-9
 
-    def release(self):
-        with self._lock:
+    def acquire(self, timeout=20, speed="1"):
+        """Wait for a session with room for `speed`. True when granted."""
+        u = units(speed)
+        with self._cv:
+            if not self._cv.wait_for(lambda: self._fits(u), timeout=timeout):
+                return False
+            self._in_use += 1
+            self._units += u
+            return True
+
+    def acquire_fastest(self, speeds, timeout=20):
+        """Wait for a session, taking the fastest of `speeds` that fits right now (exports: 16x when the
+        recorder is otherwise idle, slower rather than refused while someone is reviewing). Returns the
+        granted speed, or None on timeout."""
+        with self._cv:
+            if not self._cv.wait_for(lambda: self._fits(1.0), timeout=timeout):
+                return None
+            for sp in sorted(speeds, key=units, reverse=True):
+                if self._fits(units(sp)):
+                    self._in_use += 1
+                    self._units += units(sp)
+                    return sp
+            return None
+
+    def change(self, old_speed, new_speed):
+        """Move an open session to a new speed if the budget allows. True when applied."""
+        delta = units(new_speed) - units(old_speed)
+        with self._cv:
+            if self._units + delta > self.budget + 1e-9:
+                return False
+            self._units += delta
+            self._cv.notify_all()
+            return True
+
+    def release(self, speed="1"):
+        with self._cv:
             self._in_use = max(0, self._in_use - 1)
-        self._sem.release()
+            self._units = max(0.0, self._units - units(speed))
+            self._cv.notify_all()
 
     @property
     def busy(self):
-        with self._lock:
+        with self._cv:
             return self._in_use
+
+    @property
+    def used_units(self):
+        with self._cv:
+            return self._units
 
 
 pool = SessionPool()
@@ -59,7 +110,10 @@ def hik_time(dt: datetime.datetime, tz) -> str:
 class PlaybackReader:
     """One DVR playback session + decrypt/depacketize pipeline, feeding a bounded queue."""
 
-    def __init__(self, conn, channel, main_path, a_const, start_utc, tz, speed="1"):
+    def __init__(self, conn, channel, main_path, a_const, start_utc, tz, speed="1", adaptive_speeds=None):
+        """adaptive_speeds: take the fastest of these the budget allows at start (exports), instead of a
+        fixed `speed` that may not fit."""
+        self.adaptive_speeds = adaptive_speeds
         self.conn, self.channel, self.path = conn, channel, main_path
         self.a_const = a_const
         self.tz = tz
@@ -87,6 +141,19 @@ class PlaybackReader:
 
     def stop(self):
         self._stop.set()
+        # A flowing session notices the flag on its next packet and tears down cleanly (waiting for the
+        # recorder's reply, so its budget is really free before the pool hands it on). A quiet one — no
+        # packets coming — gets its socket cut after a short grace, so its share isn't held for the 15s
+        # idle timeout.
+        def cut():
+            c = self.client   # read once: a reopen can swap it out meanwhile
+            if self.thread.is_alive() and c is not None and c.sock is not None:
+                try:
+                    import socket
+                    c.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        threading.Timer(2.0, cut).start()
         try:
             self.q.put_nowait(None)
         except queue.Full:
@@ -94,13 +161,24 @@ class PlaybackReader:
 
     def _run(self):
         self.waiting_for_slot = True
-        if not pool.acquire(timeout=25):
-            self.error = "The recorder's 4 playback sessions are all busy — try again shortly."
+        if self.adaptive_speeds:
+            got = pool.acquire_fastest(self.adaptive_speeds, timeout=25)
+            if got:
+                self.speed = got
+        else:
+            got = pool.acquire(timeout=25, speed=self.speed)
+        if not got:
+            self.error = ("The recorder's playback sessions are all in use — try again shortly."
+                          if pool.busy >= pool.limit else BANDWIDTH_MSG)
             self.q.put(("error", self.error))
             return
         self.waiting_for_slot = False
+        self._held = self.speed
         try:
-            self._play_loop()
+            # A seek the recorder refuses leaves its session unusable, so the loop hands back "reopen" and
+            # starts a fresh session at that time (see the seek branch in _play_loop).
+            while self._play_loop() == "reopen" and not self._stop.is_set():
+                pass
         except h.RelayError as e:
             self.error = str(e)
             try:
@@ -115,8 +193,9 @@ class PlaybackReader:
                 pass
         finally:
             if self.client:
+                self.client.teardown()
                 self.client.close()
-            pool.release()
+            pool.release(self._held)
 
     def _a_const_for(self, dt):
         """The calibration valid when this moment was recorded, not necessarily the one this reader was
@@ -132,9 +211,15 @@ class PlaybackReader:
         self._seek_to = None
         self.a_const = self._a_const_for(start_dt)
         # The DVR refuses PLAY for a time too close to "now" (still-open recording segment) — with 400 Bad
-        # Request and no other signal. How close is inconsistent (not a fixed margin we can just default
-        # past), so back off and retry rather than guess: verified this recovers cleanly.
-        for attempt in range(6):
+        # Request and no other signal. How close moves as it writes: measured from under a minute to about
+        # two (anything past ~2 min opened every time). So back off in growing steps — up to ~7 min — rather
+        # than guess a margin: the session starts at the newest footage the recorder will serve. Only for
+        # recent footage; a 400 further back means something else, and is raised.
+        backoff = (20, 20, 30, 30, 45, 60, 90, 120)
+        recent = lambda dt: (datetime.datetime.now(datetime.timezone.utc)
+                             - (dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc))).total_seconds() < 600
+        tries = len(backoff) + 1
+        for attempt in range(tries):
             end_dt = start_dt + datetime.timedelta(hours=24)
             rng = f"clock={hik_time(start_dt, self.tz)}-{hik_time(end_dt, self.tz)}"
             self.client = h.RtspClient(self.conn["host"], self.conn["port"], self.conn["user"], self.conn["pw"], self.path)
@@ -142,11 +227,17 @@ class PlaybackReader:
                 self.client.open(play_range=rng, scale=self.speed, idle_timeout=15)
                 break
             except h.RelayError as e:
-                too_close = "400" in str(e) or "453" in str(e)
-                if not too_close or attempt == 5:
-                    raise
                 self.client.close()
-                start_dt -= datetime.timedelta(seconds=20)
+                if "fast" in str(e) and attempt < tries - 1:
+                    # 453: the recorder's budget is (still) spoken for — a session that just ended can
+                    # take a moment to be released on its side. Wait briefly rather than fail.
+                    if self._stop.wait(0.8):
+                        return
+                    continue
+                too_close = "400" in str(e) and recent(start_dt)   # 453 is the bandwidth refusal, not "too near now"
+                if not too_close or attempt == tries - 1:
+                    raise
+                start_dt -= datetime.timedelta(seconds=backoff[attempt])
         aes = h.make_aes(self.conn["key"]) if self.conn["encrypted"] else None
         dp = h.Depacketizer(self.client.codec, aes)
         gate = h.StartGate(self.client.codec, self.client.sdp)
@@ -162,17 +253,31 @@ class PlaybackReader:
                     datetime.datetime.fromtimestamp(near_utc, datetime.timezone.utc)
                 speed = self._new_speed or self.speed
                 self._seek_to, self._new_speed = None, None
+                if speed != self._held:
+                    if not pool.change(self._held, speed):
+                        self.q.put(("error", BANDWIDTH_MSG))
+                        return
+                    self._held = speed
                 self.speed = speed
                 self.a_const = self._a_const_for(seek_dt)
-                for attempt in range(6):
-                    seek_end = seek_dt + datetime.timedelta(hours=24)
-                    status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
-                    if status.startswith("RTSP/1.0 200") or ("400" not in status and "453" not in status) or attempt == 5:
-                        break
-                    seek_dt -= datetime.timedelta(seconds=20)
-                if not status.startswith("RTSP/1.0 200"):
-                    self.q.put(("error", f"Seek/speed change failed: {status}"))
+                seek_end = seek_dt + datetime.timedelta(hours=24)
+                status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
+                if "453" in status:
+                    self.q.put(("error", BANDWIDTH_MSG))
                     return
+                if not status.startswith("RTSP/1.0 200"):
+                    # Measured on the recorder: an in-session seek closer than ~30 s to now is refused (400),
+                    # and after any refusal the session answers every request — PLAY anywhere, even PAUSE —
+                    # with 455 Method Not Valid In This State. It can't be revived, so close it (TEARDOWN,
+                    # awaited, so its budget is free) and open a new one at that time; opening backs off
+                    # from "too close to now" on its own, and gets nearer to now than a seek may.
+                    self.client.teardown()
+                    self.client.close()
+                    self.client = None
+                    if self._seek_to is None:   # a newer seek that arrived meanwhile wins
+                        self._seek_to = seek_dt.isoformat()
+                    self._flush_queue()
+                    return "reopen"
                 near_utc = seek_dt.timestamp()
                 target_utc = seek_dt.timestamp()
                 anchor = None  # re-learn for the new segment — see _anchor_correction's docstring

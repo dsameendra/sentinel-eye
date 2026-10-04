@@ -35,6 +35,24 @@
         ],
         "createdAt": "2026-09-23T17:11:17.664Z",
         "reason": "L76 <img class=enh-img hidden> is intentionally hidden/src-less: populated once the AI-enhance job's result is ready. Same pattern already verified for web/js/events.js's lazy-loaded thumbnail."
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(.34, 1.56, .64, 1)",
+        "files": [
+          "web/css/app.css"
+        ],
+        "createdAt": "2026-10-02T20:55:51.291Z",
+        "reason": "Deliberate spring/confirmation easing, carried over from the approved redesign-v2 mockups (Motion & Gesture board's --spring-snappy) — scoped narrowly to gesture-release and toggle-confirmation moments, not applied broadly"
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(.22, 1.12, .36, 1)",
+        "files": [
+          "web/css/app.css"
+        ],
+        "createdAt": "2026-10-03T02:52:22.061Z",
+        "reason": "Deliberate gentle-spring easing ported directly from the approved redesign-v2 mockups (shared.css's --spring-gentle) — reserved for the same narrow gesture-release/confirmation-moment scope as --ease-spring (already a sanctioned exception), not applied broadly"
       }
     ]
   }

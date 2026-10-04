@@ -49,8 +49,9 @@ async def main():
         check("layout persisted on server", api("/api/settings")["display"]["layout"] == "1+5")
 
         await layout("1x1")
-        pager = await b.js("document.querySelector('.pager span')?.textContent")
-        check("1x1: 3 pages", pager and pager.strip() == "1 / 3", pager)
+        pager = await b.js("document.querySelector('.pager-n')?.textContent")
+        ncams = sum(1 for c in api("/api/settings")["channels"] if c["enabled"])   # however many the rig has
+        check(f"1x1: one page per camera ({ncams})", pager and pager.strip() == f"1 / {ncams}", pager)
         nm1 = await b.js(NAMES)
         await b.js("document.querySelector('[data-a=next]').click()"); await asyncio.sleep(0.6)
         nm2 = await b.js(NAMES)
@@ -62,12 +63,14 @@ async def main():
         await layout("3x3")
         await b.wait_for(f"{PLAYING} >= {n}", 30)
         before = api("/api/settings")["display"]["order"]
-        await b.js("document.querySelector('[data-a=edit]').click()")
+        await b.js("document.querySelector('[data-a=layout]').click()")   # Arrange lives in the view menu
+        await b.js("document.querySelector('.pop-item[data-a=edit]').click()")
         check("arrange mode on", await b.js("document.querySelector('.wall').classList.contains('editing')"))
         await b.js(f"({DRAG})('{before[0]}','{before[2]}')")
         await asyncio.sleep(1.2)
         after = api("/api/settings")["display"]["order"]
-        check("drag reorders and saves", after == [before[1], before[2], before[0]], f"{before} -> {after}")
+        # The first camera moves onto the third's cell; everything after it keeps its place.
+        check("drag reorders and saves", after == [before[1], before[2], before[0]] + before[3:], f"{before} -> {after}")
         await b.js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))")
         check("Esc leaves arrange mode", not await b.js("document.querySelector('.wall').classList.contains('editing')"))
         api("/api/display", "PUT", {**api("/api/settings")["display"], "order": before})   # restore
@@ -129,8 +132,8 @@ async def main():
         await b.js("document.querySelector('#discard').click()"); await asyncio.sleep(0.4)
         check("discard resets the form", await b.js("document.querySelector('#f-host').value") == "127.0.0.1" and await b.js("document.querySelector('.savebar').hidden"))
         await b.js("document.querySelector('#t-run').click()")
-        await b.wait_for("document.querySelector('.result')", 30)
-        res = await b.js("document.querySelector('.result')?.textContent")
+        await b.wait_for("document.querySelector('.test-status.ok, .test-status.bad')", 30)   # inline status in the test card
+        res = await b.js("document.querySelector('.test-status.ok, .test-status.bad')?.textContent")
         check("test connection reports the stream", res and "readable" in res.lower(), (res or "")[:80])
         await b.shot(f"{SHOT}/ui_settings_test.png")
 

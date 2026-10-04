@@ -1,12 +1,15 @@
-// App shell: top bar, hash router (#/live[/id], #/settings/<tab>), theme, clock.
+// App shell: hash router (#/live[/id], #/settings/<tab>), theme, clock.
 import { api, authApi, authHooks, signInAgain } from './api.js';
-import { openAccount } from './account.js';
+import { AccountView, openAccount } from './account.js';
+import { installTvNav } from './tvnav.js';
 import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
 import { SettingsView } from './settings.js';
-import { closePopover, esc, icon, openPopover, toast } from './ui.js';
+import { esc, icon, toast } from './ui.js';
+import { tabBarHTML } from './bar.js';
 import { layoutIds } from './layouts.js';
+import { fetchTzOffset } from './dvrtime.js';
 
 const state = { settings: null, me: null, view: null, kind: null, hash: '#/live' };
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
@@ -17,8 +20,11 @@ const app = document.getElementById('app');
 
 // Matches --bg in app.css exactly (dark/light) — kept as its own small map rather than reading the CSS
 // variable at call time, since the value is needed before layout/paint on the very first call.
-const THEME_BG = { dark: '#0b0e13', light: '#f3f5f8' };
+const THEME_BG = { dark: '#09090b', light: '#f2f2f5' };
 function applyTheme(t) {
+  // A TV in TV mode follows its own appearance (dark unless chosen otherwise), not the synced theme: a
+  // TV browser often reports a light preference, which turned everything around the video light.
+  if (getTvMode()) { const tv = getTvTheme(); t = tv === 'auto' ? null : tv; }
   if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
   else document.documentElement.removeAttribute('data-theme');
   // Installed-app chrome (iOS status bar tint, Android/desktop PWA title bar) reads this meta tag, not the
@@ -29,7 +35,7 @@ function applyTheme(t) {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEME_BG[effective]);
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
-  if (!(state.settings?.display.theme === 'dark' || state.settings?.display.theme === 'light')) applyTheme(null);
+  if (getTvMode() || !(state.settings?.display.theme === 'dark' || state.settings?.display.theme === 'light')) applyTheme(state.settings?.display.theme);
 });
 
 // TV mode: a big-text, remote-friendly UI mode for browsing on a smart TV's browser (Tizen etc). Kept as a
@@ -42,8 +48,15 @@ function getTvMode() { try { return localStorage.getItem(TV_MODE_KEY) === '1'; }
 function setTvMode(on) {
   try { localStorage.setItem(TV_MODE_KEY, on ? '1' : '0'); } catch { /* private mode */ }
   document.documentElement.classList.toggle('tv-mode', on);
+  if (state.settings) applyTheme(state.settings.display.theme);
 }
 setTvMode(getTvMode());   // apply before first paint of the shell below
+const TV_THEME_KEY = 'sentinel-eye-tv-theme';
+function getTvTheme() { try { const v = localStorage.getItem(TV_THEME_KEY); return v === 'light' || v === 'auto' ? v : 'dark'; } catch { return 'dark'; } }
+function setTvTheme(v) {
+  try { localStorage.setItem(TV_THEME_KEY, v); } catch { /* private mode */ }
+  applyTheme(state.settings?.display.theme);
+}
 
 // TV mode's own quality choice (grid + large view) — separate from the synced Settings > Display > quality
 // picker for the same reason TV mode itself is local: SD-by-default is right for the TV's own decoder, not
@@ -69,20 +82,25 @@ let pendingTvFullscreen = false;
 const armTvFullscreen = () => { pendingTvFullscreen = true; };
 const consumeTvFullscreen = () => { const v = pendingTvFullscreen; pendingTvFullscreen = false; return v; };
 
-// Whether channel-zero (Settings > Connection) shows in the live grid on THIS browser — off by default
-// everywhere except TV mode, which always shows it regardless of this flag (see LiveView.chan0Displayed):
-// a phone or laptop shouldn't gain an extra tile just because someone turned it on for the TV down the hall.
-const CHAN0_VISIBLE_KEY = 'sentinel-eye-chan0-visible';
-function getChan0Visible() { try { return localStorage.getItem(CHAN0_VISIBLE_KEY) === '1'; } catch { return false; } }
-function setChan0Visible(v) { try { localStorage.setItem(CHAN0_VISIBLE_KEY, v ? '1' : '0'); } catch { /* private mode */ } }
+// Whether the live view is showing channel-zero's full-screen Overview (Settings > Connection) instead of
+// the camera grid, on THIS browser — redesign v2: one on/off state and one button (was two: a separate
+// "add it to the grid" toggle plus a second "view it alone" toggle). Off by default everywhere except TV
+// mode, which always shows it regardless of this flag (see LiveView.chan0Displayed): a phone or laptop
+// shouldn't jump into Overview just because someone turned it on for the TV down the hall.
+const OVERVIEW_ON_KEY = 'sentinel-eye-overview-on';
+function getOverviewOn() { try { return localStorage.getItem(OVERVIEW_ON_KEY) === '1'; } catch { return false; } }
+function setOverviewOn(v) { try { localStorage.setItem(OVERVIEW_ON_KEY, v ? '1' : '0'); } catch { /* private mode */ } }
 
 const ctx = {
   settings: () => state.settings,
   me: () => state.me,
+  prevHash: () => state.prev,
   can,
-  async refreshMe() { state.me = await authApi.me(); paintWho(); return state.me; },
+  async refreshMe() { state.me = await authApi.me(); return state.me; },
   applyTheme,
   tvMode: getTvMode,
+  tvTheme: getTvTheme,
+  setTvTheme,
   setTvMode,
   armTvFullscreen,
   consumeTvFullscreen,
@@ -90,8 +108,8 @@ const ctx = {
   setTvQuality,
   tvLayout: getTvLayout,
   setTvLayout,
-  chan0Visible: getChan0Visible,
-  setChan0Visible,
+  overviewOn: getOverviewOn,
+  setOverviewOn,
   go: (h) => { location.hash = h; },
   // For a view syncing its OWN url as its state changes (e.g. playback keeping the current position in the
   // hash) rather than navigating: replaces instead of pushing, so it doesn't fill browser history with
@@ -107,50 +125,10 @@ const ctx = {
 };
 
 function shell() {
-  app.innerHTML = `<header class="topbar">
-      <div class="brand"><div class="brand-mark"></div><span>Sentinel Eye</span></div>
-      <nav class="nav" aria-label="Main"><a href="#/live" data-n="live">${icon('live')}<span>Live</span></a>${can('operator') ? `<a href="#/playback" data-n="playback">${icon('video')}<span>Playback</span></a><a href="#/events" data-n="events">${icon('search')}<span>Events</span></a>` : ''}<a href="#/settings" data-n="settings">${icon('settings')}<span>Settings</span></a></nav>
-      <div class="spacer"></div>
-      <div class="tools"><span class="clock" id="clock"></span><span id="who"></span></div></header>
-    <div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>`;
-  const tick = () => {
-    const c = document.getElementById('clock');
-    if (!c) return;
-    const now = new Date();
-    const date = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    const time = now.toLocaleTimeString([], { hour12: false });
-    c.textContent = `${date} · ${time}`;
-  };
-  tick(); setInterval(tick, 1000);
-}
-
-/** Topbar account chip: who you are and the account menu, when sign-in is on. */
-function paintWho() {
-  const el = document.getElementById('who');
-  const me = state.me;
-  if (!el || !me?.auth_enabled) { if (el) el.innerHTML = ''; return; }
-  if (me.via === 'bypass') {
-    el.innerHTML = `<a class="who lan" href="/login?next=${encodeURIComponent(location.pathname + location.hash)}" title="Opened without signing in because you're on a trusted network">${icon('user')}<span>Local network</span><span class="role">· Sign in</span></a>`;
-    return;
-  }
-  if (me.via !== 'session') { el.innerHTML = ''; return; }
-  const u = me.user;
-  const name = u.kind === 'device' ? (u.label || 'This device') : u.username;
-  el.innerHTML = `<button class="who" aria-haspopup="menu">${icon(u.kind === 'device' ? 'monitor' : 'user')}<span>${esc(name)}</span><span class="role">${esc(u.role)}</span></button>`;
-  el.querySelector('button').addEventListener('click', (e) => {
-    const person = u.kind === 'person';
-    const menu = openPopover(e.currentTarget, `<div class="acct-menu" role="menu">
-      <div class="head"><b>${esc(name)}</b>${esc(u.role)}${person && u.has_totp ? ' · 2FA on' : ''}</div>
-      ${person ? `<button data-m="account" role="menuitem">${icon('user')} Your account</button>` : ''}
-      ${person && u.role === 'admin' ? `<a href="/pair" role="menuitem">${icon('monitor')} Pair a TV or screen</a><a href="#/settings/security" role="menuitem">${icon('shield')} Users &amp; security</a>` : ''}
-      <button data-m="logout" role="menuitem">${icon('logout')} Sign out${person ? '' : ' this device'}</button></div>`, { className: 'acct-pop' });
-    menu?.querySelector('[data-m=account]')?.addEventListener('click', () => { closePopover(); openAccount(ctx); });
-    menu?.querySelectorAll('a').forEach((a) => a.addEventListener('click', closePopover));
-    menu?.querySelector('[data-m=logout]').addEventListener('click', async () => {
-      closePopover();
-      try { await authApi.logout(); } finally { location.assign('/login'); }
-    });
-  });
+  // No global header (redesign v2): every screen renders its own bar via bar.js, matching the design
+  // boards (Live is home with the global cluster; everything else leads with a back chevron). The phone tab
+  // bar is the one piece of chrome that outlives view swaps, so it lives here.
+  app.innerHTML = `<div id="view" style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative"></div>${tabBarHTML(ctx)}`;
 }
 
 async function route() {
@@ -166,16 +144,20 @@ async function route() {
     history.replaceState(null, '', state.hash);
     return;
   }
+  if (state.hash && state.hash !== hash) state.prev = state.hash;
   state.hash = hash;
   const host = document.getElementById('view');
   const navSection = section === 'search' ? 'events' : section;
-  document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.n === navSection));
-  document.querySelectorAll('.nav a[aria-current]').forEach((a) => a.setAttribute('aria-current', 'page'));
+  document.querySelectorAll('.tabbar .tab').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+  if (section === 'account') {
+    if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
+    return;
+  }
 
   if (section === 'settings') {
-    if (state.kind === 'settings') { state.view.setTab(arg || 'connection'); return; }
+    if (state.kind === 'settings') { state.view.setTab(arg); return; }
     state.view?.destroy();
-    state.view = new SettingsView(host, ctx, arg || 'connection');
+    state.view = new SettingsView(host, ctx, arg);
     state.kind = 'settings';
     return;
   }
@@ -202,14 +184,15 @@ async function route() {
 }
 
 async function boot() {
+  installTvNav();   // arrows move focus spatially in TV mode (a remote has no pointer)
   // Who's asking decides what the shell shows, so this comes first. Sign-in off = an admin, as always.
   try { state.me = await authApi.me(); } catch { state.me = { auth_enabled: false, via: 'none', role: 'admin', user: null }; }
   if (state.me.auth_enabled && state.me.via === 'anon') { signInAgain(); return; }   // e.g. a cached shell from the service worker
   authHooks.needs2fa = () => { if (!document.querySelector('#modal-root .dialog')) openAccount(ctx, { force2fa: true }); };
   document.documentElement.classList.toggle('role-viewer', !can('operator'));   // hides review-only buttons (app.css)
   shell();
-  paintWho();
   if (state.me.limited) { openAccount(ctx, { force2fa: true }); return; }
+  if (can('operator')) fetchTzOffset();   // remembered, so Playback and Events never wait on it later
   // Registered from the app shell (not inline in index.html) so it only ever runs after the real app has
   // loaded — irrelevant to whether the settings fetch below succeeds, so it doesn't block or gate on it.
   if ('serviceWorker' in navigator) {

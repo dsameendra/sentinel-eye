@@ -2,139 +2,262 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Verify Sentinel Eye export</title>
+<title>Verify an export — Sentinel Eye</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<!-- Ships inside every signed export and must work from file:// with nothing installed: no external
+     scripts, styles or fonts — everything is inline. Reads the export's .zip directly (or its unzipped
+     files) in this tab; nothing is uploaded. -->
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    --bg: #09090b; --card: #141417; --card-2: #1c1c20; --line: rgba(255, 255, 255, .09); --line-2: rgba(255, 255, 255, .16);
+    --text: #f5f5f7; --muted: #98989f; --faint: #6e6e73;
+    --accent: #0a84ff; --accent-soft: rgba(10, 132, 255, .1);
+    --ok: #30d158; --ok-soft: rgba(48, 209, 88, .07); --ok-line: rgba(48, 209, 88, .4);
+    --bad: #ff6a5f; --bad-soft: rgba(255, 59, 48, .07); --bad-line: rgba(255, 59, 48, .4);
+    --warn: #ffb340; --warn-soft: rgba(255, 159, 10, .07); --warn-line: rgba(255, 159, 10, .4);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f5f7; --card: #fff; --card-2: #f2f2f5; --line: rgba(0, 0, 0, .08); --line-2: rgba(0, 0, 0, .16);
+      --text: #1d1d1f; --muted: #6e6e73; --faint: #8e8e93;
+      --accent: #0071e3; --accent-soft: rgba(0, 113, 227, .07);
+      --ok: #1f8f3a; --ok-soft: rgba(52, 199, 89, .08); --ok-line: rgba(52, 199, 89, .45);
+      --bad: #d70015; --bad-soft: rgba(255, 59, 48, .07); --bad-line: rgba(255, 59, 48, .4);
+      --warn: #b25000; --warn-soft: rgba(255, 149, 0, .08); --warn-line: rgba(255, 149, 0, .45);
+    }
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #0b0e13; color: #e6e9ee; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
-  h1 { font-size: 22px; margin: 0 0 6px; }
-  p.lead { color: #97a1af; margin: 0 0 28px; }
-  .drop { border: 2px dashed #2a323e; border-radius: 14px; padding: 40px 20px; text-align: center; color: #97a1af; cursor: pointer; transition: border-color .15s, background .15s; }
-  .drop.over { border-color: #34d399; background: #0f1520; }
-  .drop input { display: none; }
-  .drop b { color: #e6e9ee; }
-  .report { margin-top: 28px; display: none; }
-  .report.show { display: block; }
-  .row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #12161d; border: 1px solid #1e242d; margin-bottom: 8px; }
-  .row .ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; margin-top: 1px; }
-  .row.ok .ic { background: #16412d; color: #34d399; }
-  .row.bad .ic { background: #45191c; color: #f87171; }
-  .row.warn .ic { background: #453a19; color: #fbbf24; }
-  .row .body { min-width: 0; }
-  .row .t { font-weight: 600; }
-  .row .d { color: #97a1af; font-size: 13px; word-break: break-all; }
-  .verdict { margin-top: 20px; padding: 16px 18px; border-radius: 12px; font-weight: 700; font-size: 16px; text-align: center; }
-  .verdict.ok { background: #103322; color: #34d399; border: 1px solid #1d5a3b; }
-  .verdict.bad { background: #3a1418; color: #f87171; border: 1px solid #5a1d23; }
-  .meta { margin-top: 24px; font-size: 13px; color: #97a1af; }
-  .meta table { width: 100%; border-collapse: collapse; }
-  .meta td { padding: 4px 0; vertical-align: top; }
-  .meta td:first-child { color: #6b7684; width: 160px; }
-  .caveat { margin-top: 28px; padding: 14px 16px; border-radius: 10px; background: #171310; border: 1px solid #3a2c17; color: #d3a95c; font-size: 13px; }
-  .reset { margin-top: 20px; }
-  button { background: #1a2029; color: #e6e9ee; border: 1px solid #2a323e; border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
-  button:hover { background: #232a35; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.47 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { width: min(720px, 100%); margin: 0 auto; padding: 48px 16px 64px; display: flex; flex-direction: column; gap: 20px; }
+  header { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .mark { width: 30px; height: 30px; }
+  h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -.015em; line-height: 1.15; }
+  .cap { margin: 0; font-size: 13px; color: var(--muted); }
+  .drop { position: relative; height: 220px; border: 1.5px dashed var(--line-2); border-radius: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .drop svg { width: 30px; height: 30px; color: var(--muted); }
+  .head { font-size: 17px; font-weight: 600; }
+  .card { border-radius: 22px; border: 1px solid var(--line); background: var(--card); padding: 20px 22px; }
+  .verdict { display: flex; gap: 16px; align-items: flex-start; padding: 22px 24px; }
+  .verdict svg { flex: none; width: 28px; height: 28px; margin-top: 1px; }
+  .verdict.ok { border-color: var(--ok-line); background: var(--ok-soft); } .verdict.ok svg { color: var(--ok); }
+  .verdict.bad { border-color: var(--bad-line); background: var(--bad-soft); } .verdict.bad svg { color: var(--bad); }
+  .verdict.warn { border-color: var(--warn-line); background: var(--warn-soft); } .verdict.warn svg { color: var(--warn); }
+  .verdict.busy { color: var(--muted); }
+  .verdict p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+  .src { font-size: 13px; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+  .meta { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .chk { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .chk:last-child { border-bottom: 0; padding-bottom: 0; }
+  .chk svg { flex: none; width: 16px; height: 16px; }
+  .chk.ok svg { color: var(--ok); } .chk.bad svg { color: var(--bad); } .chk.warn svg { color: var(--warn); }
+  .chk .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chk .v { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .chk.bad .v { color: var(--bad); } .chk.warn .v { color: var(--warn); } .chk .v.good { color: var(--ok); }
+  details { font-size: 13px; color: var(--muted); }
+  summary { cursor: pointer; font-weight: 600; color: var(--text); padding: 2px 0; }
+  details table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  details td { padding: 5px 0; vertical-align: top; border-top: 1px solid var(--line); }
+  details td:first-child { width: 150px; color: var(--faint); padding-right: 12px; }
+  details code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--text); }
+  .note { font-size: 13px; color: var(--muted); }
+  .note b { color: var(--text); font-weight: 600; }
+  .ghost { align-self: center; height: 40px; padding: 0 18px; border: 0; border-radius: 999px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .ghost:hover { background: var(--accent-soft); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Verify a Sentinel Eye export</h1>
-  <p class="lead">Runs entirely in this browser tab — nothing is uploaded anywhere. Drop the whole exported folder (or select its files) below: <b>manifest.json</b>, <b>signature.json</b>, and the clip file(s).</p>
+<main class="wrap">
+  <header>
+    <svg class="mark" viewBox="0 0 108 108" aria-hidden="true"><rect x="2" y="2" width="104" height="104" rx="30" fill="#141417"/><circle cx="54" cy="54" r="30" fill="none" stroke="#f5f5f7" stroke-width="5"/><circle cx="54" cy="54" r="12" fill="#f5f5f7"/><circle cx="80" cy="28" r="7" fill="#ff3b30"/></svg>
+    <h1>Verify an export</h1>
+    <p class="cap">Runs entirely in this browser tab — nothing is uploaded, no server involved. Opens from inside any signed export's own verify.html.</p>
+  </header>
 
   <label class="drop" id="drop">
-    <div><b>Drop files here</b>, or click to choose</div>
-    <div style="margin-top:6px;font-size:13px">manifest.json + signature.json + clip_*.mp4</div>
-    <input type="file" id="picker" multiple>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+    <span class="head">Drop the exported .zip here</span>
+    <span class="cap">or click to choose it — the unzipped files (manifest.json, signature.json and the clips) work too</span>
+    <input type="file" id="picker" multiple accept=".zip,.json,.mp4,application/zip,application/json,video/mp4">
   </label>
 
-  <div class="report" id="report"></div>
-  <div class="reset" id="resetWrap" style="display:none"><button id="reset">Verify another export</button></div>
-</div>
+  <section id="result" hidden aria-live="polite"></section>
+  <button class="ghost" id="again" hidden>Check another file</button>
+</main>
 
 <script>
-const dropEl = document.getElementById('drop');
-const pickerEl = document.getElementById('picker');
-const reportEl = document.getElementById('report');
-const resetWrap = document.getElementById('resetWrap');
+const $ = (id) => document.getElementById(id);
+const dropEl = $('drop'), resultEl = $('result'), againEl = $('again');
+const ICON = {
+  ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>',
+  bad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>',
+  tick: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  cross: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  q: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 7v6M12 17v.01"/></svg>',
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+const fromHex = (s) => { const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16); return a; };
+const short = (h) => (h && h.length > 10 ? `${h.slice(0, 4)}…${h.slice(-4)}` : h || '');
+const sha256 = async (buf) => hex(await crypto.subtle.digest('SHA-256', buf));
+const fmtUtc = (iso) => {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso || '—';
+  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()];
+  const p = (n) => String(n).padStart(2, '0');
+  return { day: `${M} ${d.getUTCDate()}, ${d.getUTCFullYear()}`, time: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}` };
+};
 
 ['dragenter', 'dragover'].forEach((ev) => dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((ev) => dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.remove('over'); }));
-dropEl.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
-pickerEl.addEventListener('change', (e) => handleFiles([...e.target.files]));
-document.getElementById('reset').addEventListener('click', () => location.reload());
+dropEl.addEventListener('drop', (e) => handle([...e.dataTransfer.files]));
+$('picker').addEventListener('change', (e) => handle([...e.target.files]));
+againEl.addEventListener('click', () => { resultEl.hidden = true; againEl.hidden = true; dropEl.hidden = false; $('picker').value = ''; });
 
-function hex(buf) { return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
-function fromHex(s) { const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16); return a; }
-function row(cls, ic, title, detail) {
-  return `<div class="row ${cls}"><div class="ic">${ic}</div><div class="body"><div class="t">${title}</div>${detail ? `<div class="d">${detail}</div>` : ''}</div></div>`;
+// ---- minimal ZIP reader (central directory + stored/deflate entries, ZIP64 aware). Python's zipfile wrote
+// the export; DecompressionStream('deflate-raw') inflates it, so no library is bundled.
+async function readZip(file) {
+  const tailLen = Math.min(file.size, 65557 + 20);
+  const tail = new DataView(await file.slice(file.size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("This isn't a .zip file Sentinel Eye made (no zip directory found).");
+  let count = tail.getUint16(eocd + 10, true), cdSize = tail.getUint32(eocd + 12, true), cdOff = tail.getUint32(eocd + 16, true);
+  if (cdOff === 0xffffffff || count === 0xffff) { // ZIP64: the locator sits just before the EOCD
+    const loc = eocd - 20;
+    if (loc >= 0 && tail.getUint32(loc, true) === 0x07064b50) {
+      const e64off = Number(tail.getBigUint64(loc + 8, true));
+      const e64 = new DataView(await file.slice(e64off, e64off + 56).arrayBuffer());
+      count = Number(e64.getBigUint64(32, true)); cdSize = Number(e64.getBigUint64(40, true)); cdOff = Number(e64.getBigUint64(48, true));
+    }
+  }
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const entries = new Map();
+  for (let p = 0, n = 0; n < count && p + 46 <= cd.byteLength; n++) {
+    if (cd.getUint32(p, true) !== 0x02014b50) break;
+    const method = cd.getUint16(p + 10, true);
+    let csize = cd.getUint32(p + 20, true), usize = cd.getUint32(p + 24, true);
+    const nameLen = cd.getUint16(p + 28, true), extraLen = cd.getUint16(p + 30, true), commentLen = cd.getUint16(p + 32, true);
+    let off = cd.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(new Uint8Array(cd.buffer, p + 46, nameLen));
+    for (let x = p + 46 + nameLen; x < p + 46 + nameLen + extraLen;) { // ZIP64 extended sizes/offset
+      const id = cd.getUint16(x, true), len = cd.getUint16(x + 2, true);
+      if (id === 1) {
+        let q = x + 4;
+        if (usize === 0xffffffff) { usize = Number(cd.getBigUint64(q, true)); q += 8; }
+        if (csize === 0xffffffff) { csize = Number(cd.getBigUint64(q, true)); q += 8; }
+        if (off === 0xffffffff) { off = Number(cd.getBigUint64(q, true)); }
+      }
+      x += 4 + len;
+    }
+    const base = name.split('/').pop();
+    if (base) entries.set(base, { method, csize, off });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return {
+    names: [...entries.keys()],
+    has: (n) => entries.has(n),
+    async read(n) {
+      const e = entries.get(n);
+      const lh = new DataView(await file.slice(e.off, e.off + 30).arrayBuffer());
+      const start = e.off + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      const raw = file.slice(start, start + e.csize);
+      if (e.method === 0) return raw.arrayBuffer();
+      if (e.method !== 8) throw new Error(`${n} uses a zip compression this page can't read.`);
+      if (typeof DecompressionStream === 'undefined') throw new Error("This browser can't open .zip files — unzip the export and drop its files here instead.");
+      return new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+    },
+  };
 }
 
-async function handleFiles(files) {
+// Same interface over loose files (an unzipped export).
+function looseFiles(files) {
+  const by = new Map(files.map((f) => [f.name, f]));
+  return { names: [...by.keys()], has: (n) => by.has(n), read: (n) => by.get(n).arrayBuffer() };
+}
+
+function show(html) { resultEl.innerHTML = html; resultEl.hidden = false; }
+function verdict(kind, title, text) {
+  return `<div class="card verdict ${kind}">${ICON[kind] || ''}<div><div class="head">${esc(title)}</div><p>${text}</p></div></div>`;
+}
+
+async function handle(files) {
   if (!files.length) return;
-  reportEl.className = 'report show';
-  reportEl.innerHTML = row('warn', '…', 'Checking…', '');
+  dropEl.hidden = true;
+  againEl.hidden = true;
+  show(`<div class="card verdict busy"><div><div class="head">Checking…</div><p>Hashing every file and checking the signature.</p></div></div>`);
+  const zipFile = files.length === 1 && /\.zip$/i.test(files[0].name) ? files[0] : null;
+  const label = zipFile ? zipFile.name : `${files.length} file${files.length > 1 ? 's' : ''}`;
   try {
-    const byName = new Map(files.map((f) => [f.name, f]));
-    const manifestFile = byName.get('manifest.json');
-    const sigFile = byName.get('signature.json');
-    if (!manifestFile || !sigFile) {
-      reportEl.innerHTML = row('bad', '!', 'Missing files', `Need manifest.json and signature.json among the dropped files. Got: ${files.map((f) => f.name).join(', ')}`);
-      resetWrap.style.display = 'block';
+    const pkg = zipFile ? await readZip(zipFile) : looseFiles(files);
+    if (!pkg.has('manifest.json') || !pkg.has('signature.json')) {
+      const plain = pkg.names.some((n) => /\.mp4$/i.test(n));
+      show(verdict('warn', plain ? 'Not a signed package' : "Couldn't find the package files",
+        plain ? 'This looks like a plain export — just the clip, with no manifest or signature, so there is nothing to verify it against. Export again as a signed evidence package.'
+              : `A signed export holds manifest.json, signature.json and its clips. Found: ${esc(pkg.names.join(', ') || 'nothing')}.`));
+      againEl.hidden = false;
       return;
     }
-    const manifestBuf = await manifestFile.arrayBuffer();
+    const manifestBuf = await pkg.read('manifest.json');
     const manifest = JSON.parse(new TextDecoder().decode(manifestBuf));
-    const sig = JSON.parse(await sigFile.text());
-
+    const sig = JSON.parse(new TextDecoder().decode(await pkg.read('signature.json')));
     const rows = [];
-    let allOk = true;
-
-    // 1. signature over the raw manifest.json bytes
+    let sigOk = false, sigErr = '';
     try {
-      const pubBytes = fromHex(sig.public_key_hex);
-      const pubKey = await crypto.subtle.importKey('raw', pubBytes, { name: 'Ed25519' }, false, ['verify']);
-      const sigBytes = fromHex(sig.signature_hex);
-      const sigOk = await crypto.subtle.verify('Ed25519', pubKey, sigBytes, manifestBuf);
-      rows.push(row(sigOk ? 'ok' : 'bad', sigOk ? '✓' : '✗', sigOk ? 'Manifest signature valid' : 'Manifest signature INVALID — the manifest has been altered since export, or the key doesn\'t match', `Public key: ${sig.public_key_hex}`));
-      allOk = allOk && sigOk;
+      const key = await crypto.subtle.importKey('raw', fromHex(sig.public_key_hex), { name: 'Ed25519' }, false, ['verify']);
+      sigOk = await crypto.subtle.verify('Ed25519', key, fromHex(sig.signature_hex), manifestBuf);
     } catch (e) {
-      rows.push(row('bad', '✗', 'Could not verify signature', e.message + ' — this browser may not support Ed25519 in WebCrypto (needs a recent Chrome/Edge/Firefox/Safari).'));
-      allOk = false;
+      sigErr = `${e.message || e} — this browser may not support Ed25519 yet (needs a recent Safari, Chrome, Edge or Firefox).`;
     }
-
-    // 2. each clip's hash
-    for (const clip of manifest.clips || []) {
-      const f = byName.get(clip.file);
-      if (!f) {
-        rows.push(row('warn', '?', `${clip.camera_name}: file not provided`, `Expected ${clip.file} — drop it alongside the others to check its hash.`));
+    const clips = manifest.clips || [];
+    const mismatched = [], missing = [];
+    for (const clip of clips) {
+      if (!pkg.has(clip.file)) {
+        missing.push(clip.file);
+        rows.push(`<div class="chk warn">${ICON.q}<span class="n">${esc(clip.file)}</span><span class="v">not provided</span></div>`);
         continue;
       }
-      const buf = await f.arrayBuffer();
-      const digest = hex(await crypto.subtle.digest('SHA-256', buf));
-      const ok = digest === clip.sha256;
-      rows.push(row(ok ? 'ok' : 'bad', ok ? '✓' : '✗', `${clip.camera_name}: ${ok ? 'file matches the signed manifest' : 'file does NOT match — modified or wrong file'}`,
-        `${clip.file}<br>expected ${clip.sha256}<br>got &nbsp;&nbsp;&nbsp;${digest}`));
-      allOk = allOk && ok;
+      const got = await sha256(await pkg.read(clip.file));
+      const ok = got === clip.sha256;
+      if (!ok) mismatched.push(clip.file);
+      rows.push(`<div class="chk ${ok ? 'ok' : 'bad'}" title="expected ${esc(clip.sha256)}&#10;got ${esc(got)}">${ok ? ICON.tick : ICON.cross}<span class="n">${esc(clip.file)}</span><span class="v">${ok ? esc(short(got)) : 'hash mismatch'}</span></div>`);
     }
+    const manifestHash = await sha256(manifestBuf);
+    rows.push(`<div class="chk ${sigOk ? 'ok' : 'bad'}" title="${esc(manifestHash)}">${sigOk ? ICON.tick : ICON.cross}<span class="n">manifest.json</span><span class="v">${esc(short(manifestHash))}</span></div>`);
+    rows.push(`<div class="chk ${sigOk ? 'ok' : 'bad'}">${sigOk ? ICON.tick : ICON.cross}<span class="n">Ed25519 signature</span><span class="v ${sigOk ? 'good' : ''}">${sigOk ? (mismatched.length ? 'valid (for the original, unmodified clip)' : 'valid') : sigErr ? "couldn't check" : 'invalid'}</span></div>`);
 
-    const meta = `<div class="meta"><table>
-      <tr><td>Export ID</td><td>${manifest.export_id || '—'}</td></tr>
-      <tr><td>Created</td><td>${manifest.created_utc || '—'}</td></tr>
-      <tr><td>Operator</td><td>${manifest.operator || '—'}</td></tr>
-      <tr><td>Cameras</td><td>${(manifest.clips || []).map((c) => `${c.camera_name} (${c.dvr_time_range_utc?.start} – ${c.dvr_time_range_utc?.end} UTC)`).join('<br>')}</td></tr>
-    </table></div>`;
+    let top;
+    if (sigErr) top = verdict('warn', "Couldn't check the signature", esc(sigErr));
+    else if (!sigOk) top = verdict('bad', "Doesn't match", 'The signature doesn\'t match this manifest — it has been altered since export, or it was signed by a different installation. Treat this package as unverified.');
+    else if (mismatched.length) top = verdict('bad', "Doesn't match", `${esc(mismatched.join(', '))}${mismatched.length > 1 ? "'s hashes don't" : "'s hash doesn't"} match the manifest — the file has changed since it was exported and signed. Treat this package as unverified.`);
+    else if (missing.length) top = verdict('warn', 'Partly verified', `The signature is valid, but ${esc(missing.join(', '))} ${missing.length > 1 ? 'weren\'t' : 'wasn\'t'} included, so ${missing.length > 1 ? 'they' : 'it'} couldn't be checked. Drop the whole .zip to check everything.`);
+    else top = verdict('ok', 'Verified', 'Every file matches its recorded hash, and the signature matches this manifest exactly — nothing here has been altered since export.');
 
-    reportEl.innerHTML = rows.join('') +
-      `<div class="verdict ${allOk ? 'ok' : 'bad'}">${allOk ? '✓ This export is intact and unaltered since it was signed.' : '✗ This export FAILED verification — do not treat it as trustworthy.'}</div>` +
-      meta +
-      `<div class="caveat"><b>What this does and doesn't prove:</b> a valid signature means these files are exactly what Sentinel Eye produced at export time and haven't been changed since. It does not, by itself, prove the original DVR footage was authentic — that trust rests on physical access to the recorder and this installation's key, same as any camera system.</div>`;
-    resetWrap.style.display = 'block';
+    const cams = [...new Set(clips.map((c) => c.camera_name))].join(', ') || '—';
+    const r = manifest.requested_range_utc || clips[0]?.dvr_time_range_utc || {};
+    const a = fmtUtc(r.start), b = fmtUtc(r.end);
+    const range = a.day ? `${a.day}, ${a.time} – ${b.day && b.day !== a.day ? b.day + ', ' : ''}${b.time || ''} UTC` : '—';
+    const meta = [`Camera${clips.length > 1 ? 's' : ''}: ${esc(cams)}`, `Range: ${esc(range)}`, manifest.operator ? `Exported by: ${esc(manifest.operator)}` : ''].filter(Boolean).join(' · ');
+    const created = fmtUtc(manifest.created_utc);
+    show(`${top}
+      <div class="card" style="margin-top:20px"><div class="src">${esc(label)}</div><div class="meta">${meta}</div>${rows.join('')}</div>
+      <div class="card" style="margin-top:20px"><details><summary>Details</summary><table>
+        <tr><td>Export ID</td><td><code>${esc(manifest.export_id || '—')}</code></td></tr>
+        <tr><td>Created</td><td>${esc(created.day ? `${created.day}, ${created.time} UTC` : '—')}</td></tr>
+        ${clips.map((c) => `<tr><td>${esc(c.camera_name)}</td><td>${esc(c.file)}<br>${c.dvr_time_range_utc ? esc(`${fmtUtc(c.dvr_time_range_utc.start).time} – ${fmtUtc(c.dvr_time_range_utc.end).time} UTC`) + '<br>' : ''}<code>${esc(c.sha256)}</code></td></tr>`).join('')}
+        <tr><td>Public key</td><td><code>${esc(sig.public_key_hex)}</code></td></tr>
+      </table></details></div>
+      <p class="note" style="margin-top:20px"><b>What this proves, and what it doesn't.</b> A valid result means these files are exactly what Sentinel Eye produced at export time and haven't been changed since. It doesn't, by itself, prove the recorder's original footage was authentic — that rests on physical access to the recorder and this installation's key, as with any camera system.</p>`);
   } catch (e) {
-    reportEl.innerHTML = row('bad', '!', 'Verification failed to run', e.message);
-    resetWrap.style.display = 'block';
+    show(verdict('bad', "Couldn't check this", esc(e.message || String(e))));
   }
+  againEl.hidden = false;
 }
 </script>
 </body>

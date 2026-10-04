@@ -58,16 +58,87 @@ const P = {
   scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/>',
   crop: '<path d="M6.13 2 6 18a2 2 0 0 0 2 2h14"/><path d="M2 6.13 18 6a2 2 0 0 1 2 2v14"/>',
   flashlight: '<path d="M18 6c0 2-2 3-2 5v11a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V11c0-2-2-3-2-5a6 6 0 0 1 12 0Z"/><line x1="6" y1="6" x2="18" y2="6"/><line x1="12" y1="12" x2="12" y2="12"/>',
-  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  calendar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/>',
+  // Redesign v2 — taken from the design boards' own SVGs (24x24, line, 1.6 stroke via svg.i).
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 4-2 5-2 7h16c0-2-2-3-2-7Z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/>',
+  // Centred on the 24-unit grid (the old one sat ~1px right of centre and read small next to its neighbours).
+  gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  // A bracketed span of time — "pick a range to export" (crop meant the wrong thing on a timeline).
+  // A figure in motion (motion events).
+  // A walking pedestrian — Events (things that happened in front of a camera) and motion alerts.
+  walk: '<circle cx="13" cy="4" r="1.75"/><path d="M7 21l3-4"/><path d="M16 21l-2-4-3-3 1-6"/><path d="M6 12l2-3 4-1 3 3 3 1"/>',
+  motion: '<circle cx="13" cy="4" r="1.75"/><path d="M7 21l3-4"/><path d="M16 21l-2-4-3-3 1-6"/><path d="M6 12l2-3 4-1 3 3 3 1"/>',
+  // Two arrows pointing in — leave full screen.
+  collapse: '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>',
+  // A remote's direction pad — "the arrows".
+  dpad: '<path d="m9 6 3-3 3 3"/><path d="m9 18 3 3 3-3"/><path d="m6 9-3 3 3 3"/><path d="m18 9 3 3-3 3"/><circle cx="12" cy="12" r="2"/>',
+  excl: '<path d="M12 6.5v7"/><path d="M12 17.5h.01"/>',
+  range: '<path d="M7 4H4v16h3"/><path d="M17 4h3v16h-3"/><path d="M9 12h6"/>',
+  bookmark: '<path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-4 7 4Z"/>',
+  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  back2: '<path d="M11 19l-8-7 8-7v14Z"/><path d="M21 19l-8-7 8-7v14Z"/>',
+  fwd2: '<path d="M13 19l8-7-8-7v14Z"/><path d="M3 19l8-7-8-7v14Z"/>',
+  sparkle: '<path d="m12 3 1.9 4.9L19 10l-5.1 2.1L12 17l-1.9-4.9L5 10l5.1-2.1L12 3Z"/>',
+  share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  overview: '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="3.4"/>',
+  grid4: '<rect x="3" y="3" width="18" height="18" rx="4"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="3" y1="12" x2="21" y2="12"/>',
+  heart: '<path d="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9Z"/>',
+  offline: '<circle cx="12" cy="12" r="9"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  mic: '<path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 19v3"/>',
+  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  checkcircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
+  laptop: '<rect x="4" y="3" width="16" height="14" rx="2"/><line x1="4" y1="20" x2="20" y2="20"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2.4"/><line x1="11" y1="18.3" x2="13" y2="18.3"/>',
+  tv: '<rect x="2" y="3" width="20" height="13" rx="1.6"/><path d="M9 20.5h6M12 16.5v4"/>',
+  pencil: '<path d="M17.2 3.6a2.1 2.1 0 0 1 3 3L8.3 18.5l-4.3 1.2 1.2-4.3Z"/><path d="m15 5.8 3 3"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  clips: '<path d="M4 6h16M4 12h10M4 18h7"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
-export function toast(msg, kind = 'ok', ms = 4200) {
+/** @param opts.dot a colour for an event dot instead of the icon; opts.onClick makes the pill a button. */
+export function toast(msg, kind = 'ok', ms = 4200, opts = {}) {
+  const host = document.getElementById('toasts');
+  if (!host) return;
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
-  t.innerHTML = `${icon(kind === 'ok' ? 'check' : 'alert')}<div>${esc(msg)}</div>`;
-  document.getElementById('toasts').append(t);
-  setTimeout(() => t.remove(), ms);
+  t.innerHTML = `${opts.dot ? `<span class="toast-dot" style="background:${opts.dot}"></span>` : icon(kind === 'ok' ? 'check' : 'excl')}<div>${esc(msg)}</div>`;
+  host.prepend(t);   // newest on top, nearest the edge it drops from
+  while (host.children.length > 3) host.lastElementChild.remove();
+  const leave = () => { t.classList.add('out'); setTimeout(() => t.remove(), 320); };
+  setTimeout(leave, ms);
+  t.addEventListener('click', () => { leave(); opts.onClick?.(); });
+  if (opts.onClick) t.classList.add('tappable');
+}
+
+/** Event notifications (a different job from toast(): something happened on a camera, worth a look) —
+ * glass banners stacked under the top-right of the bar (top centre on a phone), each with a kind-coloured
+ * glyph, title, body and, when there is one, a thumbnail of the picture at that moment. Tap to open;
+ * hovering holds it; at most three. */
+export function notify({ title, body = '', glyph = 'bell', color = 'var(--accent)', thumb = null, onClick = null, ms = 6500 }) {
+  let host = document.getElementById('notifs');
+  if (!host) { host = document.createElement('div'); host.id = 'notifs'; host.setAttribute('aria-live', 'polite'); }
+  (document.fullscreenElement || document.body).append(host);
+  const n = document.createElement('div');
+  n.className = `notif-banner${onClick ? ' tappable' : ''}`;
+  n.setAttribute('role', 'status');
+  n.style.setProperty('--n-color', color);
+  n.innerHTML = `<span class="nb-glyph">${icon(glyph)}</span>
+    <div class="nb-text"><b>${esc(title)}</b>${body ? `<span>${esc(body)}</span>` : ''}</div>
+    ${thumb ? `<img class="nb-thumb" src="${thumb}" alt="">` : ''}
+    <button class="nb-close" aria-label="Dismiss">${icon('close')}</button>`;
+  host.prepend(n);
+  while (host.children.length > 3) host.lastElementChild.remove();
+  let timer = 0;
+  const leave = () => { clearTimeout(timer); n.classList.add('out'); setTimeout(() => n.remove(), 320); };
+  const arm = () => { clearTimeout(timer); timer = setTimeout(leave, ms); };
+  n.addEventListener('mouseenter', () => clearTimeout(timer));
+  n.addEventListener('mouseleave', arm);
+  n.querySelector('.nb-close').addEventListener('click', (e) => { e.stopPropagation(); leave(); });
+  n.addEventListener('click', () => { leave(); onClick?.(); });
+  arm();
+  return n;
 }
 
 /** Keeps Tab/Shift+Tab cycling within an open dialog instead of walking onto whatever's behind the scrim
@@ -131,13 +202,70 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
   });
 }
 
+// Keyboard shortcuts reference (redesign v2) — the real bindings from live.js's key() and playback.js's
+// _key(), copied here by hand rather than generated from them, so this is a snapshot of what's documented
+// (and README.md's own table), not a live introspection of whichever handler happens to be bound. Keep the
+// three in sync if a binding changes.
+const SHORTCUT_GROUPS = [
+  { title: 'Live view — grid', rows: [
+    [['1', '–', '9'], 'Open that camera'],
+    [['←', '→'], 'Previous / next page'],
+    [['E'], 'Arrange mode on / off'],
+    [['F'], 'Full screen'],
+    [['Esc'], 'Leave arrange mode'],
+  ] },
+  { title: 'Live view — focus', rows: [
+    [['←', '→'], 'Previous / next camera'],
+    [['+', '–', '0'], 'Zoom in / out / reset'],
+    [['S'], 'Snapshot'],
+    [['B'], 'Bookmark this moment'],
+    [['H'], 'Switch HD / SD'],
+    [['F'], 'Full screen'],
+    [['Esc'], 'Reset zoom, then back to the grid'],
+  ] },
+  { title: 'Instant replay', rows: [
+    [['Space'], 'Play / pause'],
+    [['Home'], 'Start over'],
+    [['Esc'], 'Back to live'],
+  ] },
+  { title: 'Playback', rows: [
+    [['Space'], 'Play / pause'],
+    [[',', '.'], 'One frame back / forward'],
+    [['Shift', '1', '2', '3'], 'Back 5 s / 10 s / 30 s'],
+    [['Shift', '4', '5', '6'], 'Forward 5 s / 10 s / 30 s'],
+    [['B'], 'Bookmark this moment'],
+    [['F'], 'Full screen'],
+  ] },
+];
+
+/** The "?" overlay (Live and Playback) — a read-only keyboard-shortcuts reference. No return value; just
+ * shows until Escape, an outside click, or the close button. */
+export function shortcutsDialog() {
+  const root = document.getElementById('modal-root');
+  const group = (g) => `<div class="card shortcuts-card"><h3>${esc(g.title)}</h3>${g.rows.map(([keys, label]) =>
+    `<div class="shortcuts-row">${keys.map((k) => `<kbd class="key">${esc(k)}</kbd>`).join('')}<span class="shortcuts-label">${esc(label)}</span></div>`).join('')}</div>`;
+  root.innerHTML = `<div class="scrim"><div class="dialog shortcuts-dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="row" style="justify-content:space-between;margin-bottom:4px"><h3 style="margin:0">${icon('layout')} Keyboard shortcuts</h3><button class="btn icon ghost" data-x="1" aria-label="Close">${icon('close')}</button></div>
+    <p>Works on any Live or Playback screen.</p>
+    <div class="shortcuts-grid">${SHORTCUT_GROUPS.map(group).join('')}</div>
+    <p class="hint" style="margin:10px 0 0">On the Overview (Channel-zero), B bookmarks every camera at once.</p>
+  </div></div>`;
+  const done = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape' || e.key === '?') { e.stopPropagation(); done(); } else trapTab(e, root.querySelector('.dialog')); };
+  document.addEventListener('keydown', onKey, true);
+  root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(); });
+  root.querySelector('[data-x="1"]').addEventListener('click', done);
+  root.querySelector('[data-x="1"]').focus();
+}
+
 /** Opens a small popover menu anchored to `anchorEl`, appended to <body> so it's never clipped by an
  * ancestor's `overflow: hidden` (grid tiles, panes, etc. all clip — a menu positioned relative to an
  * element inside one gets cut off or renders garbled, which is what the live tile's enhance dropdown did
  * before this). Positioned in the viewport (not the DOM), clamped so it never runs off-screen, and closes
  * itself on an outside click or Escape. Returns the menu element in case the caller wants it (e.g. to
  * close it early on selection). At most one popover from this helper is open at a time. */
-export function openPopover(anchorEl, innerHTML, { className = '', align = 'right' } = {}) {
+/** @param onClose called once when the popover goes away, however it's dismissed. */
+export function openPopover(anchorEl, innerHTML, { className = '', align = 'right', onClose = null } = {}) {
   const already = document.body._openPopover;
   closePopover();
   if (already?._anchor === anchorEl) return null; // second click on the same button: treat as toggle-close
@@ -150,19 +278,38 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   // ran, the menu existed in the DOM, it just wasn't visible. Mount into the fullscreened element itself
   // when there is one.
   (document.fullscreenElement || document.body).appendChild(menu);
-  const r = anchorEl.getBoundingClientRect();
-  const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  let left = align === 'left' ? r.left : r.right - mw;
-  left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
-  let top = r.bottom + 6;
-  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6); // no room below — open above instead
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+  // Anchored to its button for as long as it's open — re-placed whenever its size changes (a group
+  // expanding or collapsing inside it), never left floating where it first opened. It opens below the
+  // button, or above when there's more room there, and its height is capped to the room it has, so a tall
+  // panel scrolls inside itself instead of running off the screen.
+  let side = null;
+  const place = () => {
+    const r = anchorEl.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 14, above = r.top - 14;
+    menu.style.maxHeight = '';
+    const natural = menu.scrollHeight;
+    side ||= natural <= below || below >= above ? 'below' : 'above';
+    const room = Math.max(120, side === 'below' ? below : above);
+    menu.style.maxHeight = `${room}px`;
+    const mw = menu.offsetWidth, mh = Math.min(natural, room);
+    let left = align === 'left' ? r.left : r.right - mw;
+    left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${side === 'below' ? r.bottom + 6 : r.top - mh - 6}px`;
+  };
+  place();
+  let raf = 0;
+  const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(place); });
+  [...menu.children].forEach((c) => ro.observe(c));
+  ro.observe(menu);
+  const onResize = () => place();
+  window.addEventListener('resize', onResize);
   const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== anchorEl) closePopover(); };
   const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
   setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
-  menu._cleanup = () => { document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
+  menu._cleanup = () => { ro.disconnect(); window.removeEventListener('resize', onResize); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
   menu._anchor = anchorEl;
+  menu._onClose = onClose;
   document.body._openPopover = menu;
   return menu;
 }
@@ -174,6 +321,7 @@ export function closePopover() {
   menu._cleanup?.();
   menu.remove();
   document.body._openPopover = null;
+  menu._onClose?.();
 }
 
 /** Debounce helper. */

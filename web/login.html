@@ -4,15 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sign in · Sentinel Eye</title>
-<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect x='2' y='2' width='104' height='104' rx='30' fill='%23141417'/%3E%3Ccircle cx='54' cy='54' r='30' fill='none' stroke='%23f5f5f7' stroke-width='7'/%3E%3Ccircle cx='54' cy='54' r='13' fill='%23f5f5f7'/%3E%3Ccircle cx='80' cy='28' r='9' fill='%23ff3b30'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/app-icon-192.png">
 <link rel="stylesheet" href="css/app.css">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0b0e13">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#09090b">
+<link rel="apple-touch-icon" href="icons/app-icon-apple-touch.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Sentinel Eye">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<script>try { if (localStorage.getItem('sentinel-eye-tv-mode') === '1') document.documentElement.classList.add('tv-mode'); } catch (e) { /* private mode */ }</script>
+<script>try { if (localStorage.getItem('sentinel-eye-tv-mode') === '1') { document.documentElement.classList.add('tv-mode'); var tt = localStorage.getItem('sentinel-eye-tv-theme') || 'dark'; if (tt !== 'auto') document.documentElement.dataset.theme = tt; } } catch (e) { /* private mode */ }</script>
 </head>
 <body>
 <main class="auth-page"><div class="auth-card" id="card" aria-live="polite"></div></main>

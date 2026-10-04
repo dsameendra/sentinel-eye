@@ -79,6 +79,7 @@ export class WCPlayer {
    * session stays open and keeps decoding into the buffer in the background, so stepping forward right
    * after pausing has frames already waiting instead of needing a fresh DVR round trip. */
   pauseHere() {
+    this._playout = 0;
     this.following = false;
     this._setState('paused');
   }
@@ -87,12 +88,49 @@ export class WCPlayer {
    * than visibly replaying whatever arrived while paused) and reconnects only if the session had actually
    * been closed (e.g. after a seek elsewhere). */
   resumeFollow() {
+    this._playout = 0;
     this.following = true;
     if (this.buffer.length) {
       this.bufIndex = this.buffer.length - 1;
       this._paintIndex(this.bufIndex);
     }
     if (this.ws?.readyState === WebSocket.OPEN) this._setState('playing');
+  }
+
+  /** Play on from the frame on screen at the stream's own pace, out of what's already buffered (frames kept
+   * arriving while paused), rather than jumping to the newest one — Instant replay's play after a pause or a
+   * skip. Hands back to following the incoming stream if it ever catches up with it. */
+  playFromHere() {
+    if (this.bufIndex < 0 || this.bufIndex >= this.buffer.length - 1) { this.resumeFollow(); return; }
+    const id = this._playout = this._playoutSeq = (this._playoutSeq || 0) + 1;   // never reused, so an older loop always stops
+    const t0 = performance.now(), a0 = this.buffer[this.bufIndex].absTime, rate = Number(this.speed) || 1;
+    this.following = false;
+    this._setState('playing');
+    const tick = () => {
+      if (this._playout !== id || this._closed) return;
+      const target = a0 + ((performance.now() - t0) / 1000) * rate;
+      let i = Math.max(0, this.bufIndex);
+      while (i < this.buffer.length - 1 && this.buffer[i + 1].absTime <= target) i++;
+      if (i !== this.bufIndex) { this.bufIndex = i; this._paintIndex(i); this.opts.onFrame?.(this.buffer[i].absTime, this.frameCount); }
+      if (i >= this.buffer.length - 1) { this._playout = 0; this.following = true; return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** Show the buffered frame at `absTime` (epoch seconds) if the buffer reaches that far; false if it doesn't
+   * (the caller then asks the recorder with seek()). Leaves the player paused there. */
+  showTime(absTime) {
+    const b = this.buffer;
+    if (!b.length || absTime < b[0].absTime - 0.25 || absTime > b[b.length - 1].absTime + 0.25) return false;
+    let i = 0;
+    while (i < b.length - 1 && b[i + 1].absTime <= absTime) i++;
+    this._playout = 0;
+    this.following = false;
+    this.bufIndex = i;
+    this._paintIndex(i);
+    this.opts.onFrame?.(b[i].absTime, this.frameCount);
+    return true;
   }
 
   _clearBuffer() {
@@ -123,34 +161,37 @@ export class WCPlayer {
     }
     if (this.following) {
       this.bufIndex = this.buffer.length - 1;
-      this._paintIndex(this.bufIndex);
       this.frameCount++;
-      if (absTime != null) this.opts.onFrame?.(absTime, this.frameCount);
+      // Every frame is decoded (each depends on the one before), but painted at most once per screen
+      // refresh: at 16x the recorder sends ~375 frames a second, and drawing (and re-labelling the UI for)
+      // each one was what made fast playback stutter.
+      if (!this._raf) {
+        this._raf = requestAnimationFrame(() => {
+          this._raf = 0;
+          if (!this.following || this.bufIndex < 0) return;
+          this._paintIndex(this.bufIndex);
+          const t = this.buffer[this.bufIndex]?.absTime;
+          if (t != null) this.opts.onFrame?.(t, this.frameCount);
+        });
+      }
     }
     // else: paused — the frame just sits buffered ahead of bufIndex until a step or resume reaches it
   }
 
-  /** Up to `n` consecutive frames centred on the current paused position, as PNG data URLs (oldest ->
-   * newest), for the AI frame enhancer (docs/SPEC.md section 7.8) — pulled straight from the decode buffer
-   * already sitting in memory, no new DVR session. Odd counts centre exactly on bufIndex; clamps to
-   * whatever's actually buffered around it rather than erroring near either edge of the window. */
-  grabFrames(n = 5) {
+  /** Up to `n` consecutive frames centred on the current paused position (oldest -> newest), for the AI
+   * frame enhancer (docs/SPEC.md section 7.8) — copies of what's already decoded in memory, no new DVR
+   * session. They're VideoFrame clones (cheap: they share the decoded picture), so nothing is encoded until
+   * the enhancer actually sends the ones you chose; the caller owns them and must close() them. Odd counts
+   * centre exactly on bufIndex; clamps to whatever's buffered near either edge. */
+  grabFrames(n = 11) {
     if (!this.buffer.length) return [];
     const half = Math.floor(n / 2);
     let start = clampInt(this.bufIndex - half, 0, this.buffer.length - 1);
-    let end = clampInt(start + n - 1, 0, this.buffer.length - 1);
+    const end = clampInt(start + n - 1, 0, this.buffer.length - 1);
     start = clampInt(end - n + 1, 0, this.buffer.length - 1);
-    const tmp = document.createElement('canvas');
-    const tctx = tmp.getContext('2d');
     const out = [];
-    for (let i = start; i <= end; i++) {
-      const { frame } = this.buffer[i];
-      if (tmp.width !== frame.displayWidth || tmp.height !== frame.displayHeight) {
-        tmp.width = frame.displayWidth; tmp.height = frame.displayHeight;
-      }
-      tctx.drawImage(frame, 0, 0, tmp.width, tmp.height);
-      out.push(tmp.toDataURL('image/png'));
-    }
+    for (let i = start; i <= end; i++) out.push(this.buffer[i].frame.clone());
+    out.pausedIndex = this.bufIndex - start; // which of these is the frame on screen (not always the middle at a buffer edge)
     return out;
   }
 
@@ -198,6 +239,7 @@ export class WCPlayer {
    * through this point); otherwise waits briefly for one more frame to arrive on the still-open
    * connection — never a fresh DVR session, unlike the old implementation. */
   async stepForward() {
+    this._playout = 0;
     this.following = false;
     if (this.bufIndex < this.buffer.length - 1) {
       this.bufIndex++;
@@ -226,6 +268,7 @@ export class WCPlayer {
   /** Previous frame. Instant when still within the buffered window (the common case); falls back to a
    * one-shot DVR fetch only once stepping back past the oldest frame still held in memory. */
   async stepBackward(beforeEpoch, channel) {
+    this._playout = 0;
     this.following = false;
     if (this.bufIndex > 0) {
       this.bufIndex--;
@@ -292,6 +335,7 @@ export class WCPlayer {
 
   /** Send a control message without reconnecting (seek within the open session, or change speed). */
   seek(iso, scale) {
+    this._playout = 0;
     this._clearBuffer();
     this.following = true;
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'seek', t: iso, scale }));
@@ -308,6 +352,8 @@ export class WCPlayer {
 
   destroy() {
     this._closed = true;
+    this._playout = 0;
+    if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; }
     this.disconnectSocket();
     if (this.decoder && this.decoder.state !== 'closed') { try { this.decoder.close(); } catch { /* already closed */ } }
     this._clearBuffer();

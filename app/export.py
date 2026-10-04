@@ -140,7 +140,9 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
     # dropped to keyframes-only the way many DVRs' visual fast-forward does), just compressed into 1/16th
     # the wall-clock time. This is the same scale value already relied on for playback's fast-scrub speed.
     EXPORT_SCALE = "16"
-    reader = psess.PlaybackReader(conn, ch["channel"], path, a_const, start_utc, tz, EXPORT_SCALE)
+    # Fastest the recorder's speed budget allows right now: 16x when nothing else is playing, slower (not
+    # refused) while someone is reviewing — see playback_session.SPEED_BUDGET.
+    reader = psess.PlaybackReader(conn, ch["channel"], path, a_const, start_utc, tz, EXPORT_SCALE, adaptive_speeds=("16", "8", "4", "2", "1"))
     reader.start()
 
     items = []
@@ -151,10 +153,15 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
         # (found by an outside review, not by testing: every export tried so far was short enough to miss
         # it) — never let this regress to a constant.
         deadline = time.time() + max(60.0, span / int(EXPORT_SCALE) * 3 + 60)
+        rescaled = False
         while time.time() < deadline:
-            item = reader.q.get(timeout=15)
+            item = reader.q.get(timeout=30)
             if item is None:
                 break
+            if not rescaled and not reader.waiting_for_slot:
+                # The speed actually granted (adaptive — maybe slower than 16x): size the deadline to it.
+                deadline = time.time() + max(60.0, span / psess.units(reader.speed) * 3 + 60)
+                rescaled = True
             if item[0] == "error":
                 raise RuntimeError(item[1])
             abs_t = item[0]
