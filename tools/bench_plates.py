@@ -74,3 +74,5 @@ for n in range(N):
     print(f"{T}  letters ~{th}px  " + "  ".join(f"{k.split(',')[0][0]}{'o' if 'orig' in k else 'e' if 'enh' in k else 'b'}={g}" for k, g in got.items()), flush=True)
 for k, (ex, ch) in score.items():
     print(f"{k:24s} exact {ex}/{N}  characters {ch / N * 100:.0f}%")
+sys.stdout.flush()
+os._exit(0)   # onnxruntime and torch together can abort while the interpreter tears down; the results are in
