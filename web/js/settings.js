@@ -244,7 +244,7 @@ export class SettingsView {
       <div class="laygrid">${layoutIds.map((id) => `<button data-o="layout:${id}" aria-pressed="${d.layout === id}">${layoutIcon(id, 44)}<span>${LAYOUTS[id].label}</span></button>`).join('')}</div>
       <p class="pane-note">The starting layout — change it any time from Live.</p>
       <div class="srows">${this.srow('Auto-rotate pages', 'Only when there are more cameras than fit on one page.',
-        `<select id="f-rot" data-b="display.rotate_seconds" data-t="int">${[[0, 'Off'], [5, 'Every 5 s'], [10, 'Every 10 s'], [15, 'Every 15 s'], [30, 'Every 30 s'], [60, 'Every minute']].map(([v, l]) => `<option value="${v}" ${+d.rotate_seconds === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}</div></section>
+        `<select id="f-rot" data-b="display.rotate_seconds" data-t="int">${[[0, 'Off'], [10, 'Every 10 s'], [15, 'Every 15 s'], [30, 'Every 30 s'], [60, 'Every minute']].map(([v, l]) => `<option value="${v}" ${+d.rotate_seconds === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}</div></section>
     <section class="sgroup"><h2>Streaming</h2>
       <div class="opts">${opt('quality', 'auto', 'Auto', 'HD for large tiles and Focus, SD for small tiles')}${opt('quality', 'sub', 'Always SD', 'Lowest bandwidth — best for big walls')}${opt('quality', 'main', 'Always HD', 'Sharpest, heavier on network and CPU')}</div>
       <p class="pane-note">HD streams are usually H.265. Converting to H.264 here plays smoothly everywhere; playing H.265 directly saves CPU but can stutter on some cameras, and doesn't work in Firefox.</p>
