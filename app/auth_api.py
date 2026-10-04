@@ -272,8 +272,7 @@ class PasswordReq(BaseModel):
 @router.post("/password")
 async def change_password(req: PasswordReq, request: Request):
     p = _account(request)
-    if await run_in_threadpool(auth.authenticate, p.username, req.current) is None:
-        raise HTTPException(400, "The current password isn't right")
+    await _recheck_password(p, req.current, request, "The current password isn't right")
     await run_in_threadpool(auth.set_password, p.user_id, req.new, except_hash=p.session_hash, ip=ip_of(request))
     return {"ok": True}
 
@@ -286,8 +285,7 @@ class ProfileReq(BaseModel):
 @router.patch("/profile")
 async def update_profile(req: ProfileReq, request: Request):
     p = _account(request)
-    if await run_in_threadpool(auth.authenticate, p.username, req.password) is None:
-        raise HTTPException(400, "The password isn't right")
+    await _recheck_password(p, req.password, request)
     u = await run_in_threadpool(auth.rename_user, p.user_id, req.username, actor=p.username, ip=ip_of(request))
     return {"ok": True, "username": u["username"]}
 
@@ -348,15 +346,25 @@ def totp_confirm(req: CodeReq, request: Request):
     return {"recovery_codes": codes}
 
 
-async def _recheck_password(p: Principal, password: str) -> None:
+async def _recheck_password(p: Principal, password: str, request: Request, msg="The password isn't right") -> None:
+    """Confirms the signed-in person's password before a sensitive change, under the sign-in limiter (same
+    keys as /login): a stolen session can't be used to guess the password any faster than the login form."""
+    ip = ip_of(request)
+    keys = (("ip", ip), ("user", p.username.strip().lower()))
+    if wait := auth.login_limiter.check(*keys):
+        secs = math.ceil(wait)
+        raise HTTPException(429, f"Too many attempts; try again in {secs} s", headers={"Retry-After": str(secs)})
     if await run_in_threadpool(auth.authenticate, p.username, password) is None:
-        raise HTTPException(400, "The password isn't right")
+        auth.login_limiter.fail(*keys)
+        auth.audit(p.username, "password.recheck_fail", p.username, ip)
+        raise HTTPException(400, msg)
+    auth.login_limiter.ok(*keys)
 
 
 @router.post("/totp/disable")
 async def totp_disable(req: PasswordOnlyReq, request: Request):
     p = _account(request)
-    await _recheck_password(p, req.password)
+    await _recheck_password(p, req.password, request)
     if p.role == "admin" and auth.get_config()["require_2fa_admin"]:
         raise HTTPException(409, "Two-factor authentication is required for admins")
     auth.totp_disable(p.user_id, ip=ip_of(request))
@@ -366,7 +374,7 @@ async def totp_disable(req: PasswordOnlyReq, request: Request):
 @router.post("/totp/recovery")
 async def totp_recovery(req: PasswordOnlyReq, request: Request):
     p = _account(request)
-    await _recheck_password(p, req.password)
+    await _recheck_password(p, req.password, request)
     if not p.user["has_totp"]:
         raise HTTPException(409, "Turn on two-factor authentication first")
     auth.audit(p.username, "totp.recovery_codes", p.username, ip_of(request))

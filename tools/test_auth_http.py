@@ -342,6 +342,11 @@ def profile_and_avatar(clients):
     check("rename: still signed in, under the new name", c.get("/api/auth/me").json()["user"]["username"] == "patricia")
     check("rename: signs in with the new name", client().post("/api/auth/login", json={"username": "patricia", "password": PW}).status_code == 200)
 
+    codes = [c.patch("/api/auth/profile", json={"username": "pat2", "password": "nope nope nope"}).status_code for _ in range(8)]
+    check("password re-checks are rate-limited like sign-in", codes[:5] == [400] * 5 and 429 in codes, codes)
+    with auth.login_limiter._l:   # every test client shares one address: don't leave it locked out
+        auth.login_limiter._m.clear()
+
     put = lambda body: c.put("/api/auth/avatar", json=body)
     check("avatar: bad colour refused", put({"kind": "initial", "color": "red"}).status_code == 422)
     r = put({"kind": "initial", "color": "#FF375F"})
