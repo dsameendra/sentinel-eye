@@ -459,7 +459,9 @@ export class LiveView {
   }
 
   _prewarm(page) {
-    if (this.chan0Displayed || (this._prewarmRestUntil || 0) > Date.now()) return;
+    // Not on a TV: adopting means moving playing <video> elements, which a TV browser renders black (see
+    // openFocus) — and its budget rarely has room for two pages anyway.
+    if (this.tvMode || this.chan0Displayed || (this._prewarmRestUntil || 0) > Date.now()) return;
     const key = this._pageKey(page);
     if (this._pre?.key === key) return;
     this._dropPrewarm();
@@ -640,7 +642,11 @@ export class LiveView {
     // of disposing it and opening a fresh one — no reconnect, no black frame, and the grid's other tiles
     // (and this one, once we hand it back) keep playing behind the overlay. If the camera isn't on the
     // current page (e.g. a direct link), there's no running tile to reuse — fall back to a fresh one.
-    const fromGrid = this.tiles.find((t) => t.cam.id === cam.id) || null;
+    // Not on a TV, though: a TV browser (Tizen's, at least) draws video on a hardware plane bound to where
+    // the <video> element sits, and moving a playing one leaves it black — reported: opening a camera from
+    // TV mode's grid showed black, while the next camera (a fresh player) played. There, Focus starts its
+    // own player and the grid's keeps running behind it.
+    const fromGrid = this.tvMode ? null : this.tiles.find((t) => t.cam.id === cam.id) || null;
     const tile = fromGrid || new Tile(cam, { kind, display: this.d, chrome: false,
       onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
       onKindFail: (t, k) => toast(`The ${k === 'main' ? 'HD' : 'SD'} stream could not be started.`, 'bad', 6000) });
@@ -696,7 +702,7 @@ export class LiveView {
     f.querySelector('.stage-host').append(hit);
     tile.enableZoom(hit, { dbl: true });   // single click does nothing (never pauses); double click/tap toggles zoom
     this.live.append(f);
-    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, slot, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
+    this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, keepWall: this.tvMode && !!this.wall, slot, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
     // Carry fullscreen across the swap (see the wasFullscreen comment above) — the old element's removal
     // above already dropped the browser out of fullscreen, so this is a fresh request, not a toggle.
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
@@ -884,7 +890,7 @@ export class LiveView {
     }
     fo.hud?.destroy();
     fo.el.remove();
-    if (!silent && !fromGrid) this.renderWall();   // the borrowed-tile case needs no rebuild — everything else kept running
+    if (!silent && !fromGrid && !fo.keepWall) this.renderWall();   // TV: the grid's own players never stopped   // the borrowed-tile case needs no rebuild — everything else kept running
   }
 
   // ---------------------------------------------------------------- live event badges
