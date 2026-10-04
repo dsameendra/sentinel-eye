@@ -107,7 +107,14 @@ So you know what to expect, and what to check:
 - `verify.html` checks the signature against the public key carried in the package. That proves nothing
   was changed after signing, but not *which* installation signed it: someone who alters a package can sign
   it again with their own key. To be sure it came from your installation, compare the public key shown under
-  *Details* with your own (`data/export_signing_key.pem`).
+  *Details* with your installation's own, which this prints from the project folder (in Docker, inside
+  `./run.sh shell`, with `python` in place of `.venv/bin/python3`):
+
+  ```sh
+  .venv/bin/python3 -c "import sys; sys.path.insert(0, 'app'); import export; print(export.public_key_hex())"
+  ```
+
+  (`data/export_signing_key.pem` is the *private* key — never share or copy it anywhere.)
 - The app itself serves plain HTTP. Browsers need HTTPS (or `localhost`) for Playback, and anything beyond
   your own network should only be reached through a reverse proxy or tunnel that terminates HTTPS — see
   the README's *Reaching it from the internet*.
