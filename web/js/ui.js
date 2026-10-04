@@ -210,22 +210,31 @@ const SHORTCUT_GROUPS = [
   { title: 'Live view — grid', rows: [
     [['1', '–', '9'], 'Open that camera'],
     [['←', '→'], 'Previous / next page'],
-    [['E'], 'Toggle arrange mode'],
+    [['E'], 'Arrange mode on / off'],
     [['F'], 'Full screen'],
     [['Esc'], 'Leave arrange mode'],
   ] },
-  { title: 'Focus view & Playback', rows: [
-    [['Space'], 'Play / pause (Playback)'],
-    [['←', '→'], 'Previous / next camera (Live)'],
-    [[',', '.'], 'Step one frame back / forward (Playback)'],
-    [['+', '–', '0'], 'Zoom in / out / reset (Live)'],
-    [['Shift', '1', '2', '3'], 'Back 5s / 10s / 30s (Playback)'],
-    [['Shift', '4', '5', '6'], 'Forward 5s / 10s / 30s (Playback)'],
-    [['S'], 'Snapshot (Live)'],
+  { title: 'Live view — focus', rows: [
+    [['←', '→'], 'Previous / next camera'],
+    [['+', '–', '0'], 'Zoom in / out / reset'],
+    [['S'], 'Snapshot'],
     [['B'], 'Bookmark this moment'],
-    [['H'], 'Toggle SD/HD (Live)'],
+    [['H'], 'Switch HD / SD'],
     [['F'], 'Full screen'],
-    [['Esc'], 'Reset zoom, then close'],
+    [['Esc'], 'Reset zoom, then back to the grid'],
+  ] },
+  { title: 'Instant replay', rows: [
+    [['Space'], 'Play / pause'],
+    [['Home'], 'Start over'],
+    [['Esc'], 'Back to live'],
+  ] },
+  { title: 'Playback', rows: [
+    [['Space'], 'Play / pause'],
+    [[',', '.'], 'One frame back / forward'],
+    [['Shift', '1', '2', '3'], 'Back 5 s / 10 s / 30 s'],
+    [['Shift', '4', '5', '6'], 'Forward 5 s / 10 s / 30 s'],
+    [['B'], 'Bookmark this moment'],
+    [['F'], 'Full screen'],
   ] },
 ];
 
@@ -239,7 +248,7 @@ export function shortcutsDialog() {
     <div class="row" style="justify-content:space-between;margin-bottom:4px"><h3 style="margin:0">${icon('layout')} Keyboard shortcuts</h3><button class="btn icon ghost" data-x="1" aria-label="Close">${icon('close')}</button></div>
     <p>Works on any Live or Playback screen.</p>
     <div class="shortcuts-grid">${SHORTCUT_GROUPS.map(group).join('')}</div>
-    <p class="hint" style="margin:10px 0 0">Overview (channel-zero) bookmarks every camera at once — there's no per-camera bind to show there.</p>
+    <p class="hint" style="margin:10px 0 0">On the Overview (Channel-zero), B bookmarks every camera at once.</p>
   </div></div>`;
   const done = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
   const onKey = (e) => { if (e.key === 'Escape' || e.key === '?') { e.stopPropagation(); done(); } else trapTab(e, root.querySelector('.dialog')); };

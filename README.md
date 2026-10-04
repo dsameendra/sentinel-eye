@@ -12,10 +12,10 @@ LAN and, when the recorder's proprietary "Stream Encryption" is turned on, decry
 was reverse-engineered from scratch — see `tools/NOTES.md`). Nothing about how you watch or review your
 cameras ever leaves your network.
 
-![Sentinel Eye's live grid — several camera tiles in a 1+7 layout, dark themed](docs/screenshots/live-grid.png)
+![Sentinel Eye's live view — eight cameras in a 1+7 layout, dark themed](docs/screenshots/live-grid.png)
 
-*(Screenshot uses generic placeholder scenes and camera names, not real footage — see [Installing as an
-app](#installing-as-an-app) for what it looks like installed on a phone or a TV.)*
+*(Every screenshot here shows synthetic scenes and invented camera names streamed from a local test
+instance — no real footage, places or people.)*
 
 ## Why
 
@@ -31,43 +31,49 @@ involved.
 ## Features
 
 ### Live view
-- Grid layouts from 1x1 up to 4x4, plus 1+5, 1+7 and 2+8 (one large tile, several small ones); multiple
-  pages when you have more cameras than fit on one screen, with auto-rotation between pages.
+- Grid layouts from 1×1 up to 4×4, plus 1+5, 1+7 and 2+8 (one large tile, several small ones); several
+  pages when you have more cameras than fit on one screen, with auto-rotation between them. The next page's
+  cameras connect a few seconds before each rotation, so it lands on live pictures — only when there's
+  headroom, and never at the expense of what's on screen.
 - Drag tiles to reorder them ("Arrange" mode); the order is saved and used everywhere else in the app.
-- Per-tile SD / HD / Auto quality (Auto uses HD only for large tiles, SD for small ones, to keep bandwidth
-  sane on a big wall of cameras).
-- A large "focus" view for any camera, with snapshot, full screen, and camera-to-camera navigation.
-- Zoom and pan on any tile or the large view — scroll wheel, trackpad pinch, touch pinch, mouse drag, or the
-  on-screen controls — without ever pausing the picture.
-- Instant replay: jump back up to a configurable window on any live camera without leaving the grid.
-- Live event badges (motion, line-crossing, tamper, video loss) painted directly onto the relevant tile.
-- **Channel-zero** (Settings → Channel-zero overview, on recorders that support it): the recorder's own single-stream
-  overview of every camera at once — the same picture a monitor plugged straight into it would show. A single
-  "Overview" toggle in the live view switches straight to it, full screen — off by default on a phone, tablet,
-  or laptop; TV mode always starts there, since a single low-bandwidth stream is exactly what a weak TV
-  browser wants. It has no recording of its own, so there's no instant replay for it, and bookmarking it
-  bookmarks every real camera at once instead.
-- **TV mode** (Settings → Display & layout): a bigger, remote-friendly layout for watching from a smart TV's browser
-  or just a bigger screen — larger text, arrow-key camera selection, page switching and an exit button while
-  full screen, and SD by default to keep a weaker TV browser smooth (HD is a real, working choice from the
-  same quality control, not just cosmetic). Defaults straight into Channel-zero's single-stream view when
-  your recorder offers it. Per-browser, so turning it on for the TV doesn't change anything on your phone or
-  laptop. More on this in [Installing as an app](#installing-as-an-app).
+- Auto / SD / HD streaming (Auto: HD for the large tile and the focus view, SD for small tiles, to keep a big
+  wall of cameras light), plus an HD/SD switch per camera.
+- A focus view for any camera: the tile grows to fill the screen and shrinks back home when you close it;
+  switch cameras with the arrows, take a snapshot, bookmark the moment, go full screen.
+- Zoom and pan on any tile, the focus view, or a Playback pane — scroll wheel, trackpad or touch pinch, drag,
+  or the on-screen controls, without ever pausing the picture. While zoomed, a minimap shows the whole
+  picture with the part on screen outlined; click or drag it to move there.
+- **Instant replay:** the last 15 seconds of any camera, full screen, with play/pause and start over — no
+  need to leave the live view.
+- Live event badges (motion, line-crossing, tamper, video loss) on the relevant tile, and a notification
+  with a thumbnail of the moment when something new happens.
+- **Channel-zero** (Settings → Channel-zero overview, on recorders that support it): the recorder's own
+  single-stream overview of every camera at once — the same picture a monitor plugged straight into it would
+  show. An **Overview** button in the live view switches to it full screen. It has no recording of its own,
+  so there's no instant replay for it, and bookmarking it bookmarks every real camera at once instead.
+- **TV mode** (Settings → Display & layout): a remote-friendly layout for leaving the cameras on a TV — see
+  [TV mode](#tv-mode) below.
+
+![The focus view: one camera filling the screen, with instant replay, playback, filters, snapshot and full screen along the bottom](docs/screenshots/focus.png)
 
 ### Playback and review
-- Review up to four cameras at once, frame-locked — the recorder's own hard limit on simultaneous playback
-  sessions, not a limit this project imposes.
-- A zoomable, scrollable timeline showing recorded coverage and events per camera, click-to-seek, and
-  frame-accurate stepping forward and backward.
-- Variable speed from 1/8x up to 16x, rewind macros, and a "select a range" tool for exporting exactly the
-  footage you need.
-- A multi-cut clipper: build a list of ranges from several points in the timeline, then export them all as
-  one batch.
-- Bookmarks and incident notes you can attach to a moment on any camera, searchable later.
+- Review up to four cameras at once, frame-locked. Speeds run from 1/8× to 16×, within the recorder's own
+  budget for fast playback (four cameras at 4×, two at 8×, one at 16× — faster choices than the cameras on
+  screen allow are greyed out rather than failing).
+- A zoomable, scrollable timeline with each camera's recorded coverage and events, click or drag to seek,
+  and frame-accurate stepping forward and backward.
+- A "select a range" tool for exporting exactly the footage you need, and a multi-cut clipper: build a list
+  of ranges from several points in the timeline, then export them all as one batch.
+- Bookmarks and incident notes on a moment, on one camera or several, searchable later.
+
+![Playback with two cameras side by side, the transport controls, and a timeline of motion, line-crossing and bookmark events](docs/screenshots/playback.png)
 
 ### Event search
-- Search motion, line-crossing, tamper and video-loss events (and your own bookmarks) across cameras and
-  date ranges, with thumbnail or list views and a quick in-page preview before committing to a full export.
+- Motion, line-crossing, intrusion, tamper and video-loss events (and your own bookmarks) across cameras and
+  date ranges, as thumbnails or a list, with a quick in-page preview before opening it in Playback or
+  exporting. Your last search comes back instantly when you return to it.
+
+![Event search: camera and event-type filters on the left, a grid of event thumbnails with their camera and time](docs/screenshots/events.png)
 
 ### Export
 - Every export is a stream copy of the original footage — no re-encoding, no quality loss.
@@ -83,41 +89,75 @@ local contrast, digital WDR (highlight rolloff for backlit scenes), single-scale
 correction, temporal rain/snow-streak reduction, chromatic-aberration correction, and auto white balance
 (corrects the color cast IR-lit night footage typically has). Every control is an independently adjustable,
 stackable slider — presets are just one-click starting points, including one tuned for grainy, color-cast
-IR night footage.
+IR night footage. A flashlight brightens just the spot under the pointer, and in Playback the filters can be
+limited to a region.
 
 ### AI frame enhancer
-From a single paused frame (or a short burst, aligned and fused first for noise reduction), a local
-Real-ESRGAN + GFPGAN pipeline produces the clearest, highest-resolution version of that moment it can —
-useful for faces and license plates. It runs entirely on this machine, never calls out to the cloud, and
-every output is explicitly labeled "ENHANCED" with the original frame always kept alongside it: the
-distinction between "what the sensor recorded" and "the AI's best reconstruction of it" is never blurred.
+From a paused frame in Playback — or up to 11 frames around it, aligned and fused first for less noise — a
+local Real-ESRGAN + GFPGAN pipeline produces the clearest, highest-resolution version of that moment it can,
+for faces and license plates. Select a region first and every output pixel goes to it. **Read text** reads
+plates and signs: draw a box around the text and turn it to match a slant, and the box is levelled, enlarged
+and read, with the patch it read from shown beside the result. It runs entirely on this machine and never
+calls out to the cloud, and every enhanced picture carries an **ENHANCED** label, with the original frame
+always kept alongside it: the distinction between "what the sensor recorded" and "the AI's best
+reconstruction of it" is never blurred.
+
+![The AI frame enhancer: a before/after wipe of a car, the ENHANCED label under the picture, and the plate read as CAB 4821 at 95% confidence](docs/screenshots/enhancer.png)
 
 ### Settings
 Recorder address and login, the encryption toggle and verification code, per-channel names/order/frame-rate
 overrides and custom RTSP paths, a "detect channels" scan (also reads the recorder's own camera names),
-theme and layout defaults, and live connection/engine status. With [sign-in](#sign-in-optional) on,
-Security holds accounts, paired TVs, sessions, network access and an activity log.
+theme, layout and streaming defaults, and live connection/engine status. With [sign-in](#sign-in-optional)
+on, Security holds accounts, paired TVs, sessions, network access and an activity log, and Account is where
+you change your password, two-factor, username and picture (your initial on a colour, a designed avatar, or
+a photo).
+
+![Settings: the Display & layout section, with theme, picture fit, TV mode, layouts and streaming choices](docs/screenshots/settings.png)
 
 ### Keyboard shortcuts
 
-Live view (grid):
+Press `?` on Live or Playback for this list in the app.
 
-| Key | Action | | Key | Action |
-|---|---|---|---|---|
-| `1`-`9` | Open that camera | | `E` | Toggle arrange mode |
-| `←` / `→` | Previous / next page | | `F` | Full screen |
-| `Esc` | Leave arrange mode | | | |
+**Live view — grid**
 
-Live view (large/focus view) and Playback:
+| Key | Action |
+|---|---|
+| `1` – `9` | Open that camera |
+| `←` / `→` | Previous / next page |
+| `E` | Arrange mode on / off |
+| `F` | Full screen |
+| `Esc` | Leave arrange mode |
 
-| Key | Action | | Key | Action |
-|---|---|---|---|
-| `Space` | Play / pause (Playback) | | `S` | Snapshot (Live) |
-| `←` / `→` | Previous / next camera (Live) | | `B` | Bookmark this moment |
-| `,` / `.` | Step one frame back / forward (Playback) | | `H` | Toggle SD/HD (Live) |
-| `+` / `-` / `0` | Zoom in / out / reset (Live) | | `F` | Full screen |
-| `Shift` + `1`/`2`/`3` | Back 5s / 10s / 30s (Playback) | | `Esc` | Reset zoom, then close |
-| `Shift` + `4`/`5`/`6` | Forward 5s / 10s / 30s (Playback) | | | |
+**Live view — focus**
+
+| Key | Action |
+|---|---|
+| `←` / `→` | Previous / next camera |
+| `+` / `-` / `0` | Zoom in / out / reset |
+| `S` | Snapshot |
+| `B` | Bookmark this moment |
+| `H` | Switch HD / SD |
+| `F` | Full screen |
+| `Esc` | Reset zoom, then back to the grid |
+
+**Instant replay**
+
+| Key | Action |
+|---|---|
+| `Space` | Play / pause |
+| `Home` | Start over |
+| `Esc` | Back to live |
+
+**Playback**
+
+| Key | Action |
+|---|---|
+| `Space` | Play / pause |
+| `,` / `.` | One frame back / forward |
+| `Shift` + `1` / `2` / `3` | Back 5 s / 10 s / 30 s |
+| `Shift` + `4` / `5` / `6` | Forward 5 s / 10 s / 30 s |
+| `B` | Bookmark this moment |
+| `F` | Full screen |
 
 ## How it works
 
@@ -147,8 +187,8 @@ each camera directly. A few key files:
 | `app/hwaccel.py` | Picks the H.264 encoder for the live transcode (NVENC, VA-API, V4L2, VideoToolbox, or CPU) |
 | `web/` | Plain ES modules, no build step, no framework |
 
-SD streams stay connected at all times (needed for event/coverage indexing); HD streams start only when
-actually viewed. HD is H.265 on the wire, transcoded to H.264 on this machine so it plays smoothly in every
+SD streams stay connected at all times, so the grid starts instantly; HD streams start only when actually
+viewed. HD is H.265 on the wire, transcoded to H.264 on this machine so it plays smoothly in every
 browser — playing the original H.265 directly is an opt-in setting for lower CPU use.
 
 ## Running it
@@ -364,37 +404,41 @@ install mechanism:
 It opens full-screen with its own icon and no address bar, and still talks directly to your own Mac over
 your network — installing it changes nothing about how or where data moves.
 
-<p align="center"><img src="docs/screenshots/mobile-live.png" width="360" alt="Sentinel Eye installed on a phone, showing the live grid in a stacked mobile layout"></p>
+<p align="center"><img src="docs/screenshots/mobile-live.png" width="320" alt="Sentinel Eye on a phone: the live view as a two-column grid with a tab bar for Live, Playback, Events and Settings"></p>
 
 ### Channel-zero: the recorder's own overview
 
 If your recorder supports it, Settings → **Channel-zero overview** turns on a single stream showing the
 recorder's own multi-camera layout — the same picture a monitor plugged straight into it would show, at
 whatever resolution the recorder itself encodes it at (confirmed directly against a real 8-channel NVR:
-704×576, distinct from any individual camera's own main or sub stream). Once it's on, a single **Overview**
-toggle appears in the live view's toolbar — off by default, so enabling it on the recorder doesn't suddenly
-change what every device watching it is looking at. One click switches straight to Channel-zero filling the
-whole screen by itself (the button becomes **Grid** to switch back); it's never a tile mixed in among your
-real cameras. It isn't a real recorded channel, so there's no instant replay for it, and bookmarking it
+704×576, distinct from any individual camera's own main or sub stream). Once it's on, an **Overview** button
+appears in the live view's bar. One click switches straight to Channel-zero filling the whole screen by
+itself (the button becomes **Camera grid** to switch back); it's never a tile mixed in among your real
+cameras. It isn't a real recorded channel, so there's no instant replay for it, and bookmarking it
 bookmarks every real camera at once instead — the closest honest equivalent to "this moment," since it has
 no timeline of its own to find a bookmark on later.
 
 ### TV mode
 
-Settings → Display & layout → **TV mode** switches to a bigger, remote-friendly layout for watching on a smart TV's
-browser (or just a bigger screen): larger text and camera names, arrow-key camera selection instead of a
-mouse, and SD by default — most smart TV browsers (this was built and tested against Samsung's Tizen
-browser) are far less capable than a phone or laptop and can lag under several simultaneous HD streams. HD
-is a real, working choice one click away from the same quality control, not just a label. It's a per-browser
-setting: turning it on for the TV doesn't change anything on your phone or laptop.
+Settings → Display & layout → **TV mode** turns a browser into a screen you leave the cameras on — built and
+tested against a Samsung TV's Tizen browser, and meant to work on any TV browser, remote or keyboard:
 
-Turning it on offers to jump straight into it: if your recorder has Channel-zero, that confirmation also
-turns it on (for every device watching this recorder, not just the one you're on — the dialog says so) and
-takes you straight to it, full screen. The same single Overview/Grid toggle switches to the full camera grid
-and back; while full screen, a small floating cluster (hidden until you move the mouse or remote)
-handles paging and exiting.
+- **It starts on the Overview** (Channel-zero, when the recorder has it): one light stream, full screen,
+  with a small clock. After five idle minutes on the camera grid it goes back there on its own, and it keeps
+  the screen awake.
+- **Dark by default**, so the picture is the brightest thing in the room; Light and Auto are a tap away
+  (TV appearance, this TV only).
+- **Made for a remote:** big buttons in the header (Overview / Camera grid, layout, full screen, settings)
+  and page arrows on screen, so a TV browser's pointer remote works as well as a D-pad. Arrow keys move
+  between controls and cameras, OK opens one, Back goes back, and the remote's play/pause key switches
+  between the Overview and the grid. The header slides away while you watch and comes back on any key or
+  pointer movement.
+- **Light on the TV:** SD by default (HD is one switch away) and a 1×1 grid unless you pick another layout
+  on the TV itself — most TV browsers are far less capable than a phone or laptop.
 
-![Sentinel Eye in TV mode — the same live grid with larger text and controls for viewing from a distance](docs/screenshots/tv-mode.png)
+It's a per-browser setting: turning it on for the TV changes nothing on your phone or laptop.
+
+![Sentinel Eye in TV mode: the recorder's own overview of all eight cameras, full screen, with the header's Camera grid, Full screen and Settings buttons](docs/screenshots/tv-mode.png)
 
 Results on an actual TV browser vary with its hardware and how current the browser is — treat any given
 smart TV as something to test, not a guaranteed target.
@@ -417,6 +461,10 @@ anything on it. Sign-in has its own suites, no recorder needed:
 .venv/bin/python3 tools/test_auth_core.py    # accounts, 2FA, sessions, pairing, trusted networks, CLI
 .venv/bin/python3 tools/test_auth_http.py    # every route and WebSocket per role, login flows
 ```
+
+With the AI enhancer installed, `tools/bench_ocr.py` measures Read text on 72 synthetic plates and signs
+(angle, size, blur, polarity, JPEG): about 94% read exactly from an operator's box, against 17% for the
+whole picture.
 
 ## Project status
 
