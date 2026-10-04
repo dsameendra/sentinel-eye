@@ -364,29 +364,17 @@ export class LiveView {
     w.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
     w.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
     w.style.setProperty('--fit', this.d.fit);
+    // Tiles for this page that were started ahead of time (auto-rotate's prewarm) are moved in already
+    // playing; anything else starts fresh.
+    const warm = this._takePrewarm(this._pageKey(this.page));
     w.innerHTML = '';
     layout.cells.forEach((cell, i) => {
       const cam = cams[this.page * slots + i];
       let el;
       if (cam) {
-        // Channel-zero isn't a real DVR channel with its own recording/event timeline, so instant replay
-        // (keyed to a real channel number server-side) doesn't apply to it — the button's hidden outright
-        // (tile.js's noReplay), not just wired up to fail. Bookmarking it instead applies to every real
-        // camera at once (bookmarkAllCams) — the closest honest equivalent to "this moment," since
-        // channel-zero itself has no timeline of its own to find a bookmark on later.
-        const chan0 = isChan0(cam);
-        const t = new Tile(cam, {
-          kind: this.qualityFor(cell, cam), display: this.d, chrome: true, tv: this.tvMode,
-          noReplay: chan0, fixedQuality: chan0, bookmarkLabel: chan0 ? 'Bookmark this moment on every camera' : undefined,
-          zoomInit: this.zoomMem[cam.id],
-          onZoom: (id, st) => { if (st.s > 1.001) this.zoomMem[id] = st; else delete this.zoomMem[id]; },
-          onFocus: () => this.ctx.go(`#/live/${cam.id}`),
-          onUpdate: () => this.countLive(),
-          onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
-          onKindFail: (tile, kind) => toast(`${cam.name || 'Camera'}: the ${kind === 'main' ? 'HD' : 'SD'} stream could not be started. Keeping the current stream.`, 'bad', 6000),
-          onReplay: chan0 ? null : () => this.openReplay(cam),
-          onBookmark: chan0 ? () => this.bookmarkAllCams() : () => this.bookmarkNow(cam),
-        });
+        const t = warm?.get(cam.id) || this._makeTile(cam, cell);
+        warm?.delete(cam.id);
+        t.opts.onUpdate = () => this.countLive();
         t.cellIndex = i;
         this.tiles.push(t);
         el = t.el;
@@ -400,11 +388,106 @@ export class LiveView {
       el.style.gridRow = `${cell.r} / span ${cell.h}`;
       w.append(el);
     });
+    warm?.forEach((t) => t.dispose());   // started but not needed after all
     this.liveCount = 0; this.wallSince = Date.now();
     if (this.tvMode) {
       this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, this.tvIndex));
       this.tiles[this.tvIndex]?.el.querySelector('.hit')?.focus({ preventScroll: true });
     }
+  }
+
+  _makeTile(cam, cell) {
+    // Channel-zero isn't a real DVR channel with its own recording/event timeline, so instant replay
+    // (keyed to a real channel number server-side) doesn't apply to it — the button's hidden outright
+    // (tile.js's noReplay), not just wired up to fail. Bookmarking it instead applies to every real
+    // camera at once (bookmarkAllCams) — the closest honest equivalent to "this moment," since
+    // channel-zero itself has no timeline of its own to find a bookmark on later.
+    const chan0 = isChan0(cam);
+    return new Tile(cam, {
+      kind: this.qualityFor(cell, cam), display: this.d, chrome: true, tv: this.tvMode,
+      noReplay: chan0, fixedQuality: chan0, bookmarkLabel: chan0 ? 'Bookmark this moment on every camera' : undefined,
+      zoomInit: this.zoomMem[cam.id],
+      onZoom: (id, st) => { if (st.s > 1.001) this.zoomMem[id] = st; else delete this.zoomMem[id]; },
+      onFocus: () => this.ctx.go(`#/live/${cam.id}`),
+      onUpdate: () => this.countLive(),
+      onHevcFallback: () => toast('This browser could not play H.265, so HD now uses a converted H.264 stream.', 'ok', 7000),
+      onKindFail: (tile, kind) => toast(`${cam.name || 'Camera'}: the ${kind === 'main' ? 'HD' : 'SD'} stream could not be started. Keeping the current stream.`, 'bad', 6000),
+      onReplay: chan0 ? null : () => this.openReplay(cam),
+      onBookmark: chan0 ? () => this.bookmarkAllCams() : () => this.bookmarkNow(cam),
+    });
+  }
+
+  // ---------------------------------------------------------------- auto-rotate prewarm
+  // So a rotation lands on cameras that are already playing instead of "Connecting…": a few seconds
+  // before it, the next page's tiles are started in an invisible layer, and at the switch they're moved
+  // into the grid (a moved player keeps its connection — the same thing Focus does with a grid tile).
+  // Only with headroom, and never at the expense of what's on screen:
+  //  - every camera on screen must already be live (nothing still connecting or stalled);
+  //  - the streams on screen plus the next page's fit this device's budget (SD 1, HD 3; TVs and phones
+  //    get far less than a computer);
+  //  - if any camera on screen stops being live while the next page is warming up, the warm-up is
+  //    dropped at once, and prewarming rests for two minutes.
+  _pageKey(page) {
+    const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
+    return JSON.stringify([this.effLayout(), this.effQuality(), page, layout.cells.map((c, i) => cams[page * slots + i]?.id || null)]);
+  }
+
+  _takePrewarm(key) {
+    const pre = this._pre;
+    this._pre = null;
+    if (!pre) return null;
+    pre.host.remove();
+    if (pre.key === key) return pre.tiles;
+    pre.tiles.forEach((t) => t.dispose());
+    return null;
+  }
+
+  _dropPrewarm(rest = false) {
+    if (!this._pre) return;
+    this._pre.tiles.forEach((t) => t.dispose());
+    this._pre.host.remove();
+    this._pre = null;
+    if (rest) this._prewarmRestUntil = Date.now() + 120000;
+  }
+
+  /** Stream budget for this device, in SD-stream units. */
+  _streamBudget() {
+    const mem = navigator.deviceMemory || 8, cores = navigator.hardwareConcurrency || 4;
+    if (this.tvMode) return 4;
+    if (matchMedia('(max-width: 900px)').matches || mem <= 2) return 8;
+    return mem >= 8 && cores >= 8 ? 24 : 14;
+  }
+
+  _prewarm(page) {
+    if (this.chan0Displayed || (this._prewarmRestUntil || 0) > Date.now()) return;
+    const key = this._pageKey(page);
+    if (this._pre?.key === key) return;
+    this._dropPrewarm();
+    // Headroom: everything on screen is live, and on-screen plus next-page streams fit the budget.
+    if (!this.tiles.length || this.tiles.some((t) => t.state !== 'live')) return;
+    const layout = LAYOUTS[this.effLayout()], slots = layout.cells.length, cams = this.cams();
+    const cost = (kind) => (kind === 'main' ? 3 : 1);
+    const next = layout.cells.map((cell, i) => ({ cell, cam: cams[page * slots + i] })).filter((x) => x.cam && !this.tiles.some((t) => t.cam.id === x.cam.id));
+    const load = this.tiles.reduce((n, t) => n + cost(t.kind), 0) + next.reduce((n, x) => n + cost(this.qualityFor(x.cell, x.cam)), 0);
+    if (!next.length || load > this._streamBudget()) return;
+    const host = document.createElement('div');
+    host.className = 'prewarm';
+    host.setAttribute('aria-hidden', 'true');
+    host.inert = true;
+    const tiles = new Map();
+    for (const { cell, cam } of next) {
+      const t = this._makeTile(cam, cell);
+      t.opts.onUpdate = () => {};
+      tiles.set(cam.id, t);
+      host.append(t.el);
+    }
+    this.live.append(host);
+    this._pre = { key, page, tiles, host };
+  }
+
+  /** While the next page warms up, anything on screen faltering cancels it (and rests prewarming). */
+  _checkPrewarm() {
+    if (this._pre && this.tiles.some((t) => t.state !== 'live')) this._dropPrewarm(true);
   }
 
   /** Channel-zero's own Overview mode — just that one stream, filling the wall — no grid, no per-camera
@@ -492,8 +575,13 @@ export class LiveView {
 
   rotate() {
     const sec = this.d.rotate_seconds;
-    if (!sec || !this.rotating || this.edit || this.focus || this.pages() < 2 || document.hidden) return;
-    if (Date.now() - this.rotSince >= sec * 1000) this.goPage(this.page + 1);
+    if (!sec || !this.rotating || this.edit || this.focus || this.pages() < 2 || document.hidden) { this._dropPrewarm(); return; }
+    const left = sec * 1000 - (Date.now() - this.rotSince);
+    if (left <= 0) { this.goPage(this.page + 1); return; }
+    this._checkPrewarm();
+    // Start the next page early enough to connect (a couple of seconds), but not so early that two pages
+    // run side by side for long: 3.5 s ahead, or 60% of a short interval.
+    if (left <= Math.min(3500, sec * 600)) this._prewarm((this.page + 1) % this.pages());
   }
 
   bindDrag(el, id) {
@@ -1168,6 +1256,7 @@ export class LiveView {
   }
 
   destroy() {
+    this._dropPrewarm();
     this.disposeTiles();
     this.focus?.tile.dispose();
     this.focus?.hud?.destroy();

@@ -345,6 +345,10 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 
 /* ---------- live view ---------- */
 .liveview { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; background: #000; }
+/* Auto-rotate's next page, connecting ahead of time (LiveView._prewarm): laid out at real tile size so the
+   players decode normally, but invisible and out of reach until it's moved into the grid. */
+.prewarm { position: absolute; inset: 0; opacity: 0; pointer-events: none; overflow: hidden; contain: strict; }
+.prewarm .tile { position: absolute; inset: 0; }
 :root[data-theme="light"] .liveview { background: var(--bg); }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .liveview { background: var(--bg); } }
 .live-bar { flex: none; }
