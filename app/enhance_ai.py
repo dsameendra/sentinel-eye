@@ -466,6 +466,17 @@ _plate_rec = None          # None = not tried yet, False = not installed
 _plate_lock = threading.Lock()
 
 
+def _trust_certifi():
+    """Model weights download over HTTPS with Python's urllib, and a python.org build ships with no CA
+    bundle configured: point it at certifi's (run.sh does the same for the server it starts — this covers
+    one started any other way). Leaves an explicit SSL_CERT_FILE alone."""
+    try:
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    except ModuleNotFoundError:
+        pass
+
+
 def _plate_reader():
     global _plate_rec
     with _plate_lock:
@@ -475,11 +486,7 @@ def _plate_reader():
             except ModuleNotFoundError:
                 _plate_rec = False
                 return None
-            try:
-                import certifi
-                os.environ.setdefault("SSL_CERT_FILE", certifi.where())   # python.org builds: see run.sh native_env
-            except ModuleNotFoundError:
-                pass
+            _trust_certifi()
             try:
                 _plate_rec = LicensePlateRecognizer(PLATE_MODEL, device="cpu")
             except Exception as e:   # first use offline, say: read with Tesseract now, try again next time
@@ -664,6 +671,7 @@ def _load_models(progress=None):
             return
         if progress:
             progress("Loading models (first use downloads ~700MB, cached after)…")
+        _trust_certifi()
         import torch
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
@@ -732,6 +740,7 @@ def _load_models_upsampler_only(progress=None):
             return
         if progress:
             progress("Loading models (first use downloads ~700MB, cached after)…")
+        _trust_certifi()
         import torch
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
