@@ -395,6 +395,8 @@ viewer's copy of the settings doesn't include the recorder's address or login.
 Accounts, sessions and the activity log live in `data/auth.db` (passwords as scrypt hashes, session tokens
 only as hashes); `./run.sh backup` includes it.
 
+How it's protected, what's in scope, and how to report a vulnerability privately: [SECURITY.md](SECURITY.md).
+
 ## Installing as an app
 
 Sentinel Eye installs as a standalone app on iPhone, iPad, and Mac — no App Store, just the browser's own
