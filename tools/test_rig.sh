@@ -27,7 +27,9 @@ json.dump(dict(connection=dict(host="127.0.0.1",rtsp_port=8654,http_port=80,user
 PY
   (SENTINEL_DATA=$RIG/data SENTINEL_API_PORT=1994 SENTINEL_RTSP_PORT=8664 SENTINEL_WEBRTC_PORT=8665 \
     nohup .venv/bin/uvicorn --app-dir app server:app --host 127.0.0.1 --port 8081 > $RIG/app.log 2>&1 &)
-  sleep 6; echo "rig up: http://127.0.0.1:8081";;
+  # Up when it answers, not after a guess: right after a stop the old ports can still be closing.
+  for _ in {1..30}; do curl -fs -o /dev/null http://127.0.0.1:8081/ && { echo "rig up: http://127.0.0.1:8081"; exit 0; }; sleep 1; done
+  echo "rig failed to start — $RIG/app.log:" >&2; tail -20 $RIG/app.log >&2; exit 1;;
 stop)
   pkill -f "[u]vicorn --app-dir app server:app --host 127.0.0.1 --port 8081"; pkill -f "[g]o2rtc -config $RIG"
   pkill -f "[b]in/go2rtc -config $RIG"; true;;

@@ -50,7 +50,8 @@ async def main():
 
         await layout("1x1")
         pager = await b.js("document.querySelector('.pager-n')?.textContent")
-        check("1x1: 3 pages", pager and pager.strip() == "1 / 3", pager)
+        ncams = sum(1 for c in api("/api/settings")["channels"] if c["enabled"])   # however many the rig has
+        check(f"1x1: one page per camera ({ncams})", pager and pager.strip() == f"1 / {ncams}", pager)
         nm1 = await b.js(NAMES)
         await b.js("document.querySelector('[data-a=next]').click()"); await asyncio.sleep(0.6)
         nm2 = await b.js(NAMES)
@@ -68,7 +69,8 @@ async def main():
         await b.js(f"({DRAG})('{before[0]}','{before[2]}')")
         await asyncio.sleep(1.2)
         after = api("/api/settings")["display"]["order"]
-        check("drag reorders and saves", after == [before[1], before[2], before[0]], f"{before} -> {after}")
+        # The first camera moves onto the third's cell; everything after it keeps its place.
+        check("drag reorders and saves", after == [before[1], before[2], before[0]] + before[3:], f"{before} -> {after}")
         await b.js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))")
         check("Esc leaves arrange mode", not await b.js("document.querySelector('.wall').classList.contains('editing')"))
         api("/api/display", "PUT", {**api("/api/settings")["display"], "order": before})   # restore
