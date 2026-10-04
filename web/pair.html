@@ -12,10 +12,12 @@
 <link rel="apple-touch-icon" href="icons/app-icon-apple-touch.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Sentinel Eye">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<!-- Edge to edge under the status bar; #statusbar paints that strip solid in the screen's bar colour. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>try { if (localStorage.getItem('sentinel-eye-tv-mode') === '1') { document.documentElement.classList.add('tv-mode'); var tt = localStorage.getItem('sentinel-eye-tv-theme') || 'dark'; if (tt !== 'auto') document.documentElement.dataset.theme = tt; } } catch (e) { /* private mode */ }</script>
 </head>
 <body>
+<div id="statusbar" aria-hidden="true"></div>
 <main class="auth-page"><div class="auth-card" id="card" aria-live="polite"></div></main>
 <div id="toasts" role="status" aria-live="polite"></div>
 <script type="module" src="js/pair.js"></script>

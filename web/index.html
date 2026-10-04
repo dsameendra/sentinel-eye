@@ -14,7 +14,7 @@
      looks like; sw.js (registered from main.js) is what makes Chrome/Edge actually consider it installable
      at all, not just Safari's older (manifest-independent) Add-to-Home-Screen/Add-to-Dock mechanism. -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0b0e13">
+<meta name="theme-color" content="#161618">
 <link rel="apple-touch-icon" href="icons/app-icon-apple-touch.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Sentinel Eye">
@@ -25,9 +25,11 @@
      strip reported on iPad after adding to the Home Screen. Opaque "black" avoids it entirely and blends in
      since our topbar is already near-black; true fullscreen video views are unaffected (separate API/state,
      still handled by the :fullscreen safe-area rules). -->
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<!-- Edge to edge under the status bar; #statusbar paints that strip solid in the screen's bar colour. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body>
+<div id="statusbar" aria-hidden="true"></div>
 <div id="app"></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="modal-root"></div>

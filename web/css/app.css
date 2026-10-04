@@ -70,6 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
+  --statusbar: #161618;   /* --glass-fill over --bg, solid: the bars' own colour, for the strip behind the status bar */
   --glass-border: rgba(255, 255, 255, .1); --glass-highlight: rgba(255, 255, 255, .06);
   /* Timeline (timeline.js): event-kind and per-camera-lane colours. Qualitative/categorical, not semantic
    * state, so they intentionally don't get separate light-theme values (their job is telling lanes/kinds
@@ -122,7 +123,7 @@
   --warn: #b35309; --danger: #d72323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14);
   --shadow-float: 0 14px 32px -6px rgba(16, 24, 40, .22), 0 2px 10px rgba(16, 24, 40, .14);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .08); --shadow-2: var(--shadow); --shadow-3: 0 24px 64px -8px rgba(0, 0, 0, .16);
-  --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88);
+  --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88); --statusbar: #fbfbfc;
   --glass-border: rgba(0, 0, 0, .07); --glass-highlight: rgba(255, 255, 255, .5); --tl-rec: #e3e3e8; --ev-bookmark: #6e6e73; }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) { color-scheme: light; --bg: #f2f2f5; --panel: #fff; --panel-2: #f2f2f5; --line: rgba(0, 0, 0, .08); --line-2: #e3e3e8;
@@ -134,7 +135,7 @@
     --warn: #b35309; --danger: #d72323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14);
     --shadow-float: 0 14px 32px -6px rgba(16, 24, 40, .22), 0 2px 10px rgba(16, 24, 40, .14);
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .08); --shadow-2: var(--shadow); --shadow-3: 0 24px 64px -8px rgba(0, 0, 0, .16);
-    --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88);
+    --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88); --statusbar: #fbfbfc;
     --glass-border: rgba(0, 0, 0, .07); --glass-highlight: rgba(255, 255, 255, .5); --tl-rec: #e3e3e8; --ev-bookmark: #6e6e73; }
 }
 @media (prefers-reduced-motion: reduce) { :root { --dur-instant: 0s; --dur-fast: 0s; --dur-base: 0s; --dur-slow: 0s; --dur-chrome-out: 0s; --dur-chrome-in: 0s; } }
@@ -154,7 +155,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    the global cluster on the right; every other screen leads with a back chevron. Glass — see the guardrail
    rules near TV mode for the no-blur/reduced-transparency fallbacks. */
 .topbar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); position: relative; z-index: 10; }
-.topbar.big { height: auto; min-height: 72px; padding-top: 14px; padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
+.topbar.big { height: auto; min-height: calc(72px + env(safe-area-inset-top)); padding-top: calc(14px + env(safe-area-inset-top)); padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
 .bar-back { margin-left: -8px; }
 .bar-brand { display: grid; place-items: center; }
 .bar-title { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
@@ -814,7 +815,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
    edges with no way to scroll to it, permanently hiding whatever was below the fold, including the actual
    submit button. Confirmed directly: the Export dialog's own "Export" button sat ~450px past the viewport,
    unreachable, on a 375x667 screen. */
-.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: max(16px, calc(env(safe-area-inset-top) + 8px)) max(16px, env(safe-area-inset-right)) max(16px, calc(env(safe-area-inset-bottom) + 8px)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
 .dialog { width: min(440px, 100%); padding: 24px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
 .dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 20px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
@@ -1347,7 +1348,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .ev-row { flex-wrap: wrap; row-gap: 4px; }
   .ev-row b { min-width: 0; }
 }
-.evp-scrim { padding: 16px; }
+.evp-scrim { padding: max(16px, calc(env(safe-area-inset-top) + 8px)) 16px max(16px, calc(env(safe-area-inset-bottom) + 8px)); }
 .evp-dialog { width: min(820px, 100%); max-height: 90vh; display: flex; flex-direction: column; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); overflow: hidden; }
 .evp-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .evp-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; font-weight: 600; }
@@ -1360,6 +1361,16 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .evp-bottom .btn, .evp-bottom .hint { flex: none; }
 
 /* ---------- mobile & touch ---------- */
+/* The strip behind the status bar (installed app on iPhone/iPad, which draws edge to edge — status bar style
+   black-translucent). It's solid, in the colour of the screen's own bar, and sits above everything: iOS blurs
+   whatever is behind the clock, so the bars' see-through glass showed as a blurred band there, and a
+   full-screen layer with a dark background as a black one. Solid, the status bar simply continues the bar:
+   main.js sets --statusbar-now to the colour actually shown just below it (glass composited, a solid
+   large-title bar, Focus's black). Dimmed with the page under a dialog. 0 px tall everywhere else. */
+#statusbar { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); z-index: 2147483000; background: var(--statusbar-now, var(--statusbar)); pointer-events: none; }
+html:has(.auth-page) #statusbar { background: var(--bg); }
+html:has(#modal-root .scrim) #statusbar { background: color-mix(in srgb, var(--statusbar-now, var(--statusbar)) 45%, #000); }   /* under --scrim (55% black) */
+html .auth-page { padding-top: max(24px, calc(env(safe-area-inset-top) + 12px)); padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px)); }
 /* Safe-area insets: matters once this is added to a phone's home screen (standalone display), or on a
    notched phone in landscape — harmless everywhere else since the env() vars are 0 on unsupported/normal
    browser-chrome contexts. Layered onto the existing fixed sizes, not replacing them. */
@@ -1878,7 +1889,7 @@ button.acct-av:active { transform: scale(.97); }
 /* Narrow windows and iPad portrait: a bar's context controls take a second, swipeable line rather than
    squeezing the title (Playback's date stepper and camera chips, Events' search). */
 @media (min-width: 641px) and (max-width: 900px) {
-  .topbar.appbar:not(.live) { flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+  .topbar.appbar:not(.live) { flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: 10px; }
   .topbar.appbar:not(.live) .bar-ctx { order: 10; flex: 1 0 100%; overflow-x: auto; scrollbar-width: none; }
   .topbar.appbar:not(.live) .bar-ctx::-webkit-scrollbar { display: none; }
 }
