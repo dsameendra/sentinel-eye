@@ -306,6 +306,36 @@ def _region_patch(gray, region):
     return gray[y0:y1, x0:x1]
 
 
+def _slant(bw):
+    """How far the letters lean, as a horizontal shear (x shift per row, relative to the middle row).
+    Levelling the box fixes the line's tilt, but a plate seen from the side also has every letter leaning,
+    like italics, and Tesseract reads upright text. Found the classic way: shear the ink by each candidate
+    amount and keep the one whose column profile is sharpest — upright strokes stack into tall, narrow
+    columns."""
+    import cv2
+    import numpy as np
+    ink = (bw < 128).astype(np.float32)
+    h, w = ink.shape
+    best, best_s = -1.0, 0.0
+    for sh in np.arange(-0.6, 0.601, 0.04):
+        M = np.float32([[1, sh, -sh * h / 2], [0, 1, 0]])
+        col = cv2.warpAffine(ink, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=0).sum(0)
+        score = float((col * col).sum())
+        if score > best:
+            best, best_s = score, float(sh)
+    return best_s
+
+
+def _unslant(img, sh):
+    """Shear `img` by `sh` (see _slant), on a canvas wide enough to keep every letter, white around it."""
+    import cv2
+    import numpy as np
+    h, w = img.shape[:2]
+    extra = int(abs(sh) * h / 2) + 2
+    M = np.float32([[1, sh, -sh * h / 2 + extra], [0, 1, 0]])
+    return cv2.warpAffine(img, M, (w + 2 * extra, h), flags=cv2.INTER_CUBIC, borderValue=255)
+
+
 def _ocr_line_variants(patch, target_h=110, plate=False):
     """Tesseract reads text best at roughly 30-60 px cap height, dark on light, with a clean margin — and
     reads badly far above that as well as below (an enhanced 4x result can put a plate's letters at 120 px+).
@@ -361,6 +391,10 @@ def _ocr_line_variants(patch, target_h=110, plate=False):
             # The box is levelled already, so the plate is upright: its light area's bounds are inside its
             # printed border, which the crop leaves out.
             out += [("plate-bw", pad(bw[y:y + h2, x:x + w2])), ("plate-gray", pad(gray[y:y + h2, x:x + w2]))]
+    # Leaning letters: the same variants straightened, when they lean noticeably.
+    sh = _slant(bw)
+    if abs(sh) >= 0.08:
+        out += [(f"{name}-upright", _unslant(img, sh)) for name, img in out]
     return out, gray
 
 
@@ -627,10 +661,15 @@ def _load_models_upsampler_only(progress=None):
 
 def _classical_sharpen(bgr, strong=False):
     """Non-AI legibility pass for plates/text and the no-face-found fallback (spec section 2/6): a levels-
-    style contrast stretch, CLAHE local contrast, and an unsharp mask. Makes real detail more legible;
-    invents nothing — every step here is a deterministic per-pixel remap, not a learned model. `strong` (used
-    for plate mode specifically) pushes CLAHE and the unsharp amount further, since there's no face/skin
-    region here to worry about oversharpening into ringing artifacts — legibility is the only goal."""
+    style contrast stretch, CLAHE local contrast, and a halo-free sharpen. Makes real detail more legible;
+    invents nothing — every step is a deterministic per-pixel remap, not a learned model.
+
+    Runs on the 4x-upscaled picture, which shaped two choices (found on a real plate, whose letters came out
+    hollow — dark outlines round a light middle — with a light halo outside, and which OCR then misread):
+    CLAHE's tiles are sized to the picture, not a fixed 8x8 grid (a tile small next to a thick stroke
+    brightens the stroke's middle — that was the hollowing); and the sharpen is clamped to the range of each
+    pixel's own neighbourhood before sharpening, so edges get crisper without overshooting into a halo.
+    `strong` (plate mode) sharpens a little more — legibility is the only goal there."""
     import cv2
     # Levels: stretch the image's own 1-99th percentile to the full 0-255 range. DVR footage — especially
     # IR/low-light — rarely uses the full range to begin with, so a plate's dark digits and light background
@@ -641,11 +680,13 @@ def _classical_sharpen(bgr, strong=False):
         bgr = np.clip((bgr.astype(np.float32) - lo) * (255.0 / (hi - lo)), 0, 255).astype(np.uint8)
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0 if strong else 2.0, tileGridSize=(8, 8))
-    l = clahe.apply(l)
-    lab = cv2.merge((l, a, b))
-    contrasted = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    h, w = l.shape
+    tiles = (max(1, min(8, w // 256)), max(1, min(8, h // 256)))   # tiles of at least ~256 px
+    l = cv2.createCLAHE(clipLimit=2.0 if strong else 1.6, tileGridSize=tiles).apply(l)
+    contrasted = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
     blurred = cv2.GaussianBlur(contrasted, (0, 0), sigmaX=2)
-    alpha = 2.0 if strong else 1.5
+    alpha = 1.8 if strong else 1.5
     sharpened = cv2.addWeighted(contrasted, alpha, blurred, 1 - alpha, 0)
-    return sharpened
+    # No overshoot: never darker or lighter than the darkest/lightest pixel nearby was before sharpening.
+    k = np.ones((5, 5), np.uint8)
+    return np.clip(sharpened, cv2.erode(contrasted, k), cv2.dilate(contrasted, k))
