@@ -791,9 +791,15 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
    submit button. Confirmed directly: the Export dialog's own "Export" button sat ~450px past the viewport,
    unreachable, on a 375x667 screen. */
 .scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
-.dialog { width: min(440px, 100%); padding: 20px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
-.dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 16px; color: var(--muted); }
+.dialog { width: min(440px, 100%); padding: 24px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
+.dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 20px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
+/* A dialog's buttons sit apart from what's above them, never flush against the last field. */
+.dialog .form + .row, .dialog .dialog-actions { margin-top: 24px; }
+.bm-sev { display: flex; width: 100%; }
+.bm-sev button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; }
+.sev-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sev-dot.info { background: var(--accent); } .sev-dot.warning { background: #ff9f0a; } .sev-dot.critical { background: var(--danger); }
 
 /* AI Frame Enhancer (Enhance board): a full screen in two steps — pick frames, then compare. */
 .enh2 { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; background: var(--bg); animation: xp-in var(--dur-chrome-in, .28s) var(--ease-out-expo, ease-out); }

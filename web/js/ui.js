@@ -178,17 +178,21 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
       <div class="form" style="grid-template-columns:1fr">
         <div class="field"><label for="bm-title">Title</label><input id="bm-title" type="text" placeholder="What's happening" maxlength="120"></div>
         <div class="field"><label for="bm-note">Note (optional)</label><textarea id="bm-note" rows="3" maxlength="2000"></textarea></div>
-        <div class="field"><label for="bm-sev">Severity</label><select id="bm-sev">
-          <option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option>
-        </select></div>
+        <div class="field"><span class="lbl" id="bm-sev-l">Severity</span><div class="seg bm-sev" role="radiogroup" aria-labelledby="bm-sev-l">
+          ${[['info', 'Info'], ['warning', 'Warning'], ['critical', 'Critical']].map(([v, l], i) =>
+            `<button type="button" role="radio" data-sev="${v}" aria-checked="${i === 0}" aria-pressed="${i === 0}"><span class="sev-dot ${v}"></span>${l}</button>`).join('')}
+        </div></div>
       </div>
-      <div class="row"><button class="btn" data-x="0">Cancel</button><button class="btn primary" data-x="1">${icon('flag')} Save bookmark</button></div></div></div>`;
+      <div class="row dialog-actions"><button class="btn" data-x="0">Cancel</button><button class="btn primary" data-x="1">${icon('flag')} Save bookmark</button></div></div></div>`;
     const done = (v) => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
     const submit = () => done({
       title: root.querySelector('#bm-title').value.trim(),
       note: root.querySelector('#bm-note').value.trim(),
-      severity: root.querySelector('#bm-sev').value,
+      severity: root.querySelector('.bm-sev [aria-checked="true"]').dataset.sev,
     });
+    root.querySelectorAll('.bm-sev button').forEach((b) => b.addEventListener('click', () => {
+      root.querySelectorAll('.bm-sev button').forEach((x) => { const on = x === b; x.setAttribute('aria-checked', String(on)); x.setAttribute('aria-pressed', String(on)); });
+    }));
     const onKey = (e) => {
       if (e.key === 'Escape') { e.stopPropagation(); done(null); }
       else if (e.key === 'Enter' && e.target.id === 'bm-title') submit();
