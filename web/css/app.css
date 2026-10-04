@@ -1092,11 +1092,12 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
    up to fill the available space, which is what produced far bigger black borders than the aspect-ratio
    mismatch alone would ever justify. width:min(cqw, cqh*ar) scales up or down to whichever dimension is
    the tighter fit, so the picture always uses all the room a straight letterbox allows. */
-.pb-pane canvas { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; }
+/* Scoped to .pb-pic: the zoom HUD's minimap canvas sits in the pane too, and matching it squashed its picture. */
+.pb-pane .pb-pic canvas { aspect-ratio: var(--ar, 1.7778); width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); display: block; }
 /* Settings > Display > Picture & behaviour "Fill tile" — the same setting live view's .wall.fill already
    uses (and the same width:max(...) technique), applied here too: scales up until BOTH dimensions satisfy
    their minimum, filling the pane edge-to-edge and cropping via the pane's own overflow:hidden. */
-.pb-panes.fill .pb-pane canvas { width: max(100cqw, calc(100cqh * var(--ar, 1.7778))); }
+.pb-panes.fill .pb-pane .pb-pic canvas { width: max(100cqw, calc(100cqh * var(--ar, 1.7778))); }
 .pb-pane .enh-canvas { pointer-events: none; z-index: 1; }
 .pb-pane .hitzone { position: absolute; inset: 0; z-index: 3; }
 /* Sits above .hitzone so a drag is captured as a region selection instead of a pan while armed — same
