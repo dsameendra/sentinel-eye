@@ -390,6 +390,42 @@ doesn't belong there. A learned video-super-resolution model (BasicVSR-class) wa
 for the same reason as before: heavy, slow on CPU/MPS, and this classical approach — now motion-aware —
 gets most of the achievable benefit for a handful of frames spanning well under a second.
 
+##### 7.8.2e Choosable models, and the pairings — measured
+
+The upscaler and the face model are a setting (Settings → Enhancement; `app/enhance_models.py`), with
+three pairings recommended from measurements rather than taste. On offer: Real-ESRGAN x4plus; SwinIR's
+real-world 4x models (Apache-2.0, loaded with spandrel) in standard (M) and large (L) sizes, each as the
+*PSNR* ("faithful") or *GAN* ("sharp") training; and GFPGAN v1.4, v1.3 and RestoreFormer for faces.
+CodeFormer was left out: its licence is non-commercial. SwinIR was admitted only after showing it does not
+fail the way CCSR did (7.8.2a) — no model may read *worse* than Real-ESRGAN on plates.
+
+`tools/bench_enhance.py` (synthetic plates and stock photos, no real footage), on an M3 Pro:
+
+| Upscaler | Plates: plate reader exact / chars | Scenes: PSNR / SSIM | Faces (+GFPGAN v1.4): PSNR / SSIM | Full 640×360 frame |
+|---|---|---|---|---|
+| Real-ESRGAN | 12/16 · 88% | 23.36 dB · 0.685 | 21.77 · 0.626 | 3.6 s |
+| SwinIR · faithful (M PSNR) | 12/16 · 88% | **25.07 dB · 0.742** | 23.67 · 0.689 | 12.4 s |
+| SwinIR · sharp (M GAN) | 11/16 · 89% | 23.24 dB · 0.676 | 22.63 · 0.640 | 11.0 s |
+| SwinIR Large · faithful (L PSNR) | 11/16 · 88% | **25.09 dB · 0.743** | **23.73 · 0.692** | 22.0 s |
+| SwinIR Large · sharp (L GAN) | **13/16 · 92%** | 23.34 dB · 0.681 | 22.66 · 0.652 | 21.2 s |
+| *plain bicubic* | — | 24.11 dB · 0.694 | — | — |
+
+What it shows: the PSNR-trained SwinIR models are the only upscalers more faithful than plain bicubic
+interpolation (~1.7 dB above Real-ESRGAN); the GAN ones trade that for synthesised texture, like Real-ESRGAN.
+On faces the upscaler matters more than the face model — GFPGAN v1.3 and v1.4 scored within 0.05 dB of each
+other with every upscaler; RestoreFormer scored marginally higher PSNR but the lowest SSIM (freer with
+facial structure). No upscaler read plates worse than Real-ESRGAN. Hence the pairings: **Balanced**
+(Real-ESRGAN + GFPGAN v1.4, fastest, the long-standing default), **Faithful** (SwinIR Large · faithful +
+GFPGAN v1.3, best on scenes and faces) and **Most detail** (SwinIR Large · sharp + GFPGAN v1.4, best plate
+reads). Limits: one face (scikit-image's public-domain astronaut portrait) and 16 synthetic plates — enough
+to rank, not to promise; re-run the bench after changing a model.
+
+Weights download into `data/models` on first use (or from Settings), checked against SHA-256s pinned in the
+catalog, so updates and environment rebuilds keep them; an older install's Real-ESRGAN/GFPGAN v1.4 (inside
+site-packages) and plate model (fast-plate-ocr's cache) are adopted, not downloaded again. A chosen model
+that can't be used — spandrel missing, offline on first use — falls back to Real-ESRGAN with a note on the
+result, never failing the job. Every result names the models that made it.
+
 #### 7.8.3 Pipeline
 
 ```
@@ -420,7 +456,7 @@ whatever's already on screen, paused, this instant.
 
 #### 7.8.4 API
 
-- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest], roi: [x, y, w, h]|null, weight: 0.0-1.0}` (1–11 images, same dimensions). `roi` (optional, 7.8.2c) is fractions of the frame to crop to before enhancing. `weight` (default 0.5, 7.8.2d) is GFPGAN's fidelity knob. Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
+- `POST /api/enhance` — body `{channel, at_utc, mode: "auto"|"face"|"plate"|"general", images: [base64 PNG, oldest→newest], roi: [x, y, w, h]|null, weight: 0.0-1.0}` (1–11 images, same dimensions). `roi` (optional, 7.8.2c) is fractions of the frame to crop to before enhancing. `weight` (default 0.5, 7.8.2d) is GFPGAN's fidelity knob. Optional `upscaler` / `face` (catalog ids) override Settings → Enhancement for this job; the finished job's status carries `models: {upscaler, face, note}` — what actually ran (7.8.2e). `GET /api/enhance/models` lists every model's state for Settings, and `POST /api/enhance/models/download {kind, id}` (admin) fetches one ahead of use. Starts a background job (same job/poll pattern as `/api/export`) since a burst + face restoration can take several seconds. Returns `{job_id}`.
 - `GET /api/enhance/{job_id}` — `{state: queued|working|done|error, progress, error}`.
 - `GET /api/enhance/{job_id}/result` — the enhanced PNG, once done.
 - `GET /api/enhance/{job_id}/source` — the fused-but-not-AI-processed reference frame (the "before"), for the popup's before/after comparison — this is what the input actually looked like, not a claim about ground truth.

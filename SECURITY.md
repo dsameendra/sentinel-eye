@@ -97,8 +97,10 @@ So you know what to expect, and what to check:
 - **Secrets at rest**: `data/settings.json` (recorder password, encryption key), `data/auth.db` (accounts,
   sessions, activity log) and the export signing key are created owner-only (mode 600); `data/` and
   `backups/` are git-ignored. `./run.sh backup` archives contain the recorder password — keep them private.
-- **Nothing leaves your network.** No telemetry, no cloud account; the AI enhancer runs locally (its model
-  weights are downloaded once, on first use).
+- **Nothing leaves your network.** No telemetry, no cloud account; the AI enhancer runs locally. Its model
+  weights are downloaded once (on first use, or by an admin from Settings) from the models' own GitHub
+  releases into `data/models`, and each file is checked against a SHA-256 pinned in
+  `app/enhance_models.py` before it's used — a changed file is refused.
 - **Exports** are signed with an Ed25519 key that stays on the server; `verify.html` checks every file's
   hash and the signature offline.
 

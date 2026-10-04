@@ -108,6 +108,7 @@ export class SettingsView {
     this.pane.innerHTML = fn();
     this.pane.classList.toggle('wide', this.tab === 'channels' || this.tab === 'status');
     if (this.tab === 'security') { this.bar.hidden = true; new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
+    if (this.tab === 'enhancement' && this.models === undefined && !this._modelsLoading) { this._modelsLoading = true; this.loadModels().finally(() => { this._modelsLoading = false; }); }
     if (this.tab === 'account') { this.bar.hidden = true; this.account = new AccountView(this.pane, this.ctx, { embedded: true }); return; }
     this.wire();
     this.refresh();
@@ -286,7 +287,64 @@ export class SettingsView {
       ${this.srow('Starting mode', 'What the enhancer looks for first.', `<div class="seg" role="group" aria-label="Default mode">${ENHANCE_MODES.map(([k, l]) => `<button data-o="enhance_default_mode:${k}" aria-pressed="${d.enhance_default_mode === k}">${l}</button>`).join('')}</div>`)}
     </div><div class="form" style="margin-top:14px">
       ${this.rangeField('display.enhance_default_fidelity', d.enhance_default_fidelity, { id: 'f-fidelity', label: 'Starting fidelity', min: 0, max: 1, step: 0.05, hint: 'Lower rebuilds more of a face — and risks inventing features. Higher stays closer to the real pixels — and may stay blurry. 0.5 is recommended.' })}
-    </div></section>`;
+    </div></section>
+    ${this.modelsHTML()}`;
+  }
+
+  // ------------------------------------------------------------- AI models (app/enhance_models.py)
+  // Pairings first (a matched upscaler + face model, measured), then each model with its size, speed and
+  // state — ready, downloads on first use (or now), downloading, or needs the enhancer install — and the
+  // text readers. States come from the server; the choice is part of the draft like any other setting.
+  modelsHTML() {
+    const m = this.models;
+    if (m === undefined) return '<section class="sgroup"><h2>AI models</h2><div class="card"><p class="muted"><span class="spin sm"></span> Checking which models are installed…</p></div></section>';
+    if (m === null) return '<section class="sgroup"><h2>AI models</h2><div class="card"><p class="muted">Couldn\'t check the models.</p></div></section>';
+    const d = this.draft.display;
+    const mb = (b) => `${Math.round(b / 1e6)} MB`;
+    const state = (x, kind) => {
+      if (x.state === 'ready') return '<span class="mstate ok">Ready</span>';
+      if (x.state === 'downloading') return `<span class="mstate"><span class="spin sm"></span> ${x.progress != null ? Math.round(x.progress * 100) + '%' : 'Downloading'}</span>`;
+      if (x.state === 'unavailable') return `<span class="mstate off" title="${esc(x.reason)}">Not installed</span>`;
+      return `<button class="btn sm glass-btn" data-dl="${kind}:${x.id}" title="${x.reason ? esc(x.reason) : 'Otherwise it downloads the first time it’s used'}">${icon('download')} ${x.size ? mb(x.size) : 'Download'}</button>`;
+    };
+    const list = (items, kind, key, extra) => `<div class="mlist" role="radiogroup">${items.map((x) => {
+      const on = d[key] === x.id, off = x.state === 'unavailable';
+      return `<div class="mrow${on ? ' on' : ''}${off ? ' off' : ''}"><button class="mpick" role="radio" aria-checked="${on}" data-m="${key}:${x.id}" ${off ? 'disabled' : ''}>
+          <span class="mradio"></span><span class="mtext"><b>${esc(x.label)}</b><small>${esc(x.about)}${extra ? ' ' + extra(x) : ''}</small>${off ? `<small class="mwhy">${esc(x.reason)}</small>` : ''}</span></button>
+        <span class="mside">${state(x, kind)}</span></div>`;
+    }).join('')}</div>`;
+    const upExtra = (x) => `<span class="mmeta">${x.style === 'psnr' ? 'Faithful' : 'Sharp'} · ${x.speed > 1.05 ? `~${Math.round(x.speed)}× slower than Real-ESRGAN` : 'fastest'} · ${mb(x.size)}</span>`;
+    const faceExtra = (x) => `<span class="mmeta">${mb(x.size)}</span>`;
+    const combo = m.combos.find((c) => c.upscaler === d.enhance_upscaler && c.face === d.enhance_face_model);
+    const avail = (id, arr) => arr.find((x) => x.id === id)?.state !== 'unavailable';
+    const tess = m.text[0];
+    return `<section class="sgroup"><h2>AI models — pairing</h2>
+      <p class="sgroup-note">A matched upscaler and face model. Pick one, or choose each below.</p>
+      <div class="opts">${m.combos.map((c) => {
+        const ok = avail(c.upscaler, m.upscalers) && avail(c.face, m.faces);
+        return `<button class="opt" data-combo="${c.id}" aria-pressed="${combo?.id === c.id}" ${ok ? '' : 'disabled title="Needs a model that isn’t installed"'}><b>${esc(c.label)}</b><small>${esc(c.about)}</small></button>`;
+      }).join('')}<button class="opt" aria-pressed="${!combo}" disabled><b>Custom</b><small>${combo ? 'Choose models below.' : 'Your own pairing, below.'}</small></button></div>
+    </section>
+    <section class="sgroup"><h2>Upscaler</h2><p class="sgroup-note">The 4× pass every mode runs. Faithful models invent the least — best for plates and text.</p>
+      ${list(m.upscalers, 'upscaler', 'enhance_upscaler', upExtra)}</section>
+    <section class="sgroup"><h2>Face restoration</h2><p class="sgroup-note">Used in Auto and Face mode, blended with the real pixels by Fidelity.</p>
+      ${list(m.faces, 'face', 'enhance_face_model', faceExtra)}</section>
+    <section class="sgroup"><h2>Reading text</h2><p class="sgroup-note">Read text uses the plate reader for number plates, and Tesseract for everything else.</p>
+      ${list(m.plates, 'plate', 'enhance_plate_model')}
+      <div class="srows" style="margin-top:10px">${this.srow(`${esc(tess.label)}${tess.version ? ` <span class="mmeta">${esc(tess.version)}</span>` : ''}`, esc(tess.about), tess.state === 'ready' ? '<span class="mstate ok">Ready</span>' : `<span class="mstate off" title="${esc(tess.reason)}">Not installed</span>`)}</div>
+      <p class="sgroup-note">Models download once into <code>data/models</code> and are checked before use; updates keep them. Not installed? Run <code>tools/install_enhance_deps.sh</code> on the server.</p>
+    </section>`;
+  }
+
+  async loadModels() {
+    try { this.models = await api.enhanceModels(); } catch { this.models = null; }
+    if (this.tab === 'enhancement') this.render();
+    clearTimeout(this.modelTimer);
+    const all = this.models ? [...this.models.upscalers, ...this.models.faces, ...this.models.plates] : [];
+    const watched = this.modelWatch && Date.now() < this.modelWatch.until && all.find((x) => x.id === this.modelWatch.id)?.state !== 'ready';
+    if (all.some((x) => x.state === 'downloading') || watched) {
+      this.modelTimer = setTimeout(() => this.loadModels(), 1500);
+    }
   }
 
   statusTab() {
@@ -351,6 +409,25 @@ export class SettingsView {
       if (k === 'theme') this.ctx.applyTheme(v);
       this.render(); this.refresh();
     }));
+    p.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => {
+      const [k, v] = b.dataset.m.split(':');
+      this.draft.display[k] = v; this.render(); this.refresh();
+    }));
+    p.querySelectorAll('[data-combo]').forEach((b) => b.addEventListener('click', () => {
+      const c = this.models.combos.find((x) => x.id === b.dataset.combo);
+      Object.assign(this.draft.display, { enhance_upscaler: c.upscaler, enhance_face_model: c.face });
+      this.render(); this.refresh();
+    }));
+    p.querySelectorAll('[data-dl]').forEach((b) => b.addEventListener('click', async () => {
+      const [kind, id] = b.dataset.dl.split(':');
+      b.disabled = true;
+      try {
+        await api.downloadModel(kind, id);
+        this.modelWatch = { id, until: Date.now() + 60000 };   // keep checking until it's ready (plate models report no progress)
+        b.innerHTML = '<span class="spin sm"></span>';
+        setTimeout(() => this.loadModels(), 400);
+      } catch (e) { toast(e.message, 'bad'); b.disabled = false; }
+    }));
     p.querySelector('#f-tv')?.addEventListener('change', (e) => this._onTvModeToggle(e.target.checked));
     p.querySelector('[data-a=keys]')?.addEventListener('click', () => shortcutsDialog());
     p.querySelectorAll('[data-tvtheme]').forEach((b) => b.addEventListener('click', () => { this.ctx.setTvTheme?.(b.dataset.tvtheme); this.render(); }));
@@ -402,11 +479,13 @@ export class SettingsView {
   async save() {
     if (Object.keys(this.errors()).length) return;
     this.saving = true; this.refresh();
+    // The server restarts the streams only when the recorder connection or the channels change.
+    const restarts = JSON.stringify([this.draft.connection, this.draft.channels]) !== JSON.stringify([this.base.connection, this.base.channels]);
     try {
       const saved = await this.ctx.saveAll(this.draft);
       this.base = clone(saved); this.draft = clone(saved);
       this.tests = {}; this.conn = null;
-      toast('Settings saved. Streams are restarting…');
+      toast(restarts ? 'Settings saved. Streams are restarting…' : 'Settings saved.');
     } catch (e) { toast(e.message, 'bad', 7000); }
     this.saving = false;
     this.render();
@@ -531,6 +610,7 @@ export class SettingsView {
 
   destroy() {
     clearInterval(this.statusTimer);
+    clearTimeout(this.modelTimer);
     this.account = null;
     this.ctx.applyTheme(this.ctx.settings().display.theme);   // drop any unsaved theme preview
     this.root.innerHTML = '';

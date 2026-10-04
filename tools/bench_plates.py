@@ -4,7 +4,7 @@ through the real enhancer pipeline (frame fusion, Real-ESRGAN, the plate sharpen
 the plate reader, on the original fused frame, the enhanced result, and both (the app's way). Synthetic
 plates only. Needs the native enhancer deps plus the plate reader (tools/install_enhance_deps.sh).
 
-    .venv/bin/python tools/bench_plates.py [count]     # default 16; a few minutes on a Mac GPU
+    .venv/bin/python tools/bench_plates.py [count] [--upscaler=swinir-l-psnr]   # default 16, Real-ESRGAN
 """
 import io, os, random, re, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app"))
@@ -13,9 +13,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import enhance_ai as E
 
-N = int(sys.argv[1]) if len(sys.argv) > 1 else 16
+N = next((int(a) for a in sys.argv[1:] if a.isdigit()), 16)
 FONT = next((f for f in ("/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf") if os.path.exists(f)), None)
-random.seed(5); np.random.seed(5)
 norm = lambda t: re.sub(r"[^A-Z0-9]", "", (t or "").upper())
 
 
@@ -55,24 +54,42 @@ def scene(text, th, shear, rot):
 rgb = lambda bgr: cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 tess = lambda img, region: max((norm(l["text"]) for l in E._ocr_region(Image.fromarray(rgb(img)), region, True)[0]), key=len, default="")
 plate = lambda imgs, region: norm(E._read_plate([rgb(i) for i in imgs], region)[0])
-E._load_models_upsampler_only()
-if E._plate_reader() is None:
-    sys.exit("The plate reader isn't installed — see tools/install_enhance_deps.sh")
-score = {k: [0, 0.0] for k in ("Tesseract, original", "Tesseract, enhanced", "plate reader, original", "plate reader, enhanced", "plate reader, both")}
-for n in range(N):
-    L = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-    T = "".join(random.choice(L) for _ in range(3)) + "".join(random.choice("0123456789") for _ in range(4))
-    th = random.choice([10, 12, 15, 18, 22]); shear = random.choice([-0.3, -0.2, 0.2, 0.3]); rot = random.uniform(-12, 12)
-    frames, region = scene(T[:3] + " " + T[3:], th, shear, rot)
-    src = E._align_and_median(frames)
-    res = E._classical_sharpen(E._realesrgan.enhance(src, outscale=4)[0], strong=True)
-    got = {"Tesseract, original": tess(src, region), "Tesseract, enhanced": tess(res, region),
-           "plate reader, original": plate([src], region), "plate reader, enhanced": plate([res], region),
-           "plate reader, both": plate([res, src], region)}
-    for k, g in got.items():
-        score[k][0] += g == T; score[k][1] += max(0, 1 - lev(g, T) / len(T))
-    print(f"{T}  letters ~{th}px  " + "  ".join(f"{k.split(',')[0][0]}{'o' if 'orig' in k else 'e' if 'enh' in k else 'b'}={g}" for k, g in got.items()), flush=True)
-for k, (ex, ch) in score.items():
-    print(f"{k:24s} exact {ex}/{N}  characters {ch / N * 100:.0f}%")
-sys.stdout.flush()
-os._exit(0)   # onnxruntime and torch together can abort while the interpreter tears down; the results are in
+
+
+def plates(n, seed=5):
+    """n plate scenes: (text, letter height, frames, region), reproducible."""
+    random.seed(seed); np.random.seed(seed)
+    out = []
+    for _ in range(n):
+        L = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+        T = "".join(random.choice(L) for _ in range(3)) + "".join(random.choice("0123456789") for _ in range(4))
+        th = random.choice([10, 12, 15, 18, 22]); shear = random.choice([-0.3, -0.2, 0.2, 0.3]); rot = random.uniform(-12, 12)
+        frames, region = scene(T[:3] + " " + T[3:], th, shear, rot)
+        out.append((T, th, frames, region))
+    return out
+
+
+def main():
+    upscaler = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--upscaler=")), "realesrgan")
+    up = E._load_models_upsampler_only(upscaler=upscaler)
+    if E._plate_reader() is None:
+        sys.exit("The plate reader isn't installed — see tools/install_enhance_deps.sh")
+    print(f"upscaler: {upscaler}")
+    score = {k: [0, 0.0] for k in ("Tesseract, original", "Tesseract, enhanced", "plate reader, original", "plate reader, enhanced", "plate reader, both")}
+    for T, th, frames, region in plates(N):
+        src = E._align_and_median(frames)
+        res = E._classical_sharpen(up.enhance(src, outscale=4)[0], strong=True)
+        got = {"Tesseract, original": tess(src, region), "Tesseract, enhanced": tess(res, region),
+               "plate reader, original": plate([src], region), "plate reader, enhanced": plate([res], region),
+               "plate reader, both": plate([res, src], region)}
+        for k, g in got.items():
+            score[k][0] += g == T; score[k][1] += max(0, 1 - lev(g, T) / len(T))
+        print(f"{T}  letters ~{th}px  " + "  ".join(f"{k.split(',')[0][0]}{'o' if 'orig' in k else 'e' if 'enh' in k else 'b'}={g}" for k, g in got.items()), flush=True)
+    for k, (ex, ch) in score.items():
+        print(f"{k:24s} exact {ex}/{N}  characters {ch / N * 100:.0f}%")
+    sys.stdout.flush()
+    os._exit(0)   # onnxruntime and torch together can abort while the interpreter tears down; the results are in
+
+
+if __name__ == "__main__":
+    main()

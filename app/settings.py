@@ -119,6 +119,20 @@ class Display(BaseModel):
     # "auto"/0.5; 0.5 is still the recommended fidelity default (spec 2d), now just changeable.
     enhance_default_mode: Literal["auto", "face", "plate", "general"] = "auto"
     enhance_default_fidelity: float = Field(0.5, ge=0.0, le=1.0)
+    # Which models the AI frame enhancer uses (app/enhance_models.py): the 4x upscaler, the face restorer,
+    # and the licence-plate reader. Unknown ids (a model since removed) fall back to the default.
+    enhance_upscaler: str = "realesrgan"
+    enhance_face_model: str = "gfpgan-1.4"
+    enhance_plate_model: str = "cct-s-v2-global-model"
+
+    @field_validator("enhance_upscaler", "enhance_face_model", "enhance_plate_model")
+    @classmethod
+    def _model_id(cls, v, info):
+        import enhance_models as EM
+        table, default = {"enhance_upscaler": (EM.UPSCALERS, EM.DEFAULT_UPSCALER),
+                          "enhance_face_model": (EM.FACES, EM.DEFAULT_FACE),
+                          "enhance_plate_model": (EM.PLATES, EM.DEFAULT_PLATE)}[info.field_name]
+        return v if v in table else default
 
     @field_validator("rotate_seconds")
     @classmethod

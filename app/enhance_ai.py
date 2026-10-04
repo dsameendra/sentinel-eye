@@ -45,8 +45,6 @@ _models_lock = threading.Lock()
 # consistent with GPU/MPS contention between concurrent forward passes on shared model state. Every actual
 # inference call — not just model loading — goes through this lock, so jobs queue and run one at a time.
 _inference_lock = threading.Lock()
-_gfpgan = None
-_realesrgan = None
 _device = None
 
 
@@ -68,7 +66,7 @@ def get_job(job_id):
         return dict(_jobs.get(job_id, {})) if job_id in _jobs else None
 
 
-def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
+def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5, upscaler=None, face=None):
     """images_b64: list of base64-encoded PNG strings, oldest -> newest, 1-11 frames, same dimensions.
     roi: optional (x, y, w, h) fractions (0-1) of the frame to crop to *before* alignment/upscaling — lets
     the operator isolate a plate or face so the AI's fixed output resolution is spent on that subject
@@ -77,7 +75,7 @@ def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.
     _sweep_old_jobs()
     with _jobs_lock:
         _jobs[job_id] = {"state": "queued", "progress": "Queued…", "error": None, "done": False}
-    t = threading.Thread(target=_run, args=(job_id, images_b64, mode, channel, at_utc, roi, weight), daemon=True)
+    t = threading.Thread(target=_run, args=(job_id, images_b64, mode, channel, at_utc, roi, weight, upscaler, face), daemon=True)
     t.start()
 
 
@@ -104,7 +102,7 @@ def _crop_to_roi(frames, roi):
     return [f[y0:y1, x0:x1] for f in frames]
 
 
-def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
+def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5, upscaler=None, face=None):
     import base64
     job_dir = ENHANCE_DIR / job_id
     try:
@@ -152,7 +150,8 @@ def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
         if _inference_lock.locked():
             _set(job_id, progress="Waiting for another enhancement to finish…")
         with _inference_lock:
-            result, faces_found = _enhance(fused, mode, weight, progress=lambda msg: _set(job_id, progress=msg))
+            result, faces_found, used = _enhance(fused, mode, weight, progress=lambda msg: _set(job_id, progress=msg),
+                                                 upscaler=upscaler, face=face)
             # MPS (this Mac's GPU backend) doesn't always release memory back promptly between calls the
             # way CUDA's allocator does — left unmanaged, back-to-back jobs in one server session measurably
             # slow down over time (observed directly: a clean single job ran in ~40s, later ones crept well
@@ -173,7 +172,10 @@ def _run(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5):
         result_path = job_dir / "result.png"
         Image.fromarray(result[:, :, ::-1]).save(result_path)
 
-        _set(job_id, state="done", progress="done", done=True, faces_found=faces_found,
+        import enhance_models as EM
+        models = {"upscaler": EM.UPSCALERS[used["upscaler"]]["label"],
+                  "face": EM.FACES[used["face"]]["label"] if used["face"] else None, "note": used["note"] or None}
+        _set(job_id, state="done", progress="done", done=True, faces_found=faces_found, models=models,
              result_dims=[result.shape[1], result.shape[0]], source_dims=[fused.shape[1], fused.shape[0]])
     except ModuleNotFoundError as e:
         # PIL, torch, cv2, realesrgan and gfpgan are all imported lazily in this module specifically
@@ -461,8 +463,7 @@ def _ocr_region(base_rgb, region, plate):
 # side-on so every letter leans. Measured on 16 side-on synthetic plates through the real enhancer: Tesseract
 # 0 exact (29-32% of characters); this reader 12-13 exact (91-96%). Optional like the rest of the enhancer
 # (tools/install_enhance_deps.sh); without it, Plate mode reads with Tesseract as before.
-PLATE_MODEL = "cct-s-v2-global-model"
-_plate_rec = None          # None = not tried yet, False = not installed
+_plate_recs = {}           # model id -> recognizer, or False when the reader isn't installed
 _plate_lock = threading.Lock()
 
 
@@ -477,31 +478,36 @@ def _trust_certifi():
         pass
 
 
-def _plate_reader():
-    global _plate_rec
+def _plate_reader(model_id=None):
+    """The licence-plate reader (enhance_models.PLATES), its model fetched once into data/models/ocr. None when
+    it isn't installed or can't be fetched (offline on first use): Read text uses Tesseract then, and tries
+    again next time."""
+    import enhance_models as EM
+    mid = model_id if model_id in EM.PLATES else EM.DEFAULT_PLATE
     with _plate_lock:
-        if _plate_rec is None:
+        if mid not in _plate_recs:
             try:
                 from fast_plate_ocr import LicensePlateRecognizer
             except ModuleNotFoundError:
-                _plate_rec = False
+                _plate_recs[mid] = False
                 return None
-            _trust_certifi()
             try:
-                _plate_rec = LicensePlateRecognizer(PLATE_MODEL, device="cpu")
-            except Exception as e:   # first use offline, say: read with Tesseract now, try again next time
+                folder = EM.ensure("plate", mid)
+                onnx, cfg = (folder / n for n, _, _ in EM.PLATES[mid]["files"])
+                _plate_recs[mid] = LicensePlateRecognizer(onnx_model_path=onnx, plate_config_path=cfg, device="cpu")
+            except Exception as e:
                 print(f"[enhance] plate reader unavailable ({type(e).__name__}: {e}) — reading with Tesseract", flush=True)
                 return None
-        return _plate_rec or None
+        return _plate_recs[mid] or None
 
 
-def _read_plate(images_rgb, region):
+def _read_plate(images_rgb, region, model_id=None):
     """The plate reader on the operator's box, levelled, from each image given (the enhanced result and the
     original frame), as drawn and with its letters upright; the most confident reading wins — they miss on
     different plates. Returns (text, confidence 0-100) or None if the reader isn't installed."""
     import cv2
     import re
-    rec = _plate_reader()
+    rec = _plate_reader(model_id)
     if rec is None:
         return None
     best = None
@@ -527,7 +533,7 @@ def _read_plate(images_rgb, region):
     return spaced, round(best[1] * 100, 1)
 
 
-def ocr(job_id, which, region=None, plate=False):
+def ocr(job_id, which, region=None, plate=False, plate_model=None):
     """Reads text off whichever image ('result' or 'source') is already on disk for this job, with Tesseract
     — the whole picture, or just the operator's box (`region`, see _region_patch), which is far more
     reliable: the box says where the text is and which way it runs. In Plate mode, with the plate reader
@@ -556,7 +562,7 @@ def ocr(job_id, which, region=None, plate=False):
             # Same box on the original frame: the result is that frame upscaled, so the same fractions.
             if abs(src.width / src.height - base.width / base.height) < 0.01:
                 images.append(np.array(src))
-        read = _read_plate(images, region)
+        read = _read_plate(images, region, plate_model)
     if read is not None:
         import cv2
         engine = "plate"
@@ -664,92 +670,190 @@ def _resize(img, wh):
 
 
 # ------------------------------------------------------------------ model loading (lazy — first call pays the cost)
-def _load_models(progress=None):
-    global _gfpgan, _realesrgan, _device
-    with _models_lock:
-        if _gfpgan is not None:
-            return
-        if progress:
-            progress("Loading models (first use downloads ~700MB, cached after)…")
-        _trust_certifi()
+class _SpandrelUpsampler:
+    """A spandrel-loaded super-resolution model (SwinIR) behind RealESRGANer's interface —
+    .enhance(bgr, outscale) -> (bgr, None) — so it can stand in anywhere Real-ESRGAN did, GFPGAN's background
+    upsampler included. Runs in overlapping tiles: bounded GPU memory on any frame size, and SwinIR's window
+    attention is quadratic in tile size, so tiles are faster too (256 px tiles measured fastest on MPS)."""
+    TILE, PAD = 256, 16
+
+    def __init__(self, path, device):
         import torch
-        from basicsr.archs.rrdbnet_arch import RRDBNet
-        from realesrgan import RealESRGANer
+        from spandrel import ModelLoader
+        self.torch = torch
+        self.model = ModelLoader().load_from_file(str(path)).to(device).eval()
+        self.scale = self.model.scale
+        self.device = device
+
+    def _run(self, x):
+        with self.torch.no_grad():
+            return self.model(x)
+
+    def enhance(self, bgr, outscale=4):
+        import cv2
+        torch, s = self.torch, self.scale
+        h, w = bgr.shape[:2]
+        x = torch.from_numpy(np.ascontiguousarray(bgr[:, :, ::-1])).permute(2, 0, 1).float().div(255).unsqueeze(0).to(self.device)
+        out = torch.zeros((1, 3, h * s, w * s), device=self.device)
+        T, P = self.TILE, self.PAD
+        for y0 in range(0, h, T):
+            for x0 in range(0, w, T):
+                y1, x1 = min(y0 + T, h), min(x0 + T, w)
+                py0, px0, py1, px1 = max(0, y0 - P), max(0, x0 - P), min(h, y1 + P), min(w, x1 + P)
+                tile = x[:, :, py0:py1, px0:px1]
+                # Below spandrel's minimum (16 px), pad by reflection and crop back.
+                th, tw = tile.shape[2:]
+                if th < 16 or tw < 16:
+                    tile = torch.nn.functional.pad(tile, (0, max(0, 16 - tw), 0, max(0, 16 - th)), mode="replicate")
+                y = self._run(tile)[:, :, : th * s, : tw * s]
+                out[:, :, y0 * s:y1 * s, x0 * s:x1 * s] = y[:, :, (y0 - py0) * s:(y0 - py0 + y1 - y0) * s, (x0 - px0) * s:(x0 - px0 + x1 - x0) * s]
+        res = (out.clamp(0, 1).mul(255).round().byte().squeeze(0).permute(1, 2, 0).cpu().numpy())[:, :, ::-1]
+        res = np.ascontiguousarray(res)
+        if outscale != s:
+            res = cv2.resize(res, (int(w * outscale), int(h * outscale)), interpolation=cv2.INTER_LANCZOS4)
+        return res, None
+
+
+# The upscaler and face model currently loaded — one of each at a time (switching frees the old one; this
+# Mac's GPU shares 18 GB with everything else).
+_up = None        # (id, upsampler)
+_face = None      # (id, GFPGANer)
+_fallback_note = ""
+
+
+def _pick_device():
+    import torch
+    return "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _free_gpu():
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _load_upsampler(uid, progress=None):
+    """Loads upscaler `uid` (downloading its weights once if needed), replacing whichever was loaded."""
+    global _up, _device
+    import enhance_models as EM
+    with _models_lock:
+        if _up and _up[0] == uid:
+            return _up[1]
+        _trust_certifi()
+        _device = _device or _pick_device()
+        e = EM.UPSCALERS[uid]
+        ok, why = EM._engine_ready("upscaler", uid)
+        if not ok:
+            raise RuntimeError(why)
+        if progress:
+            progress(f"Loading {e['label']}…")
+        path = EM.ensure("upscaler", uid, progress)
+        _up = None
+        _free_gpu()
+        if e["engine"] == "spandrel":
+            up = _SpandrelUpsampler(path, _device)
+        else:
+            from basicsr.archs.rrdbnet_arch import RRDBNet
+            from realesrgan import RealESRGANer
+            rrdb = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
+            up = RealESRGANer(scale=4, model_path=str(path), model=rrdb, tile=400, tile_pad=10, pre_pad=0,
+                              half=False, device=_device)
+        _up = (uid, up)
+        if _face:
+            _face[1].bg_upsampler = up   # the face model pastes faces onto this one's upscale
+        return up
+
+
+def _get_upsampler(uid, progress=None):
+    """The chosen upscaler. If it can't be used — spandrel missing, download failed — falls back to
+    Real-ESRGAN and records why (shown with the result), never failing the job over a model choice."""
+    global _fallback_note
+    import enhance_models as EM
+    if uid not in EM.UPSCALERS:
+        uid = EM.DEFAULT_UPSCALER
+    try:
+        return _load_upsampler(uid, progress), uid
+    except Exception as ex:
+        if uid == EM.DEFAULT_UPSCALER:
+            raise
+        _fallback_note = f"{EM.UPSCALERS[uid]['label']} unavailable ({str(ex)[:120]}) — used Real-ESRGAN"
+        print(f"[enhance] {_fallback_note}", flush=True)
+        return _load_upsampler(EM.DEFAULT_UPSCALER, progress), EM.DEFAULT_UPSCALER
+
+
+def _get_face(fid, upsampler, progress=None):
+    global _face, _device
+    import enhance_models as EM
+    with _models_lock:
+        if fid not in EM.FACES:
+            fid = EM.DEFAULT_FACE
+        if _face and _face[0] == fid:
+            _face[1].bg_upsampler = upsampler
+            return _face[1], fid
+        _device = _device or _pick_device()
+        e = EM.FACES[fid]
+        if progress:
+            progress(f"Loading {e['label']}…")
+        path = EM.ensure("face", fid, progress)
         from gfpgan import GFPGANer
-
-        _device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-        model_dir = DATA / "models"
-        model_dir.mkdir(parents=True, exist_ok=True)
-
-        rrdb = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-        _realesrgan = RealESRGANer(
-            scale=4, model_path="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
-            model=rrdb, tile=400, tile_pad=10, pre_pad=0, half=False, device=_device,
-        )
-        _gfpgan = GFPGANer(
-            model_path="https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
-            upscale=4, arch="clean", channel_multiplier=2, bg_upsampler=_realesrgan, device=_device,
-        )
+        _face = None
+        _free_gpu()
+        g = GFPGANer(model_path=str(path), upscale=4, arch=e["arch"], channel_multiplier=2,
+                     bg_upsampler=upsampler, device=_device)
+        _face = (fid, g)
+        return g, fid
 
 
-def _enhance(bgr, mode, weight=0.5, progress=None):
-    """Returns (enhanced_bgr, faces_found). mode: auto/face/plate/general. weight: fidelity knob for a
-    restored face — 0 is GFPGAN's full reconstruction (can fabricate features), 1 is the real upscaled
-    pixels with no face synthesis at all, 0.5 blends the two evenly (see docs/SPEC.md section 7.8.2d for why
-    that middle ground is the forensically-sound default). This is a real, verified linear blend against a
-    second plain Real-ESRGAN pass — NOT GFPGANer.enhance()'s own `weight` argument, which was found (by
-    reading the installed package's model code directly, not assumed) to be silently unused: both
+def _enhance(bgr, mode, weight=0.5, progress=None, upscaler=None, face=None):
+    """Returns (enhanced_bgr, faces_found, used) — `used` names the models that actually ran
+    ({"upscaler": id, "face": id or None, "note": fallback note}). mode: auto/face/plate/general. weight:
+    fidelity knob for a restored face — 0 is the face model's full reconstruction (can fabricate features),
+    1 is the real upscaled pixels with no face synthesis at all, 0.5 blends the two evenly (see docs/SPEC.md
+    section 7.8.2d for why that middle ground is the forensically-sound default). This is a real, verified
+    linear blend against a second plain upscale — NOT GFPGANer.enhance()'s own `weight` argument, which was
+    found (by reading the installed package's model code directly, not assumed) to be silently unused: both
     GFPGANv1Clean.forward and GFPGANv1.forward accept it only via **kwargs and never reference it, so it
     had zero effect on the output regardless of value. progress(msg): optional callback fired at each real
     pipeline stage — named after the actual step running, not a generic "processing" label."""
+    global _fallback_note
+    import enhance_models as EM
     step = progress or (lambda _msg: None)
-    if mode == "general":
-        _load_models_upsampler_only(progress)
-        step("Upscaling 4x (Real-ESRGAN)…")
-        out, _ = _realesrgan.enhance(bgr, outscale=4)
-        return out, 0
-    if mode == "plate":
-        _load_models_upsampler_only(progress)
-        step("Upscaling 4x (Real-ESRGAN)…")
-        out, _ = _realesrgan.enhance(bgr, outscale=4)
-        step("Sharpening plate/text detail…")
-        return _classical_sharpen(out, strong=True), 0
+    _fallback_note = ""
+    up, uid = _get_upsampler(upscaler or EM.DEFAULT_UPSCALER, progress)
+    ulabel = EM.UPSCALERS[uid]["label"]
+    used = lambda f=None: {"upscaler": uid, "face": f, "note": _fallback_note}
+    if mode in ("general", "plate"):
+        step(f"Upscaling 4x ({ulabel})…")
+        out, _ = up.enhance(bgr, outscale=4)
+        if mode == "plate":
+            step("Sharpening plate/text detail…")
+            out = _classical_sharpen(out, strong=True)
+        return out, 0, used()
 
-    _load_models(progress)
-    step("Upscaling and restoring faces (GFPGAN)…")
-    _, _, out = _gfpgan.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True)
-    faces_found = len(_gfpgan.face_helper.all_landmarks_5) if hasattr(_gfpgan, "face_helper") else 0
+    g, fid = _get_face(face or EM.DEFAULT_FACE, up, progress)
+    step(f"Upscaling ({ulabel}) and restoring faces ({EM.FACES[fid]['label']})…")
+    _, _, out = g.enhance(bgr, has_aligned=False, only_center_face=False, paste_back=True)
+    faces_found = len(g.face_helper.all_landmarks_5) if hasattr(g, "face_helper") else 0
     if mode == "auto" and faces_found == 0:
         step("No face found — sharpening detail…")
-        return _classical_sharpen(out), 0
+        return _classical_sharpen(out), 0, used()
     if faces_found > 0 and weight > 0.0:
         step("Blending restoration against real pixels (fidelity)…")
-        _load_models_upsampler_only(progress)
-        real_only, _ = _realesrgan.enhance(bgr, outscale=4)
+        real_only, _ = up.enhance(bgr, outscale=4)
         if real_only.shape == out.shape:
             out = np.clip((1 - weight) * out.astype(np.float32) + weight * real_only.astype(np.float32), 0, 255).astype(np.uint8)
-    return out, faces_found
+    return out, faces_found, used(fid)
 
 
-def _load_models_upsampler_only(progress=None):
-    # "general"/"plate" modes never need GFPGAN's face model loaded — this trims first-use latency and
-    # memory for the common non-face case, at the cost of a second lazy-load path.
-    global _realesrgan, _device
-    with _models_lock:
-        if _realesrgan is not None:
-            return
-        if progress:
-            progress("Loading models (first use downloads ~700MB, cached after)…")
-        _trust_certifi()
-        import torch
-        from basicsr.archs.rrdbnet_arch import RRDBNet
-        from realesrgan import RealESRGANer
-        _device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-        rrdb = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-        _realesrgan = RealESRGANer(
-            scale=4, model_path="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
-            model=rrdb, tile=400, tile_pad=10, pre_pad=0, half=False, device=_device,
-        )
+def _load_models_upsampler_only(progress=None, upscaler=None):
+    """The upscaler alone, for the benches and tools: the chosen one (default Real-ESRGAN), loaded."""
+    up, _ = _get_upsampler(upscaler or "realesrgan", progress)
+    return up
 
 
 def _classical_sharpen(bgr, strong=False):
