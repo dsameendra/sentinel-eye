@@ -1262,6 +1262,7 @@ export class LiveView {
   }
 
   destroy() {
+    this._closing?.finishNow();   // a camera still flying back to the grid lands now, before the grid goes
     this._dropPrewarm();
     this.disposeTiles();
     this.focus?.tile.dispose();
