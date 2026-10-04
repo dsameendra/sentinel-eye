@@ -941,6 +941,9 @@ export class LiveView {
       onError: (msg) => toast(`Instant replay: ${msg}`, 'bad', 6000),
       onFrame: (t) => {
         rp.at = t;
+        // The recorder only serves footage it has finished writing, so playback can begin (or land after a
+        // scrub) further back than asked — the scrubber then starts there, so its times stay true.
+        if (t < rp.startEpoch) rp.startEpoch = t;
         // The picture's own shape, so the stage can size it to fill the screen whatever its resolution.
         if (canvas.width && canvas.height) r.style.setProperty('--ar', (canvas.width / canvas.height).toFixed(4));
         if (rp.holdAfterSeek) { rp.holdAfterSeek = false; player.pauseHere(); }

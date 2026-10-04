@@ -174,7 +174,10 @@ class PlaybackReader:
         self.waiting_for_slot = False
         self._held = self.speed
         try:
-            self._play_loop()
+            # A seek the recorder refuses leaves its session unusable, so the loop hands back "reopen" and
+            # starts a fresh session at that time (see the seek branch in _play_loop).
+            while self._play_loop() == "reopen" and not self._stop.is_set():
+                pass
         except h.RelayError as e:
             self.error = str(e)
             try:
@@ -207,9 +210,14 @@ class PlaybackReader:
         self._seek_to = None
         self.a_const = self._a_const_for(start_dt)
         # The DVR refuses PLAY for a time too close to "now" (still-open recording segment) — with 400 Bad
-        # Request and no other signal. How close is inconsistent (not a fixed margin we can just default
-        # past), so back off and retry rather than guess: verified this recovers cleanly.
-        for attempt in range(6):
+        # Request and no other signal. How close moves as it writes: measured from under a minute to about
+        # two (anything past ~2 min opened every time). So back off in growing steps — up to ~7 min — rather
+        # than guess a margin: the session starts at the newest footage the recorder will serve. Only for
+        # recent footage; a 400 further back means something else, and is raised.
+        backoff = (20, 20, 30, 30, 45, 60, 90, 120)
+        recent = lambda dt: (datetime.datetime.now(datetime.timezone.utc) - dt).total_seconds() < 600
+        tries = len(backoff) + 1
+        for attempt in range(tries):
             end_dt = start_dt + datetime.timedelta(hours=24)
             rng = f"clock={hik_time(start_dt, self.tz)}-{hik_time(end_dt, self.tz)}"
             self.client = h.RtspClient(self.conn["host"], self.conn["port"], self.conn["user"], self.conn["pw"], self.path)
@@ -218,16 +226,16 @@ class PlaybackReader:
                 break
             except h.RelayError as e:
                 self.client.close()
-                if "fast" in str(e) and attempt < 5:
+                if "fast" in str(e) and attempt < tries - 1:
                     # 453: the recorder's budget is (still) spoken for — a session that just ended can
                     # take a moment to be released on its side. Wait briefly rather than fail.
                     if self._stop.wait(0.8):
                         return
                     continue
-                too_close = "400" in str(e)   # 453 is the recorder's bandwidth refusal, not "too near now"
-                if not too_close or attempt == 5:
+                too_close = "400" in str(e) and recent(start_dt)   # 453 is the bandwidth refusal, not "too near now"
+                if not too_close or attempt == tries - 1:
                     raise
-                start_dt -= datetime.timedelta(seconds=20)
+                start_dt -= datetime.timedelta(seconds=backoff[attempt])
         aes = h.make_aes(self.conn["key"]) if self.conn["encrypted"] else None
         dp = h.Depacketizer(self.client.codec, aes)
         gate = h.StartGate(self.client.codec, self.client.sdp)
@@ -250,15 +258,24 @@ class PlaybackReader:
                     self._held = speed
                 self.speed = speed
                 self.a_const = self._a_const_for(seek_dt)
-                for attempt in range(6):
-                    seek_end = seek_dt + datetime.timedelta(hours=24)
-                    status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
-                    if status.startswith("RTSP/1.0 200") or "400" not in status or attempt == 5:
-                        break
-                    seek_dt -= datetime.timedelta(seconds=20)
-                if not status.startswith("RTSP/1.0 200"):
-                    self.q.put(("error", BANDWIDTH_MSG if "453" in status else f"Seek/speed change failed: {status}"))
+                seek_end = seek_dt + datetime.timedelta(hours=24)
+                status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
+                if "453" in status:
+                    self.q.put(("error", BANDWIDTH_MSG))
                     return
+                if not status.startswith("RTSP/1.0 200"):
+                    # Measured on the recorder: an in-session seek closer than ~30 s to now is refused (400),
+                    # and after any refusal the session answers every request — PLAY anywhere, even PAUSE —
+                    # with 455 Method Not Valid In This State. It can't be revived, so close it (TEARDOWN,
+                    # awaited, so its budget is free) and open a new one at that time; opening backs off
+                    # from "too close to now" on its own, and gets nearer to now than a seek may.
+                    self.client.teardown()
+                    self.client.close()
+                    self.client = None
+                    if self._seek_to is None:   # a newer seek that arrived meanwhile wins
+                        self._seek_to = seek_dt.isoformat()
+                    self._flush_queue()
+                    return "reopen"
                 near_utc = seek_dt.timestamp()
                 target_utc = seek_dt.timestamp()
                 anchor = None  # re-learn for the new segment — see _anchor_correction's docstring
