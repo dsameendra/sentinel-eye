@@ -477,7 +477,10 @@ With the AI enhancer installed, two benches measure Read text on synthetic text 
 `tools/bench_ocr.py` on 72 printed plates and signs (angle, size, blur, polarity, JPEG) — about 94% read
 exactly from an operator's box, against 17% for the whole picture — and `tools/bench_plates.py` on licence
 plates seen side-on through the whole enhancer pipeline, where the plate reader reads most of them exactly
-and Tesseract almost none.
+and Tesseract almost none. `tools/bench_enhance.py` compares every upscaler and face model (plates, stock
+scenes, a face, timing) — the measurements behind the pairings in Settings — and
+`tools/test_enhance_models.py` checks the model catalog, verified downloads and fallbacks without needing a
+GPU or the weights.
 
 ## Project status
 
