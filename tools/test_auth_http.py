@@ -122,6 +122,9 @@ def anonymous():
     check("anon /api/status only says go2rtc", r.status_code == 200 and r.json() == {"go2rtc": True}, r.text)
     r = c.get("/api/settings")
     check("anon API -> 401 JSON", r.status_code == 401 and r.json()["code"] == "auth_required")
+    check("security headers, even on the gate's own answers",
+          r.headers.get("x-frame-options") == "DENY" and r.headers.get("x-content-type-options") == "nosniff"
+          and "frame-ancestors 'none'" in r.headers.get("content-security-policy", ""), dict(r.headers))
     check("anon /ws -> 4401", ws_close_code(c, "/ws?src=cam1") == 4401)
 
 

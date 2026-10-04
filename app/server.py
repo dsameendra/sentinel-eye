@@ -56,6 +56,19 @@ async def lifespan(app):
 
 app = FastAPI(title="Sentinel Eye", lifespan=lifespan)
 app.middleware("http")(auth_api.gate)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """On every response, the sign-in gate's own included (registered after it, so it wraps it): no framing
+    by other sites (clickjacking a signed-in admin), no MIME sniffing, no full URLs leaked as Referer."""
+    resp = await call_next(request)
+    h = resp.headers
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "same-origin")
+    return resp
 app.add_exception_handler(auth.AuthError, auth_api.auth_error)
 app.include_router(auth_api.router)
 
