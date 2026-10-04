@@ -1529,7 +1529,7 @@ html.tv-mode .live-bar .topbar .tv-btn .i { width: 22px; height: 22px; }
 html.tv-mode .live-bar .topbar .tv-btn:hover { background: #fff; color: #000; transform: scale(1.05); }   /* a pointer remote's cursor: hover is the selection cue */
 html.tv-mode .live-bar .topbar .tv-btn:focus-visible { outline: none; background: #fff; color: #000; transform: scale(1.07); box-shadow: 0 12px 34px rgba(0, 0, 0, .55); }
 html.tv-mode .live-bar .topbar .tv-btn[aria-pressed="true"] { background: rgba(255, 255, 255, .14); }
-html.tv-mode .live-bar .topbar .tv-btn[aria-pressed="true"]:focus-visible { background: #fff; }
+html.tv-mode .live-bar .topbar .tv-btn[aria-pressed="true"]:hover, html.tv-mode .live-bar .topbar .tv-btn[aria-pressed="true"]:focus-visible { background: #fff; color: #000; }
 html.tv-mode .wall { gap: 24px; padding: 112px var(--tv-pad) 104px; }
 /* The Overview: the whole screen, no frame, no radius — the TV's resting state. */
 html.tv-mode .liveview:has(.overview-tile) .wall { padding: 0; gap: 0; }
