@@ -526,7 +526,10 @@ export function openEnhancePopup(opts) {
     if (job.faces != null && (job.mode === 'face' || job.mode === 'auto')) bits.push(job.faces ? `${job.faces} face${job.faces > 1 ? 's' : ''} found` : 'No faces found');
     bits.push(job.roiUsed ? 'region cropped before upscaling, so every output pixel goes to the subject' : 'whole frame');
     bits.push(job.frames > 1 ? `${job.frames} frames fused` : 'single frame');
-    return bits.join(' · ');
+    // Which models made this — part of the record, like the ENHANCED label (Settings → Enhancement).
+    const m = job.models;
+    if (m) bits.push(`upscaled with ${m.upscaler}${m.face ? `, faces by ${m.face}` : ''}`);
+    return bits.join(' · ') + (m?.note ? `. ${m.note}.` : '');
   }
 
   const download = (url, name) => { const a = document.createElement('a'); a.href = url; a.download = name; a.click(); };
@@ -558,7 +561,7 @@ export function openEnhancePopup(opts) {
       });
       let j = null, failed = null;
       try { j = await poll(job_id, frames.length); } catch (e) { if (!e.sourceReady) throw e; failed = e; }
-      job = { job_id, mode, frames: frames.length, roiUsed: !!roi, faces: j?.faces_found ?? null,
+      job = { job_id, mode, frames: frames.length, roiUsed: !!roi, faces: j?.faces_found ?? null, models: j?.models || null,
         sourceUrl: `/api/enhance/${job_id}/source`, resultUrl: failed ? null : `/api/enhance/${job_id}/result` };
       imgSrc.src = job.sourceUrl;
       imgSrc.onload = () => { pic.style.setProperty('--ar', (imgSrc.naturalWidth / imgSrc.naturalHeight).toFixed(4)); zoom.clampAll(); zoom.apply(); paintSplit(); applyLiveFilter(); };

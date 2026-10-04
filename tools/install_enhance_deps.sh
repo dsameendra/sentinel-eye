@@ -71,6 +71,9 @@ echo "== the rest (no-deps: torch/torchvision/opencv above already satisfy their
 $PIP install addict future lmdb packaging pyyaml requests scikit-image scipy tqdm yapf tb-nightly facexlib gfpgan realesrgan filterpy numba --no-deps
 $PIP install urllib3 idna charset_normalizer certifi   # requests' own deps (installed --no-deps above)
 
+echo "== SwinIR upscalers (spandrel loads them; their weights download when first chosen) =="
+$PIP install "spandrel==0.4.2"
+
 echo "== OCR (optional, separate from the AI pipeline — spec section 4a) =="
 $PIP install pytesseract
 if ! command -v tesseract >/dev/null; then
@@ -86,6 +89,7 @@ echo "== plate reader (optional — Read text on licence plates; its ~5MB model 
 $PIP install "onnxruntime==1.30.0" "fast-plate-ocr==1.1.0"
 
 echo "== checking the install =="
-"$PY" -c "import basicsr, realesrgan, gfpgan, pytesseract, fast_plate_ocr; print('enhancer imports OK')"
+"$PY" -c "import basicsr, realesrgan, gfpgan, spandrel, pytesseract, fast_plate_ocr; print('enhancer imports OK')"
 
-echo "== done — first real enhance request will still download Real-ESRGAN/GFPGAN/facexlib weights (~700MB), and the first plate read the plate reader's model (~5MB) =="
+echo "== done — model weights download into data/models the first time each is used (Real-ESRGAN + GFPGAN ~420MB,"
+echo "   each SwinIR 67-142MB, the plate reader ~5MB), or ahead of time from Settings → Enhancement =="

@@ -49,6 +49,8 @@ export const api = {
   exportStatus: (jobId) => call('GET', `/api/export/${jobId}`),
   createEnhance: (b) => call('POST', '/api/enhance', b),
   enhanceStatus: (jobId) => call('GET', `/api/enhance/${jobId}`),
+  enhanceModels: () => call('GET', '/api/enhance/models'),
+  downloadModel: (kind, id) => call('POST', '/api/enhance/models/download', { kind, id }),
   enhanceOcr: (jobId, which, region = null, plate = false) => call('POST', `/api/enhance/${jobId}/ocr`, { which, region, plate }),
 };
 

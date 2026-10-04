@@ -16,6 +16,7 @@ import auth_api
 import coverage
 import db
 import enhance_ai
+import enhance_models
 import export as exportmod
 import hikrelay
 import hwaccel
@@ -393,6 +394,8 @@ class EnhanceRequest(BaseModel):
     images: list[str]  # base64 PNG, oldest -> newest, 1-11 frames
     roi: list[float] | None = None  # optional [x, y, w, h] fractions (0-1) — crop before enhancing
     weight: float = 0.5  # GFPGAN fidelity (0=free reconstruction, 1=barely touched) — spec section 2d
+    upscaler: str | None = None   # override Settings → Enhancement for this job (catalog id)
+    face: str | None = None
 
 
 @app.post("/api/enhance")
@@ -406,9 +409,39 @@ async def create_enhance(req: EnhanceRequest):
         raise HTTPException(422, "roi must be [x, y, w, h]")
     if not 0.0 <= req.weight <= 1.0:
         raise HTTPException(422, "weight must be between 0 and 1")
+    d = current().display
+    upscaler = req.upscaler if req.upscaler in enhance_models.UPSCALERS else d.enhance_upscaler
+    face = req.face if req.face in enhance_models.FACES else d.enhance_face_model
     job_id = _secrets.token_hex(8)
-    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc, req.roi, req.weight)
+    enhance_ai.start_enhance(job_id, req.images, req.mode, req.channel, req.at_utc, req.roi, req.weight, upscaler, face)
     return {"job_id": job_id}
+
+
+@app.get("/api/enhance/models")
+async def enhance_models_status():
+    """Settings → Enhancement: every upscaler, face and text-reading model, with whether it's ready, needs
+    downloading, or needs the enhancer install — plus the recommended pairings."""
+    return await run_in_threadpool(enhance_models.status)
+
+
+class ModelDownloadRequest(BaseModel):
+    kind: Literal["upscaler", "face", "plate"]
+    id: str
+
+
+@app.post("/api/enhance/models/download")
+async def enhance_models_download(req: ModelDownloadRequest, request: Request):
+    """Fetch a model ahead of first use (admin; it writes to the server's disk)."""
+    if not request.state.principal.can("admin"):
+        raise HTTPException(403, "Only an admin can download models")
+    table = {"upscaler": enhance_models.UPSCALERS, "face": enhance_models.FACES, "plate": enhance_models.PLATES}[req.kind]
+    if req.id not in table:
+        raise HTTPException(404, "Unknown model")
+    ok, why = enhance_models._engine_ready(req.kind, req.id)
+    if not ok:
+        raise HTTPException(409, why)
+    enhance_models.download_in_background(req.kind, req.id)
+    return {"ok": True}
 
 
 @app.get("/api/enhance/{job_id}")
@@ -457,7 +490,8 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
     whole picture or just the operator's (possibly rotated) box. Synchronous: about a second, no job/poll."""
     try:
         lines, crop, engine = await run_in_threadpool(enhance_ai.ocr, job_id, req.which,
-                                                      req.region.model_dump() if req.region else None, req.plate)
+                                                      req.region.model_dump() if req.region else None, req.plate,
+                                                      current().display.enhance_plate_model)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ModuleNotFoundError as e:

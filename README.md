@@ -94,8 +94,12 @@ limited to a region.
 
 ### AI frame enhancer
 From a paused frame in Playback — or up to 11 frames around it, aligned and fused first for less noise — a
-local Real-ESRGAN + GFPGAN pipeline produces the clearest, highest-resolution version of that moment it can,
-for faces and license plates. Select a region first and every output pixel goes to it. **Read text** reads
+local super-resolution + face-restoration pipeline produces the clearest, highest-resolution version of
+that moment it can, for faces and license plates. Select a region first and every output pixel goes to it.
+Settings → Enhancement picks the models — an upscaler (Real-ESRGAN, or SwinIR in faithful or sharp, standard
+or large) and a face model (GFPGAN v1.4 or v1.3, or RestoreFormer) — or one of three measured pairings:
+*Balanced* (fast), *Faithful* (closest to the real pixels) and *Most detail*; each result says which models
+made it. **Read text** reads
 plates and signs: draw a box around the text and turn it to match a slant, and the box is levelled, enlarged
 and read, with the patch it read from shown beside the result. Licence plates go to a dedicated plate reader
 (a small ONNX model) that reads both the enhanced and the original frame and keeps the more confident
@@ -246,8 +250,9 @@ channels, display options) is edited from the in-app **Settings** screen. `data/
 ### AI frame enhancer (optional, native only)
 
 Everything above is all you need for live view, playback, export, and the real-time "wand" filters. The
-[AI frame enhancer](#ai-frame-enhancer) (Real-ESRGAN + GFPGAN, plus Tesseract and a plate reader for Read text) is a separate, heavier
-opt-in — it pulls in PyTorch and ~1.5 GB of model weights, and one of its dependencies
+[AI frame enhancer](#ai-frame-enhancer) (Real-ESRGAN/SwinIR + GFPGAN/RestoreFormer, plus Tesseract and a plate reader for
+Read text) is a separate, heavier opt-in — it pulls in PyTorch and its model weights (about 420 MB for the
+defaults; each other model 67–349 MB, only if you choose it), and one of its dependencies
 ([basicsr](https://github.com/XPixelGroup/BasicSR), effectively unmaintained since 2022) needs a couple of
 small local patches to install and run on current Python. It isn't in the Docker image. All of that is
 scripted:
@@ -257,8 +262,10 @@ scripted:
 tools/install_enhance_deps.sh
 ```
 
-Run it once. If you skip this, everything else works normally; only the frame-enhancer button will report
-it's unavailable.
+Run it once, and again after an update that adds enhancer models (it's safe to re-run). Model weights
+download into `data/models` the first time each is used — or ahead of time from Settings → Enhancement — and
+are checked against pinned checksums; updates and `.venv` rebuilds keep them. If you skip this, everything
+else works normally; only the frame-enhancer button will report it's unavailable.
 
 ### Listen address and port
 
