@@ -97,12 +97,14 @@ From a paused frame in Playback — or up to 11 frames around it, aligned and fu
 local Real-ESRGAN + GFPGAN pipeline produces the clearest, highest-resolution version of that moment it can,
 for faces and license plates. Select a region first and every output pixel goes to it. **Read text** reads
 plates and signs: draw a box around the text and turn it to match a slant, and the box is levelled, enlarged
-and read, with the patch it read from shown beside the result. It runs entirely on this machine and never
+and read, with the patch it read from shown beside the result. Licence plates go to a dedicated plate reader
+(a small ONNX model) that reads both the enhanced and the original frame and keeps the more confident
+reading; other text is read with Tesseract. It runs entirely on this machine and never
 calls out to the cloud, and every enhanced picture carries an **ENHANCED** label, with the original frame
 always kept alongside it: the distinction between "what the sensor recorded" and "the AI's best
 reconstruction of it" is never blurred.
 
-![The AI frame enhancer: a before/after wipe of a car, the ENHANCED label under the picture, and the plate read as CAB 4821 at 95% confidence](docs/screenshots/enhancer.png)
+![The AI frame enhancer: a before/after wipe of a car, the ENHANCED label under the picture, and the plate read as CAB 4821 by the plate reader](docs/screenshots/enhancer.png)
 
 ### Settings
 Recorder address and login, the encryption toggle and verification code, per-channel names/order/frame-rate
@@ -244,7 +246,7 @@ channels, display options) is edited from the in-app **Settings** screen. `data/
 ### AI frame enhancer (optional, native only)
 
 Everything above is all you need for live view, playback, export, and the real-time "wand" filters. The
-[AI frame enhancer](#ai-frame-enhancer) (Real-ESRGAN + GFPGAN, plus optional OCR) is a separate, heavier
+[AI frame enhancer](#ai-frame-enhancer) (Real-ESRGAN + GFPGAN, plus Tesseract and a plate reader for Read text) is a separate, heavier
 opt-in — it pulls in PyTorch and ~1.5 GB of model weights, and one of its dependencies
 ([basicsr](https://github.com/XPixelGroup/BasicSR), effectively unmaintained since 2022) needs a couple of
 small local patches to install and run on current Python. It isn't in the Docker image. All of that is
@@ -462,9 +464,11 @@ anything on it. Sign-in has its own suites, no recorder needed:
 .venv/bin/python3 tools/test_auth_http.py    # every route and WebSocket per role, login flows
 ```
 
-With the AI enhancer installed, `tools/bench_ocr.py` measures Read text on 72 synthetic plates and signs
-(angle, size, blur, polarity, JPEG): about 94% read exactly from an operator's box, against 17% for the
-whole picture.
+With the AI enhancer installed, two benches measure Read text on synthetic text (no real footage):
+`tools/bench_ocr.py` on 72 printed plates and signs (angle, size, blur, polarity, JPEG) — about 94% read
+exactly from an operator's box, against 17% for the whole picture — and `tools/bench_plates.py` on licence
+plates seen side-on through the whole enhancer pipeline, where the plate reader reads most of them exactly
+and Tesseract almost none.
 
 ## Project status
 

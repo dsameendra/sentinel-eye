@@ -427,10 +427,12 @@ whatever's already on screen, paused, this instant.
 - `POST /api/enhance/{job_id}/ocr` — body `{which: "result"|"source", region: {cx, cy, w, h, angle}|null,
   plate: bool}`. `region` is the operator's box: centre and size as fractions of the picture, `angle` in
   degrees clockwise as drawn (the server levels the box, crops, scales and reads several cleaned variants,
-  keeping the reading most agree on); `plate` limits the read to plate characters with no dictionary.
-  Runs synchronously (about a second, no job/poll) and returns `{lines: [{text, confidence}], crop}` —
-  `crop` a PNG data URL of the levelled patch that was read (region reads only, else null).
-  `tools/bench_ocr.py` measures it on synthetic plates and signs.
+  keeping the reading most agree on); `plate` reads the box as a licence plate — with the optional plate
+  reader (fast-plate-ocr's global model) on both the enhanced and the original frame, most confident
+  reading kept; without it, Tesseract limited to plate characters with no dictionary. Runs synchronously
+  (about a second, no job/poll) and returns `{lines: [{text, confidence}], crop, engine}` — `crop` a PNG data
+  URL of the levelled patch that was read (region reads only, else null), `engine` "plate" or "tesseract".
+  `tools/bench_ocr.py` and `tools/bench_plates.py` measure it on synthetic text.
   Optional, on-demand — never run automatically as part of the main pipeline (see 7.8.4a).
 
 ##### 7.8.4a OCR (optional, on demand)
