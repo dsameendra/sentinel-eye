@@ -133,9 +133,6 @@ export class WCPlayer {
     return true;
   }
 
-  /** The time span held in memory, [oldest, newest] epoch seconds, or null. */
-  get buffered() { return this.buffer.length ? [this.buffer[0].absTime, this.buffer[this.buffer.length - 1].absTime] : null; }
-
   _clearBuffer() {
     for (const { frame } of this.buffer) { try { frame.close(); } catch { /* already closed */ } }
     this.buffer = [];

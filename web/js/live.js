@@ -900,10 +900,10 @@ export class LiveView {
   // A real playback session (WCPlayer over /api/playback/ws) from 15 s ago, playing forward at 1x — it reuses
   // the verified DVR playback path instead of a client-side ring buffer, counts against the recorder's
   // playback budget like any review, and is released the moment it's closed. It looks and behaves like
-  // Focus: the picture fills the screen, glass bars fade away while you watch. The bottom bar is a small
-  // player: a scrubber from where the replay started to now, play/pause, 5 s skips, start over, and
-  // Back to live. Skips and scrubs inside what's already decoded are instant (WCPlayer keeps ~30 s);
-  // further back asks the recorder.
+  // Focus: the picture fills the screen, glass bars fade away while you watch. The bottom bar keeps it
+  // simple: start over and play/pause in the middle, the footage's own time and how far behind live it is
+  // on the left, Back to live on the right. Start over is instant while that moment is still decoded
+  // (WCPlayer keeps ~30 s); otherwise it asks the recorder.
   openReplay(cam, seconds = 15) {
     this.closeReplay();
     const r = document.createElement('div');
@@ -915,16 +915,11 @@ export class LiveView {
         <span class="spacer"></span>
       </div><div class="replay-stage"><canvas></canvas></div>
       <div class="focus-bottom rp-bottom">
-        <div class="rp-scrub"><span class="rp-t rp-at">0:00</span>
-          <div class="rp-track" role="slider" tabindex="0" aria-label="Replay position" aria-valuemin="0"><div class="rp-buf"></div><div class="rp-fill"></div><div class="rp-knob"></div></div>
-          <span class="rp-t rp-behind" title="How far behind live">−0:${String(seconds).padStart(2, '0')}</span></div>
         <div class="rp-row">
           <span class="rp-clock" aria-live="off"></span>
           <div class="rp-transport">
             <button class="btn icon ghost" data-a="restart" title="Start over" aria-label="Start over">${icon('rewind')}</button>
-            <button class="btn icon ghost" data-a="back5" title="Back 5 seconds (←)" aria-label="Back 5 seconds">${icon('back5')}</button>
             <button class="btn rp-play" data-a="play" title="Pause (Space)" aria-label="Pause" data-tv-default>${icon('pause')}</button>
-            <button class="btn icon ghost" data-a="fwd5" title="Forward 5 seconds (→)" aria-label="Forward 5 seconds">${icon('fwd5')}</button>
             <span class="rp-gap" aria-hidden="true"></span>
           </div>
           <button class="btn primary rp-live" data-a="live">${icon('play')}Back to live</button>
@@ -941,8 +936,8 @@ export class LiveView {
       onError: (msg) => toast(`Instant replay: ${msg}`, 'bad', 6000),
       onFrame: (t) => {
         rp.at = t;
-        // The recorder only serves footage it has finished writing, so playback can begin (or land after a
-        // scrub) further back than asked — the scrubber then starts there, so its times stay true.
+        // The recorder only serves footage it has finished writing, so playback can begin further back than
+        // asked — "start over" then goes back to where it really began.
         if (t < rp.startEpoch) rp.startEpoch = t;
         // The picture's own shape, so the stage can size it to fill the screen whatever its resolution.
         if (canvas.width && canvas.height) r.style.setProperty('--ar', (canvas.width / canvas.height).toFixed(4));
@@ -959,10 +954,7 @@ export class LiveView {
     on('live', () => this.closeReplay());
     on('x', () => this.closeReplay());
     on('play', () => this.replayToggle());
-    on('back5', () => this.replaySkip(-5));
-    on('fwd5', () => this.replaySkip(5));
     on('restart', () => this.replayJump(rp.startEpoch, true));
-    this._bindReplayScrub(r.querySelector('.rp-track'));
     // Double-click / double-tap the picture: fit ⇄ fill, for this replay only (like a video player's zoom).
     r.querySelector('.replay-stage').addEventListener('dblclick', () => r.classList.toggle('fill'));
     this._bindFocusAutoHide(r, () => !this.replay?.playing);
@@ -975,13 +967,6 @@ export class LiveView {
     if (rp.playing) { rp.player.pauseHere(); rp.playing = false; }
     else { rp.player.playFromHere(); rp.playing = true; }
     this._replayPaint();
-    this._focusShow?.();
-  }
-
-  replaySkip(sec) {
-    const rp = this.replay;
-    if (!rp || rp.at == null) return;
-    this.replayJump(rp.at + sec, rp.playing);
     this._focusShow?.();
   }
 
@@ -1004,51 +989,14 @@ export class LiveView {
     this._replayPaint();
   }
 
-  _bindReplayScrub(track) {
-    const timeAt = (e) => {
-      const rp = this.replay, b = track.getBoundingClientRect();
-      const f = Math.min(1, Math.max(0, (e.clientX - b.left) / b.width));
-      return rp.startEpoch + f * (Date.now() / 1000 - rp.startEpoch);
-    };
-    track.addEventListener('pointerdown', (e) => {
-      const rp = this.replay;
-      if (!rp) return;
-      e.preventDefault();
-      track.setPointerCapture(e.pointerId);
-      const resume = rp.playing;
-      rp.player.pauseHere(); rp.playing = false;
-      const move = (ev) => { rp.player.showTime(timeAt(ev)) && (rp.at = timeAt(ev)); this._replayPaint(timeAt(ev)); };
-      const up = (ev) => {
-        track.removeEventListener('pointermove', move); track.removeEventListener('pointerup', up); track.removeEventListener('pointercancel', up);
-        this.replayJump(timeAt(ev), resume);
-      };
-      move(e);
-      track.addEventListener('pointermove', move); track.addEventListener('pointerup', up); track.addEventListener('pointercancel', up);
-    });
-    track.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); this.replaySkip(e.key === 'ArrowLeft' ? -5 : 5); }
-    });
-  }
-
-  /** Scrubber, times and the play button, from the replay's state. `dragAt` previews a scrub in progress. */
-  _replayPaint(dragAt) {
+  /** The footage's time, how far behind live, status and the play button, from the replay's state. */
+  _replayPaint() {
     const rp = this.replay;
     if (!rp) return;
-    const r = rp.el, now = Date.now() / 1000, span = Math.max(1, now - rp.startEpoch);
-    const at = dragAt ?? rp.at ?? rp.startEpoch;
-    const pct = (t) => `${Math.min(100, Math.max(0, ((t - rp.startEpoch) / span) * 100))}%`;
-    r.querySelector('.rp-fill').style.width = pct(at);
-    r.querySelector('.rp-knob').style.left = pct(at);
-    const buf = rp.player.buffered;
-    const bufEl = r.querySelector('.rp-buf');
-    if (buf) { bufEl.style.left = pct(buf[0]); bufEl.style.width = `calc(${pct(buf[1])} - ${pct(buf[0])})`; }
+    const r = rp.el, now = Date.now() / 1000;
     const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-    r.querySelector('.rp-at').textContent = mmss(Math.max(0, at - rp.startEpoch));
-    r.querySelector('.rp-behind').textContent = `−${mmss(Math.max(0, now - at))}`;
-    r.querySelector('.rp-clock').textContent = rp.at == null ? '' : new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const track = r.querySelector('.rp-track');
-    track.setAttribute('aria-valuemax', String(Math.round(span)));
-    track.setAttribute('aria-valuenow', String(Math.round(at - rp.startEpoch)));
+    r.querySelector('.rp-clock').textContent = rp.at == null ? ''
+      : `${new Date(rp.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${mmss(Math.max(0, now - rp.at))} behind live`;
     // Status: the session's own state while it's getting going, else what the viewer asked for.
     const st = rp.player.state, waiting = rp.at == null || st === 'queued' || st === 'connecting' || st === 'error';
     const pill = r.querySelector('.bar-sub .stat');
@@ -1110,12 +1058,11 @@ export class LiveView {
     if (tvBack && document.body._openPopover) { e.preventDefault(); closePopover(); return; }
     if (k === '?') { shortcutsDialog(); return; }
     if (this.replay) {
-      // Space plays/pauses and ←/→ skip 5 s, unless a remote is moving between the replay's own buttons.
+      // Space plays/pauses (unless a remote is on one of the replay's own buttons); Home starts over.
       const onBtn = document.activeElement?.closest?.('.replay-overlay button');
       this._focusShow?.();
       if (k === 'Escape') { e.preventDefault(); this.closeReplay(); }
       else if (k === ' ' && !onBtn) { e.preventDefault(); this.replayToggle(); }
-      else if ((k === 'ArrowLeft' || k === 'ArrowRight') && !(this.tvMode && onBtn)) { e.preventDefault(); this.replaySkip(k === 'ArrowLeft' ? -5 : 5); }
       else if (k === 'Home') { e.preventDefault(); this.replayJump(this.replay.startEpoch, true); }
       return;
     }

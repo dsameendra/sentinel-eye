@@ -595,17 +595,6 @@ html.tv-mode .zctl button:focus-visible { outline: none; background: #fff; color
 .replay-overlay.fill .replay-stage canvas { width: max(100cqw, calc(100cqh * var(--ar, 1.7778))); }
 .replay-overlay:not([style*="--ar"]) .replay-stage canvas { visibility: hidden; }   /* no 300x150 blank before the first frame */
 .rp-bottom { flex-direction: column; align-items: stretch; gap: 6px; padding-top: 10px; }
-.rp-scrub { display: flex; align-items: center; gap: 12px; }
-.rp-t { min-width: 42px; font-size: 12px; color: rgba(255, 255, 255, .62); font-variant-numeric: tabular-nums; }
-.rp-behind { text-align: right; }
-.rp-track { position: relative; flex: 1; height: 24px; cursor: pointer; touch-action: none; outline: none; }
-.rp-track::before, .rp-buf, .rp-fill { content: ""; position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; transition: transform var(--dur-fast) var(--ease-out-expo); }
-.rp-track::before { left: 0; right: 0; background: rgba(255, 255, 255, .16); }
-.rp-buf { background: rgba(255, 255, 255, .26); }
-.rp-fill { left: 0; background: #fff; }
-.rp-knob { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .45); transition: transform var(--dur-fast) var(--ease-out-expo); }
-.rp-track:hover::before, .rp-track:hover .rp-buf, .rp-track:hover .rp-fill, .rp-track:focus-visible::before, .rp-track:focus-visible .rp-fill { transform: scaleY(1.5); }
-.rp-track:hover .rp-knob, .rp-track:active .rp-knob, .rp-track:focus-visible .rp-knob { transform: scale(1.2); }
 .rp-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
 .rp-clock { font-size: 13px; color: rgba(255, 255, 255, .62); font-variant-numeric: tabular-nums; }
 .rp-transport { display: flex; align-items: center; gap: 10px; }
