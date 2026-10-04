@@ -63,4 +63,7 @@ if ! command -v tesseract >/dev/null; then
   brew install tesseract
 fi
 
-echo "== done — first real enhance request will still download Real-ESRGAN/GFPGAN/facexlib weights (~700MB) =="
+echo "== plate reader (optional — Read text on licence plates; its ~5MB model is fetched on first use) =="
+$PIP install "onnxruntime==1.30.0" "fast-plate-ocr==1.1.0"
+
+echo "== done — first real enhance request will still download Real-ESRGAN/GFPGAN/facexlib weights (~700MB), and the first plate read the plate reader's model (~5MB) =="

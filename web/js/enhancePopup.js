@@ -15,6 +15,7 @@ import { Enhancer, PRESETS as FILTER_PRESETS } from './enhance.js';
 import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
 import { partsFromEpoch } from './dvrtime.js';
 
+const PLATE_KEY = 'sentinel-eye-ocr-plate';   // "Number plate" in Read text, remembered
 const MODES = [['auto', 'Auto'], ['face', 'Face'], ['plate', 'Plate'], ['general', 'General']];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -114,7 +115,7 @@ export function openEnhancePopup(opts) {
           <button class="zoomtag" hidden title="Reset zoom">Reset</button>
           <div class="enh2-busy"><span class="spin"></span><span class="msg">Starting…</span></div>
           <div class="enh2-ocrbar" hidden><span class="t">Drag a box around the text. Turn it with the round handle if the text is slanted.</span>
-            <label class="enh2-plate"><input type="checkbox" data-x="ocr-plate"> Plate characters only</label>
+            <label class="enh2-plate" title="Reads it as a licence plate — a plate reader, plate characters only"><input type="checkbox" data-x="ocr-plate"> Number plate</label>
             <button class="btn sm glass-btn" data-x="ocr-cancel">Cancel</button><button class="btn sm primary" data-x="ocr-read">Read text</button></div>
         </div>
         <div class="enh2-badge" role="note">${icon('alert')}<span><b>ENHANCED</b> — reconstructed detail, not the original recording. An investigative lead, not evidence.</span></div>
@@ -407,16 +408,16 @@ export function openEnhancePopup(opts) {
   const ocrWhich = () => (job?.resultUrl ? 'result' : 'source');
   const ocrIdle = () => {
     if (ocrLast) { ocrResult(); return; }
-    ocrEl.innerHTML = `<p class="enh2-note">Mark where the text is for the best read — slanted text too. Tesseract reads the ${job?.resultUrl ? 'result' : 'original'}; verify by eye.</p>
+    ocrEl.innerHTML = `<p class="enh2-note">Mark where the text is for the best read — slanted text too. Verify by eye before acting on it.</p>
       <div class="enh2-ocracts"><button class="btn sm primary" data-x="ocr-mark" ${job ? '' : 'disabled'}>${icon('scan')} Select text</button>
       <button class="btn sm ghost" data-x="ocr-whole" ${job ? '' : 'disabled'}>Read whole picture</button></div>`;
   };
   const ocrResult = () => {
-    const { lines, crop } = ocrLast;
+    const { lines, crop, engine } = ocrLast;
     ocrEl.innerHTML = `${crop ? `<div class="enh2-ocrcrop"><img src="${crop}" alt="The text that was read, levelled"></div>` : ''}
       ${lines.length ? lines.map((l) => `<div class="enh2-ocrline"><span>${esc(l.text)}</span><span class="pill ${l.confidence >= 80 ? 'ok' : ''}">${l.confidence.toFixed(0)}%</span></div>`).join('')
         : '<p class="enh2-note">No text could be read there.</p>'}
-      <p class="enh2-note">Tesseract's read with its own confidence — verify by eye before acting on it.</p>
+      <p class="enh2-note">${engine === 'plate' ? 'The plate reader’s best read of the enhanced and the original frame, with its confidence' : 'Tesseract’s read, with its own confidence'} — verify by eye before acting on it.</p>
       <div class="enh2-ocracts"><button class="btn sm glass-btn" data-x="ocr-mark">${ocrLast.region ? 'Adjust the box' : 'Select text'}</button>
         <button class="btn sm ghost" data-x="ocr-whole">Read whole picture</button></div>`;
   };
@@ -430,8 +431,9 @@ export function openEnhancePopup(opts) {
     ocrEl.innerHTML = '<p class="enh2-note"><span class="spin sm"></span> Reading…</p>';
     try {
       const plate = region ? $('[data-x=ocr-plate]').checked : false;
+      try { localStorage.setItem(PLATE_KEY, plate ? '1' : '0'); } catch { /* private mode */ }
       const r = await api.enhanceOcr(job.job_id, ocrWhich(), region, plate);
-      ocrLast = { lines: r.lines, crop: r.crop, region };
+      ocrLast = { lines: r.lines, crop: r.crop, engine: r.engine, region };
       ocrResult();
     } catch (e) {
       ocrLast = null;
@@ -446,7 +448,10 @@ export function openEnhancePopup(opts) {
     if (!on) return;
     const W = pic.offsetWidth, H = pic.offsetHeight;
     if (!ob) ob = { cx: W / 2, cy: H / 2, w: W * 0.4, h: H * 0.14, a: 0 };
-    $('[data-x=ocr-plate]').checked = mode === 'plate';
+    // Number plate: as last time, else on in Plate mode.
+    let remembered = null;
+    try { remembered = localStorage.getItem(PLATE_KEY); } catch { /* private mode */ }
+    $('[data-x=ocr-plate]').checked = remembered === null ? mode === 'plate' : remembered === '1';
     paintBox();
     obox.focus({ preventScroll: true });
   }

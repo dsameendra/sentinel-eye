@@ -443,8 +443,8 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
     """Optional, on-demand text read (spec 4a) — Tesseract on an image already produced by this job, the
     whole picture or just the operator's (possibly rotated) box. Synchronous: about a second, no job/poll."""
     try:
-        lines, crop = await run_in_threadpool(enhance_ai.ocr, job_id, req.which,
-                                              req.region.model_dump() if req.region else None, req.plate)
+        lines, crop, engine = await run_in_threadpool(enhance_ai.ocr, job_id, req.which,
+                                                      req.region.model_dump() if req.region else None, req.plate)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ModuleNotFoundError as e:
@@ -455,7 +455,7 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
                                   "\"AI frame enhancer\" section to install it on a native (non-Docker) run.")
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
-    return {"lines": lines, "crop": crop}
+    return {"lines": lines, "crop": crop, "engine": engine}
 
 
 @app.get("/api/timeline/tz")

@@ -44,3 +44,5 @@ websockets==17.1
 # tb-nightly==2.21.0a20251023
 # requests==2.34.2
 # pytesseract==0.3.13  (needs the `tesseract` binary too — tools/install_enhance_deps.sh installs it via Homebrew)
+# onnxruntime==1.30.0  (plate reader)
+# fast-plate-ocr==1.1.0  (plate reader: licence plates in Read text; its ~5MB model is fetched on first use)

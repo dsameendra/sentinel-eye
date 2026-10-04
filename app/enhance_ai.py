@@ -10,6 +10,7 @@ Forensic-integrity requirements (spec section 6) are enforced here, not just in 
 says ENHANCED — there is no code path that returns an AI output without it.
 """
 import io
+import os
 import shutil
 import threading
 import time
@@ -454,12 +455,74 @@ def _ocr_region(base_rgb, region, plate):
     return out, shown
 
 
+# ------------------------------------------------------------------ plate reader (optional)
+# A licence-plate recognizer (fast-plate-ocr's global CCT model, ONNX, ~5 MB, fetched once on first use into
+# the user's cache): Tesseract reads printed documents, and fails on plates — condensed plate lettering, seen
+# side-on so every letter leans. Measured on 16 side-on synthetic plates through the real enhancer: Tesseract
+# 0 exact (29-32% of characters); this reader 12-13 exact (91-96%). Optional like the rest of the enhancer
+# (tools/install_enhance_deps.sh); without it, Plate mode reads with Tesseract as before.
+PLATE_MODEL = "cct-s-v2-global-model"
+_plate_rec = None          # None = not tried yet, False = not installed
+_plate_lock = threading.Lock()
+
+
+def _plate_reader():
+    global _plate_rec
+    with _plate_lock:
+        if _plate_rec is None:
+            try:
+                from fast_plate_ocr import LicensePlateRecognizer
+            except ModuleNotFoundError:
+                _plate_rec = False
+                return None
+            try:
+                import certifi
+                os.environ.setdefault("SSL_CERT_FILE", certifi.where())   # python.org builds: see run.sh native_env
+            except ModuleNotFoundError:
+                pass
+            _plate_rec = LicensePlateRecognizer(PLATE_MODEL, device="cpu")
+        return _plate_rec or None
+
+
+def _read_plate(images_rgb, region):
+    """The plate reader on the operator's box, levelled, from each image given (the enhanced result and the
+    original frame), as drawn and with its letters upright; the most confident reading wins — they miss on
+    different plates. Returns (text, confidence 0-100) or None if the reader isn't installed."""
+    import cv2
+    import re
+    rec = _plate_reader()
+    if rec is None:
+        return None
+    best = None
+    for rgb in images_rgb:
+        patch = _region_patch(rgb, region)
+        if patch.size == 0:
+            continue
+        g = cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY)
+        sh = _slant(cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1])
+        tries = [patch] + ([_unslant(patch, sh)] if abs(sh) >= 0.08 else [])
+        for img in tries:
+            p = rec.run(np.ascontiguousarray(img), return_confidence=True)[0]
+            text = re.sub(r"[^A-Z0-9]", "", (p.plate or "").upper())
+            if not text:
+                continue
+            conf = float(np.mean(p.char_probs[: len(p.plate)])) if p.char_probs is not None else 0.0
+            if best is None or conf > best[1]:
+                best = (text, conf)
+    if best is None:
+        return ("", 0.0)
+    # Letters and digits as groups, the way a plate reads: CBG4264 -> CBG 4264.
+    spaced = re.sub(r"(?<=[A-Z])(?=[0-9])|(?<=[0-9])(?=[A-Z])", " ", best[0])
+    return spaced, round(best[1] * 100, 1)
+
+
 def ocr(job_id, which, region=None, plate=False):
     """Reads text off whichever image ('result' or 'source') is already on disk for this job, with Tesseract
     — the whole picture, or just the operator's box (`region`, see _region_patch), which is far more
-    reliable: the box says where the text is and which way it runs. Returns (lines, crop): `crop` is a PNG
-    data URL of the levelled patch that was read (region reads only), so the operator can see exactly what
-    the reading came from.
+    reliable: the box says where the text is and which way it runs. In Plate mode, with the plate reader
+    installed, that reads the box instead (_read_plate). Returns (lines, crop, engine): `crop` is a PNG data
+    URL of the levelled patch that was read (region reads only), so the operator can see exactly what the
+    reading came from; `engine` is "plate" or "tesseract".
     A *read*, not a generative step: nothing here can invent a character, but Tesseract can still misread
     real DVR footage (glare, low res, angle), so every line carries its own confidence and the caller shows
     it as "read this, verify by eye" — never as a determined value on its own."""
@@ -471,8 +534,25 @@ def ocr(job_id, which, region=None, plate=False):
         raise FileNotFoundError("That frame isn't ready yet")
     base = PILImage.open(path).convert("RGB")
     if not region:
-        return _ocr_whole(base), None
-    lines, shown = _ocr_region(base, region, plate)
+        return _ocr_whole(base), None, "tesseract"
+    engine = "tesseract"
+    read = None
+    if plate:
+        images = [np.array(base)]
+        other = source_path(job_id) if which == "result" else None
+        if other:
+            src = PILImage.open(other).convert("RGB")
+            # Same box on the original frame: the result is that frame upscaled, so the same fractions.
+            if abs(src.width / src.height - base.width / base.height) < 0.01:
+                images.append(np.array(src))
+        read = _read_plate(images, region)
+    if read is not None:
+        import cv2
+        engine = "plate"
+        lines = [{"text": read[0], "confidence": read[1]}] if read[0] else []
+        shown = cv2.cvtColor(_region_patch(np.array(base), region), cv2.COLOR_RGB2GRAY)
+    else:
+        lines, shown = _ocr_region(base, region, plate)
     crop = None
     if shown is not None:
         im = PILImage.fromarray(shown)
@@ -481,7 +561,7 @@ def ocr(job_id, which, region=None, plate=False):
         buf = io.BytesIO()
         im.save(buf, "PNG")
         crop = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    return lines, crop
+    return lines, crop, engine
 
 
 # ------------------------------------------------------------------ multi-frame align + fuse (classical)
