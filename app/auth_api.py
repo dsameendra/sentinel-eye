@@ -84,7 +84,7 @@ ROUTE_ROLES = [(m, re.compile(rx), role) for m, rx, role in [
     ("*", r"/api/auth/.*", "viewer"),
 ]]
 PUBLIC = re.compile(r"/(login|pair|login\.html|pair\.html|manifest\.json|sw\.js|favicon\.ico|css/app\.css"
-                    r"|js/(login|pair|ui|api|qr|tvnav)\.js|vendor/qrcode\.js|icons/[^/]+"
+                    r"|js/(login|pair|ui|api|qr|tvnav|pwa)\.js|vendor/qrcode\.js|icons/[^/]+"
                     r"|api/status|api/auth/(me|login|login/totp|logout|pair/start|pair/poll))")
 LIMITED_OK = re.compile(r"/api/auth/(me|logout|password|totp/.*)")   # admin who must enrol 2FA first
 

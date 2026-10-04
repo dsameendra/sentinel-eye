@@ -14,19 +14,15 @@
      looks like; sw.js (registered from main.js) is what makes Chrome/Edge actually consider it installable
      at all, not just Safari's older (manifest-independent) Add-to-Home-Screen/Add-to-Dock mechanism. -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#161618">
+<meta name="theme-color" content="#09090b">
 <link rel="apple-touch-icon" href="icons/app-icon-apple-touch.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Sentinel Eye">
-<!-- "black": iOS reserves an opaque status-bar strip above our content instead of overlaying a translucent
-     one on top of it. "black-translucent" looks tempting since this app already handles env(safe-area-
-     inset-*) for true (Fullscreen API) fullscreen elsewhere, but in *standalone* display mode it makes iOS
-     itself draw a frosted/blurred system bar over our content for legibility — that's the "weirdly blurred"
-     strip reported on iPad after adding to the Home Screen. Opaque "black" avoids it entirely and blends in
-     since our topbar is already near-black; true fullscreen video views are unaffected (separate API/state,
-     still handled by the :fullscreen safe-area rules). -->
-<!-- Edge to edge under the status bar; #statusbar paints that strip solid in the screen's bar colour. -->
+<!-- Keep edge-to-edge geometry; the installed app paints matching opaque chrome and reserves
+     clearance below the iOS 27 status effect. Metadata alone cannot disable native blur. -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="sentinel-shell" content="ios-headers-v10">
+<script src="js/pwa.js"></script>
 </head>
 <body>
 <div id="statusbar" aria-hidden="true"></div>

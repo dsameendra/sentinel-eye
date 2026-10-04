@@ -18,61 +18,15 @@ const can = (role) => (ROLE_RANK[state.me?.role] ?? -1) >= ROLE_RANK[role];
 const SECTION_ROLE = { playback: 'operator', events: 'operator', search: 'operator' };
 const app = document.getElementById('app');
 
-// Matches --bg in app.css exactly (dark/light) — kept as its own small map rather than reading the CSS
-// variable at call time, since the value is needed before layout/paint on the very first call.
 function applyTheme(t) {
   // A TV in TV mode follows its own appearance (dark unless chosen otherwise), not the synced theme: a
   // TV browser often reports a light preference, which turned everything around the video light.
   if (getTvMode()) { const tv = getTvTheme(); t = tv === 'auto' ? null : tv; }
   if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
   else document.documentElement.removeAttribute('data-theme');
-  syncStatusColor();
+  window.SentinelPWA?.syncTheme();
 }
 
-// The strip behind the status bar (#statusbar, app.css) takes the colour of whatever sits just beneath it —
-// a glass bar composited over what's behind it, a solid large-title bar, Focus's black — so the status bar
-// always reads as part of the screen below. The OS's own tint (the theme-color meta tag, which iOS's status
-// bar and installed-app title bars read, not the page's CSS) is kept the same colour.
-const parseColor = (c) => {
-  let m = c.match(/^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
-  if (m) return [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]];
-  m = c.match(/^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)(?: \/ ([\d.]+))?\)/);   // what color-mix() computes to
-  if (m) return [+m[1] * 255, +m[2] * 255, +m[3] * 255, m[4] === undefined ? 1 : +m[4]];
-  return null;
-};
-/** The colour an element actually shows: its background, composited over its ancestors' until opaque. */
-function shownColor(el) {
-  const layers = [];
-  for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
-    const c = parseColor(getComputedStyle(e).backgroundColor);
-    if (c && c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
-  }
-  if (!layers.length || layers[layers.length - 1][3] < 1) layers.push(parseColor(getComputedStyle(document.body).backgroundColor) || [0, 0, 0, 1]);
-  let [r, g, b] = layers.pop();
-  while (layers.length) { const [r2, g2, b2, a] = layers.pop(); r = r2 * a + r * (1 - a); g = g2 * a + g * (1 - a); b = b2 * a + b * (1 - a); }
-  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
-}
-let statusColor = '';
-function syncStatusColor() {
-  const sb = document.getElementById('statusbar');
-  if (!sb || !parseColor(getComputedStyle(document.body).backgroundColor)?.[3]) return;   // stylesheet not applied yet
-  const h = sb.getBoundingClientRect().height;
-  // What's just below the strip, ignoring a dialog's backdrop (app.css dims the strip with it instead).
-  const below = document.elementsFromPoint(innerWidth / 2, h + 2).find((e) => e !== sb && !e.closest('#modal-root .scrim, #toasts, #notifs'));
-  if (below) document.documentElement.style.setProperty('--statusbar-now', shownColor(below));
-  const c = shownColor(sb);
-  if (c !== statusColor) { statusColor = c; document.querySelector('meta[name=theme-color]')?.setAttribute('content', c); }
-}
-// Re-check when the screen under it changes: a route, a layer opening or closing, a resize (batched, ~once a frame).
-const STATUS_LAYERS = '.topbar, .focus, .replay-overlay, .scrim, .enh2, .xp';
-let statusRaf = 0;
-const queueStatus = () => { if (!statusRaf) statusRaf = setTimeout(() => { statusRaf = 0; syncStatusColor(); }, 16); };
-new MutationObserver((records) => {
-  if (records.some((r) => [...r.addedNodes, ...r.removedNodes].some((n) => n.nodeType === 1 && (n.matches(STATUS_LAYERS) || n.querySelector?.(STATUS_LAYERS))))) queueStatus();
-}).observe(document.body, { childList: true, subtree: true });
-addEventListener('load', queueStatus);
-addEventListener('resize', queueStatus);
-addEventListener('hashchange', () => setTimeout(queueStatus, 50));
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
   if (getTvMode() || !(state.settings?.display.theme === 'dark' || state.settings?.display.theme === 'light')) applyTheme(state.settings?.display.theme);
 });
@@ -249,7 +203,6 @@ async function boot() {
   window.addEventListener('hashchange', route);
   if (!location.hash) location.hash = '#/live';
   route();
-  setTimeout(queueStatus, 300);   // the first screen is drawn: match the status-bar strip to it
 }
 
 // A backgrounded installed app (iOS home-screen PWA especially — see Tile.resume's own comment) loses its

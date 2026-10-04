@@ -289,17 +289,24 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   let side = null;
   const place = () => {
     const r = anchorEl.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - 14, above = r.top - 14;
+    const pwa = document.documentElement.classList.contains('ios-pwa');
+    const header = anchorEl.closest('.topbar, .focus-bar') || document.fullscreenElement?.querySelector('.topbar, .focus-bar');
+    const topEdge = pwa ? Math.max(8, document.getElementById('statusbar')?.getBoundingClientRect().height || 0,
+      header ? parseFloat(getComputedStyle(header).paddingTop) || 0 : 0) : 8;
+    const view = pwa ? window.visualViewport : null;
+    const bottomEdge = view ? Math.min(innerHeight, view.offsetTop + view.height) : innerHeight;
+    const below = bottomEdge - r.bottom - 14, above = r.top - topEdge - 6;
     menu.style.maxHeight = '';
     const natural = menu.scrollHeight;
-    side ||= natural <= below || below >= above ? 'below' : 'above';
-    const room = Math.max(120, side === 'below' ? below : above);
+    if (pwa || !side) side = natural <= below || below >= above ? 'below' : 'above';
+    const room = Math.max(pwa ? 0 : 120, side === 'below' ? below : above);
     menu.style.maxHeight = `${room}px`;
     const mw = menu.offsetWidth, mh = Math.min(natural, room);
     let left = align === 'left' ? r.left : r.right - mw;
     left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
     menu.style.left = `${left}px`;
-    menu.style.top = `${side === 'below' ? r.bottom + 6 : r.top - mh - 6}px`;
+    const top = side === 'below' ? r.bottom + 6 : r.top - mh - 6;
+    menu.style.top = `${pwa ? Math.max(topEdge, Math.min(top, bottomEdge - mh - 8)) : top}px`;
   };
   place();
   let raf = 0;
@@ -308,10 +315,13 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   ro.observe(menu);
   const onResize = () => place();
   window.addEventListener('resize', onResize);
+  const viewport = document.documentElement.classList.contains('ios-pwa') ? window.visualViewport : null;
+  viewport?.addEventListener('resize', onResize);
+  viewport?.addEventListener('scroll', onResize);
   const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== anchorEl) closePopover(); };
   const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
   setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
-  menu._cleanup = () => { ro.disconnect(); window.removeEventListener('resize', onResize); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
+  menu._cleanup = () => { ro.disconnect(); window.removeEventListener('resize', onResize); viewport?.removeEventListener('resize', onResize); viewport?.removeEventListener('scroll', onResize); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
   menu._anchor = anchorEl;
   menu._onClose = onClose;
   document.body._openPopover = menu;

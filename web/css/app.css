@@ -70,7 +70,11 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --statusbar: #161618;   /* --glass-fill over --bg, solid: the bars' own colour, for the strip behind the status bar */
+  --shell-revision: ios-headers-v10;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --header-inset-top: var(--safe-top);
+  --pwa-blur-gap: 0px;
+  --chrome-bg: var(--bg);
   --glass-border: rgba(255, 255, 255, .1); --glass-highlight: rgba(255, 255, 255, .06);
   /* Timeline (timeline.js): event-kind and per-camera-lane colours. Qualitative/categorical, not semantic
    * state, so they intentionally don't get separate light-theme values (their job is telling lanes/kinds
@@ -123,7 +127,7 @@
   --warn: #b35309; --danger: #d72323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14);
   --shadow-float: 0 14px 32px -6px rgba(16, 24, 40, .22), 0 2px 10px rgba(16, 24, 40, .14);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .08); --shadow-2: var(--shadow); --shadow-3: 0 24px 64px -8px rgba(0, 0, 0, .16);
-  --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88); --statusbar: #fbfbfc;
+  --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88);
   --glass-border: rgba(0, 0, 0, .07); --glass-highlight: rgba(255, 255, 255, .5); --tl-rec: #e3e3e8; --ev-bookmark: #6e6e73; }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) { color-scheme: light; --bg: #f2f2f5; --panel: #fff; --panel-2: #f2f2f5; --line: rgba(0, 0, 0, .08); --line-2: #e3e3e8;
@@ -135,7 +139,7 @@
     --warn: #b35309; --danger: #d72323; --danger-soft: rgba(218, 35, 35, .1); --info: #0d9488; /* teal, same redesign-v2 shift as dark theme */ --shadow: 0 10px 30px rgba(16, 24, 40, .14);
     --shadow-float: 0 14px 32px -6px rgba(16, 24, 40, .22), 0 2px 10px rgba(16, 24, 40, .14);
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .08); --shadow-2: var(--shadow); --shadow-3: 0 24px 64px -8px rgba(0, 0, 0, .16);
-    --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88); --statusbar: #fbfbfc;
+    --glass-fill: rgba(255, 255, 255, .72); --glass-fill-heavy: rgba(255, 255, 255, .88);
     --glass-border: rgba(0, 0, 0, .07); --glass-highlight: rgba(255, 255, 255, .5); --tl-rec: #e3e3e8; --ev-bookmark: #6e6e73; }
 }
 @media (prefers-reduced-motion: reduce) { :root { --dur-instant: 0s; --dur-fast: 0s; --dur-base: 0s; --dur-slow: 0s; --dur-chrome-out: 0s; --dur-chrome-in: 0s; } }
@@ -155,7 +159,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    the global cluster on the right; every other screen leads with a back chevron. Glass — see the guardrail
    rules near TV mode for the no-blur/reduced-transparency fallbacks. */
 .topbar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); position: relative; z-index: 10; }
-.topbar.big { height: auto; min-height: calc(72px + env(safe-area-inset-top)); padding-top: calc(14px + env(safe-area-inset-top)); padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
+.topbar.big { height: auto; min-height: calc(72px + var(--header-inset-top)); padding-top: calc(14px + var(--header-inset-top)); padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
 .bar-back { margin-left: -8px; }
 .bar-brand { display: grid; place-items: center; }
 .bar-title { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
@@ -353,7 +357,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 :root[data-theme="light"] .liveview { background: var(--bg); }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .liveview { background: var(--bg); } }
 .live-bar { flex: none; }
-.liveview:fullscreen .live-bar .topbar { padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); }
+.liveview:fullscreen .live-bar .topbar { padding-top: var(--header-inset-top); height: calc(var(--bar) + var(--header-inset-top)); }
 /* Pager under the wall (Live board 1×1: ‹ 1 / 8 ›) */
 .pager-row { flex: none; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 0 0 16px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .pager-row[hidden] { display: none; }
@@ -548,7 +552,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .tile-slot { visibility: hidden; min-width: 0; min-height: 0; border-radius: var(--r-md); }
 .focus-ghost { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .focus.fill .focus-ghost { object-fit: cover; }
-.focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; padding-top: env(safe-area-inset-top); box-sizing: content-box; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
+.focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; padding-top: var(--header-inset-top); box-sizing: content-box; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
 .focus-bar h2 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
 .focus-bar .bar-sub { display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, .62); }
 .focus-bar .bar-sub .dot { width: 6px; height: 6px; box-shadow: none; }
@@ -580,7 +584,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .zhud.compact .zmap { width: 104px; border-radius: 8px; }
 .zhud.compact .zctl button { height: 26px; min-width: 26px; font-size: 11.5px; }
 .zhud.compact .zctl .pct { min-width: 46px; }
-.focus .zhud { top: calc(84px + env(safe-area-inset-top)); bottom: auto; right: 18px; }
+.focus .zhud { top: calc(84px + var(--header-inset-top)); bottom: auto; right: 18px; }
 .pb-pane .zhud { top: 12px; right: 12px; bottom: auto; }
 html.tv-mode .zctl button:focus-visible { outline: none; background: #fff; color: #000; }
 .focus-bar, .focus-bottom, .focus .nav-arrow, .focus-zoom { transition: opacity var(--dur-chrome-in) var(--ease-out-expo); }
@@ -775,7 +779,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 /* ---------- toasts & modal ---------- */
 /* Toasts (redesign v2): system messages — saved, failed, copied. One glass pill dropping in at the top
    centre, clear of every screen's primary actions. Newest on top; at most three; tap to dismiss. */
-#toasts { position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 50%; z-index: 210; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
+#toasts { position: fixed; top: calc(14px + var(--header-inset-top)); left: 50%; z-index: 210; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: min(520px, calc(100vw - 32px)); min-height: 44px; padding: 10px 20px 10px 12px; border-radius: var(--r-full); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8); border: 1px solid var(--glass-border); box-shadow: 0 12px 40px -8px rgba(0, 0, 0, .45), inset 0 1px 0 var(--glass-highlight); font-size: 14px; font-weight: 500; line-height: 1.35; cursor: default; animation: toast-in var(--dur-slow, .42s) var(--ease-out-expo, ease-out); }
 .toast > .i { width: 24px; height: 24px; flex: none; padding: 4px; border-radius: 50%; }
 .toast.ok > .i { color: #fff; background: var(--armed); stroke-width: 3; }
@@ -787,7 +791,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 @keyframes toast-out { to { opacity: 0; transform: translateY(-10px) scale(.96); } }
 /* Event notifications (notify()): banners under the bar's right end, like a Mac's — a kind-coloured
    glyph, what and where, a thumbnail of the moment; hover holds them, a tap opens the camera. */
-#notifs { position: fixed; top: calc(70px + env(safe-area-inset-top)); right: 16px; z-index: 205; display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+#notifs { position: fixed; top: calc(70px + var(--header-inset-top)); right: 16px; z-index: 205; display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
 .notif-banner { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 20px; background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8); border: 1px solid var(--glass-border); box-shadow: 0 18px 50px -10px rgba(0, 0, 0, .5), inset 0 1px 0 var(--glass-highlight); animation: nb-in var(--dur-slow, .42s) var(--ease-out-expo, ease-out); }
 .notif-banner.tappable { cursor: pointer; }
 .notif-banner.tappable:hover { background: color-mix(in srgb, var(--glass-fill-heavy) 88%, var(--text) 4%); }
@@ -805,7 +809,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 @keyframes nb-in { from { opacity: 0; transform: translateX(40px) scale(.97); } }
 @keyframes nb-out { to { opacity: 0; transform: translateX(40px); } }
 @media (max-width: 640px) {
-  #notifs { left: 50%; right: auto; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); }
+  #notifs { left: 50%; right: auto; transform: translateX(-50%); top: calc(10px + var(--header-inset-top)); }
   @keyframes nb-in { from { opacity: 0; transform: translateY(-20px) scale(.97); } }
   @keyframes nb-out { to { opacity: 0; transform: translateY(-14px); } }
 }
@@ -815,7 +819,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
    edges with no way to scroll to it, permanently hiding whatever was below the fold, including the actual
    submit button. Confirmed directly: the Export dialog's own "Export" button sat ~450px past the viewport,
    unreachable, on a 375x667 screen. */
-.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: max(16px, calc(env(safe-area-inset-top) + 8px)) max(16px, env(safe-area-inset-right)) max(16px, calc(env(safe-area-inset-bottom) + 8px)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
+.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: max(16px, calc(var(--header-inset-top) + 8px)) max(16px, env(safe-area-inset-right)) max(16px, calc(env(safe-area-inset-bottom) + 8px)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
 .dialog { width: min(440px, 100%); padding: 24px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
 .dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 20px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
@@ -1094,7 +1098,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb:fullscreen .pb-stage { padding: 0; }
 .pb:fullscreen .pb-panes { inset: 0; gap: 2px; }
 .pb:fullscreen .pb-pane { border-radius: 0; border: 0; }
-.pb:fullscreen > .topbar { display: flex; position: absolute; top: 0; left: 0; right: 0; z-index: 9; padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); }
+.pb:fullscreen > .topbar { display: flex; position: absolute; top: 0; left: 0; right: 0; z-index: 9; padding-top: var(--header-inset-top); height: calc(var(--bar) + var(--header-inset-top)); }
 .pb:fullscreen .pb-controls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-top: 1px solid var(--glass-border); padding-top: 10px; padding-bottom: env(safe-area-inset-bottom); }
 .pb:fullscreen .pb-timeline-panel { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .pb:fullscreen > .topbar, .pb:fullscreen .pb-controls { transition: opacity var(--dur-chrome-in) var(--ease-out-expo); }
@@ -1348,7 +1352,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .ev-row { flex-wrap: wrap; row-gap: 4px; }
   .ev-row b { min-width: 0; }
 }
-.evp-scrim { padding: max(16px, calc(env(safe-area-inset-top) + 8px)) 16px max(16px, calc(env(safe-area-inset-bottom) + 8px)); }
+.evp-scrim { padding: max(16px, calc(var(--header-inset-top) + 8px)) 16px max(16px, calc(env(safe-area-inset-bottom) + 8px)); }
 .evp-dialog { width: min(820px, 100%); max-height: 90vh; display: flex; flex-direction: column; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); overflow: hidden; }
 .evp-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .evp-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; font-weight: 600; }
@@ -1361,20 +1365,15 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .evp-bottom .btn, .evp-bottom .hint { flex: none; }
 
 /* ---------- mobile & touch ---------- */
-/* The strip behind the status bar (installed app on iPhone/iPad, which draws edge to edge — status bar style
-   black-translucent). It's solid, in the colour of the screen's own bar, and sits above everything: iOS blurs
-   whatever is behind the clock, so the bars' see-through glass showed as a blurred band there, and a
-   full-screen layer with a dark background as a black one. Solid, the status bar simply continues the bar:
-   main.js sets --statusbar-now to the colour actually shown just below it (glass composited, a solid
-   large-title bar, Focus's black). Dimmed with the page under a dialog. 0 px tall everywhere else. */
-#statusbar { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); z-index: 2147483000; background: var(--statusbar-now, var(--statusbar)); pointer-events: none; }
-html:has(.auth-page) #statusbar { background: var(--bg); }
-html:has(#modal-root .scrim) #statusbar { background: color-mix(in srgb, var(--statusbar-now, var(--statusbar)) 45%, #000); }   /* under --scrim (55% black) */
-html .auth-page { padding-top: max(24px, calc(env(safe-area-inset-top) + 12px)); padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px)); }
+/* A background-only fallback for loading/auth states. Route and overlay headers paint their own
+   matching surface; ordinary Safari does not get a PWA status strip. Scrims dim it naturally. */
+#statusbar { display: none; position: fixed; top: 0; left: 0; right: 0; height: var(--header-inset-top); z-index: 70; background: var(--chrome-bg); pointer-events: none; }
+html.ios-pwa #statusbar { display: block; }
+html .auth-page { padding-top: max(24px, calc(var(--header-inset-top) + 12px)); padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px)); }
 /* Safe-area insets: matters once this is added to a phone's home screen (standalone display), or on a
    notched phone in landscape — harmless everywhere else since the env() vars are 0 on unsupported/normal
    browser-chrome contexts. Layered onto the existing fixed sizes, not replacing them. */
-.topbar { padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+.topbar { padding-top: var(--header-inset-top); height: calc(var(--bar) + var(--header-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
 .savebar { padding-bottom: env(safe-area-inset-bottom); }
 .pb-controls { padding-bottom: env(safe-area-inset-bottom); }
 
@@ -1418,7 +1417,7 @@ html .auth-page { padding-top: max(24px, calc(env(safe-area-inset-top) + 12px));
    stage takes the video's own shape instead of a tall black box, the transport sits on its own line, and
    the timeline panel drops the legend and hint (the colours stay; the hint is a desktop mouse affordance). */
 @media (max-width: 640px) {
-  .topbar.appbar { flex-wrap: wrap; height: auto; min-height: var(--bar); row-gap: 8px; padding-top: calc(8px + env(safe-area-inset-top)); padding-bottom: 8px; }
+  .topbar.appbar { flex-wrap: wrap; height: auto; min-height: var(--bar); row-gap: 8px; padding-top: calc(8px + var(--header-inset-top)); padding-bottom: 8px; }
   .topbar.appbar .bar-ctx { order: 10; flex: 1 0 100%; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .topbar.appbar .bar-ctx::-webkit-scrollbar { display: none; }
   .pb .speed-seg { display: none; }
@@ -1842,7 +1841,7 @@ button.acct-av:active { transform: scale(.97); }
   html.tv-mode #view, body:has(.focus) #view, body:has(.replay-overlay) #view { padding-bottom: 0; }
 
   /* Live header: big "Live", the health line beneath it, Overview and the bell on the right. */
-  .topbar.live { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: "title ctx actions" "health ctx actions"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + env(safe-area-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
+  .topbar.live { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: "title ctx actions" "health ctx actions"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + var(--header-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
   .topbar.live .bar-brand, .topbar.live > .spacer { display: none; }
   .topbar.live .bar-title { grid-area: title; }
   .topbar.live .bar-title h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
@@ -1889,8 +1888,49 @@ button.acct-av:active { transform: scale(.97); }
 /* Narrow windows and iPad portrait: a bar's context controls take a second, swipeable line rather than
    squeezing the title (Playback's date stepper and camera chips, Events' search). */
 @media (min-width: 641px) and (max-width: 900px) {
-  .topbar.appbar:not(.live) { flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: 10px; }
+  .topbar.appbar:not(.live) { flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: calc(10px + var(--header-inset-top)); padding-bottom: 10px; }
   .topbar.appbar:not(.live) .bar-ctx { order: 10; flex: 1 0 100%; overflow-x: auto; scrollbar-width: none; }
   .topbar.appbar:not(.live) .bar-ctx::-webkit-scrollbar { display: none; }
 }
 .date-step .date-label { white-space: nowrap; }
+
+
+/* ---------- Installed iPhone/iPad chrome ----------
+   The iOS 27 status effect can extend below the reported safe area. Reserve an additional 20 px when
+   there is a top inset; keep this single tunable value pending native-device verification. Landscape or
+   true fullscreen with no top inset adds no gap. All browser tabs retain their existing geometry. */
+html.ios-pwa {
+  --pwa-blur-gap: min(20px, calc(var(--safe-top) * 1000));
+  --header-inset-top: calc(var(--safe-top) + var(--pwa-blur-gap));
+  background: var(--chrome-bg);
+}
+html.ios-pwa :is(.topbar, .focus-bar) {
+  background: var(--chrome-bg);
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+  padding-left: max(18px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+}
+/* Fix the whole header, not only a narrow strip. pwa.js reserves its measured height for wrapped bars.
+   Overlay roots remain their own stacking contexts, including when they enter the fullscreen top layer. */
+html.ios-pwa :is(.topbar, .focus-bar).pwa-header { position: fixed; top: 0; left: 0; right: 0; }
+.pwa-header-space { flex: none; pointer-events: none; }
+:fullscreen .pwa-header-space { display: none; }
+/* A transformed entrance would make a fixed header relative to the animated overlay instead of the
+   viewport. Keep the protected surface stationary in the installed app. */
+html.ios-pwa :is(.enh2, .xp) { animation: none; }
+html.ios-pwa .focus-bar {
+  padding-left: max(18px, env(safe-area-inset-left, 0px));
+  padding-right: max(18px, env(safe-area-inset-right, 0px));
+}
+html.ios-pwa .focus-bar h2, html.ios-pwa .focus-bar .btn.ghost { color: var(--text); }
+html.ios-pwa .focus-bar .bar-sub, html.ios-pwa .focus-bar .seg button { color: var(--muted); }
+html.ios-pwa .focus-bar .seg { background: var(--panel-2); }
+html.ios-pwa .focus-bar .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); }
+html.ios-pwa .focus-bar .btn.ghost:hover { background: var(--panel-2); }
+/* Modal containers belong to the fullscreen top layer if their owning view is fullscreened. Topbar
+   backgrounds stay with the header; the fallback sibling strip is never used to cover native fullscreen. */
+html.ios-pwa:has(:fullscreen) #statusbar { display: none; }

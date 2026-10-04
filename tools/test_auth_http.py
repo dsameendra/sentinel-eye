@@ -115,7 +115,7 @@ def anonymous():
           r.headers.get("location"))
     r = c.get("/js/live.js")
     check("anon app JS -> redirect", r.status_code == 302)
-    for path in ("/login", "/login.html", "/js/login.js", "/js/ui.js", "/css/app.css", "/manifest.json", "/sw.js"):
+    for path in ("/login", "/login.html", "/js/login.js", "/js/pwa.js", "/js/ui.js", "/css/app.css", "/manifest.json", "/sw.js"):
         r = c.get(path)
         check(f"anon {path} public", r.status_code == 200, r.status_code)
     r = c.get("/api/status")

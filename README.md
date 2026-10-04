@@ -415,6 +415,11 @@ install mechanism:
 It opens full-screen with its own icon and no address bar, and still talks directly to your own Mac over
 your network — installing it changes nothing about how or where data moves.
 
+Installed iPhone/iPad navigation uses a solid surface matching the selected theme, with shared safe-area
+spacing across pages and overlays. If an installed app still shows an older header after an update, close
+it completely and relaunch online. The [iOS PWA header audit](docs/ios-pwa-header-plan.md) documents the
+shell-version check and the native iOS/iPadOS 27 verification still required for the status-area workaround.
+
 <p align="center"><img src="docs/screenshots/mobile-live.png" width="320" alt="Sentinel Eye on a phone: the live view as a two-column grid with a tab bar for Live, Playback, Events and Settings"></p>
 
 ### Channel-zero: the recorder's own overview

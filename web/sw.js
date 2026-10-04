@@ -9,7 +9,7 @@
 // always be live), the playback/live WebSocket and WebRTC/MSE streams (the browser never routes these
 // through a service worker's fetch event in the first place — no special-casing needed), and anything
 // cross-origin.
-const CACHE_NAME = 'sentinel-eye-shell-v9'; // bumped with each release whose modules change (v9: avatars, account, replay, plate reader UI): drops every installed client's old shell on activate rather than serving it once more
+const CACHE_NAME = 'sentinel-eye-shell-v10'; // shared iPhone/iPad PWA chrome; discard the previous shell on activation
 const STATIC_RE = /\.(?:js|css|png|svg|json|ico|webmanifest)$/;
 
 self.addEventListener('install', () => {
