@@ -306,7 +306,7 @@ def _region_patch(gray, region):
     return gray[y0:y1, x0:x1]
 
 
-def _ocr_line_variants(patch, target_h=110):
+def _ocr_line_variants(patch, target_h=110, plate=False):
     """Tesseract reads text best at roughly 30-60 px cap height, dark on light, with a clean margin — and
     reads badly far above that as well as below (an enhanced 4x result can put a plate's letters at 120 px+).
     So the patch is scaled, up or down, to `target_h` px tall (a line of text filling most of the
@@ -328,19 +328,40 @@ def _ocr_line_variants(patch, target_h=110):
         bw = 255 - bw
         gray = 255 - gray
     # The box usually takes in some scene around the plate or sign; as a solid dark frame that makes
-    # Tesseract treat the whole patch as a picture and read nothing. Dark areas touching the box's edge
-    # aren't text (the box has a margin around it), so a cleaned copy whites them out.
-    n, labels, stats, _ = cv2.connectedComponentsWithStats((bw < 128).astype(np.uint8), connectivity=8)
-    edge = np.zeros(bw.shape, bool)
+    # Tesseract treat the whole patch as a picture and read nothing. A cleaned copy whites out dark areas
+    # that touch the box's edge AND span most of its width or height — a surround, not a letter (a box
+    # drawn tight can touch a letter: found when a tight box lost the "C" of "CAB 4821").
+    # Found on a thinned copy of the dark mask: a letter that nearly touches the plate's edge (blurred into
+    # it at low resolution) hangs on by a thin bridge, which thinning breaks — so the letter isn't taken
+    # for part of the surround (found: "CAB 4821" lost its "C" that way).
+    dark = (bw < 128).astype(np.uint8)
+    k = max(1, round(hh / 70))
+    thin = cv2.erode(dark, np.ones((3, 3), np.uint8), iterations=k)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(thin, connectivity=8)
+    edge = np.zeros(bw.shape, np.uint8)
     for i in range(1, n):
         x, y, w2, h2 = stats[i][:4]
-        if x == 0 or y == 0 or x + w2 >= ww or y + h2 >= hh:
-            edge |= labels == i
+        touches = x <= k or y <= k or x + w2 >= ww - k or y + h2 >= hh - k
+        if touches and (w2 >= 0.5 * ww or h2 >= 0.85 * hh):
+            edge[labels == i] = 1
+    edge = (cv2.dilate(edge, np.ones((3, 3), np.uint8), iterations=k + 1) > 0) & (dark > 0)
     clean, gclean = bw.copy(), gray.copy()
     clean[edge] = 255
     gclean[cv2.dilate(edge.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0] = 255   # gray keeps blurred strokes thin
     pad = lambda im: cv2.copyMakeBorder(im, 16, 16, 16, 16, cv2.BORDER_CONSTANT, value=255)
-    return [("bw-clean", pad(clean)), ("gray-clean", pad(gclean)), ("gray", pad(gray)), ("bw", pad(bw)), ("bw-inv", pad(255 - bw))], gray
+    out = [("bw-clean", pad(clean)), ("gray-clean", pad(gclean)), ("gray", pad(gray)), ("bw", pad(bw)), ("bw-inv", pad(255 - bw))]
+    # The plate (or sign) itself: the largest light area in the box, read on its own with white around it —
+    # its border and whatever surrounds it gone, even where a letter runs into the border (found: a tight
+    # plate whose "C" touched its frame read as "AB 4821").
+    n2, lab2, st2, _ = cv2.connectedComponentsWithStats((bw >= 128).astype(np.uint8), connectivity=4)
+    if plate and n2 > 1:
+        i = 1 + int(np.argmax(st2[1:, cv2.CC_STAT_AREA]))
+        x, y, w2, h2, area = st2[i]
+        if area > 0.15 * hh * ww and (w2 < ww - 4 or h2 < hh - 4) and h2 > 0.25 * hh:
+            # The box is levelled already, so the plate is upright: its light area's bounds are inside its
+            # printed border, which the crop leaves out.
+            out += [("plate-bw", pad(bw[y:y + h2, x:x + w2])), ("plate-gray", pad(gray[y:y + h2, x:x + w2]))]
+    return out, gray
 
 
 def _ocr_region(base_rgb, region, plate):
@@ -356,8 +377,8 @@ def _ocr_region(base_rgb, region, plate):
     if patch.size == 0:
         return [], None
     # Two sizes: a box drawn snugly (text fills it) and one drawn loosely (text is a smaller part of it).
-    variants, shown = _ocr_line_variants(patch, 110)
-    variants += _ocr_line_variants(patch, 190)[0]
+    variants, shown = _ocr_line_variants(patch, 110, plate)
+    variants += _ocr_line_variants(patch, 190, plate)[0]
     cfg = "--oem 1"
     if plate:
         # The space must be in the whitelist (quoted): without it Tesseract glues a plate's groups into one
@@ -378,13 +399,21 @@ def _ocr_region(base_rgb, region, plate):
             key = "".join(ch for v in lines.values() for w in v["words"] for ch in w if ch.isalnum()).upper()
             if not key:
                 continue
-            g = groups.setdefault(key, {"votes": 0.0, "best": None, "best_mean": -1.0})
+            g = groups.setdefault(key, {"votes": 0.0, "n": 0, "best": None, "best_mean": -1.0})
             g["votes"] += mean
+            g["n"] += 1
             if mean > g["best_mean"]:
                 g["best"], g["best_mean"] = lines, mean
     best = None
     if groups:
-        best = max(groups.items(), key=lambda kv: (kv[1]["votes"] + min(len(kv[0]), 10) * 1.5))[1]["best"]
+        key, g = max(groups.items(), key=lambda kv: (kv[1]["votes"] + min(len(kv[0]), 10) * 1.5))
+        # A confident reading that contains the winner and adds to it — agreed on by at least two witnesses,
+        # so one stray mark can't add a letter — wins: dropping a letter (one touching the plate's border,
+        # say) is far more common than inventing one.
+        longer = [(k, v) for k, v in groups.items() if len(k) > len(key) and key in k and v["best_mean"] >= 75 and v["n"] >= 2]
+        if plate and longer:
+            key, g = max(longer, key=lambda kv: (len(kv[0]), kv[1]["best_mean"]))
+        best = g["best"]
     out = []
     for v in (best or {}).values():
         out.append({"text": " ".join(v["words"]), "confidence": round(sum(v["confs"]) / len(v["confs"]), 1)})
