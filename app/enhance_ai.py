@@ -480,7 +480,11 @@ def _plate_reader():
                 os.environ.setdefault("SSL_CERT_FILE", certifi.where())   # python.org builds: see run.sh native_env
             except ModuleNotFoundError:
                 pass
-            _plate_rec = LicensePlateRecognizer(PLATE_MODEL, device="cpu")
+            try:
+                _plate_rec = LicensePlateRecognizer(PLATE_MODEL, device="cpu")
+            except Exception as e:   # first use offline, say: read with Tesseract now, try again next time
+                print(f"[enhance] plate reader unavailable ({type(e).__name__}: {e}) — reading with Tesseract", flush=True)
+                return None
         return _plate_rec or None
 
 
