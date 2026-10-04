@@ -62,13 +62,18 @@ export class PlaybackView {
   }
 
   // Builds at once with the DVR offset already known (main.js fetches it at start-up); only a first visit
-  // ever, with nothing known yet, waits for it. A changed offset is picked up next time.
+  // ever, with nothing known yet, waits for it. The offset is checked again in the background, and a change
+  // (a recorder that follows daylight saving) is applied in place — every time shown reads it afresh.
   async _init(channelId) {
     const known = knownTzOffset();
     this.tzOffsetMin = known ?? await fetchTzOffset(this.tzOffsetMin);
     if (this._dead) return;   // left before a first-ever fetch came back
     this.build(channelId);
-    if (known !== null) fetchTzOffset(known);
+    if (known !== null) fetchTzOffset(known).then((m) => {
+      if (this._dead || m === this.tzOffsetMin) return;
+      this.tzOffsetMin = m;
+      if (this.timeline) { this.timeline.opts.tzOffsetMin = m; this.timeline.refresh?.(); }
+    });
   }
 
   // Same order the operator arranged on Live/Settings (display.order), not just the enabled subset in

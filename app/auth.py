@@ -367,6 +367,7 @@ def delete_user(user_id: int, *, actor: str = "", ip: str = "") -> None:
         raise AuthError(409, "That's the last admin: add another admin first")
     hashes = [x["token_hash"] for x in _q("SELECT token_hash FROM sessions WHERE user_id=?", (user_id,))]
     _w("DELETE FROM users WHERE id=?", (user_id,))
+    avatar_photo_path(user_id).unlink(missing_ok=True)   # their photo goes with them
     audit(actor, "device.delete" if r["kind"] == "device" else "user.delete", r["username"], ip)
     _fire_revoked(hashes)
 

@@ -146,10 +146,11 @@ class PlaybackReader:
         # packets coming — gets its socket cut after a short grace, so its share isn't held for the 15s
         # idle timeout.
         def cut():
-            if self.thread.is_alive() and self.client and self.client.sock:
+            c = self.client   # read once: a reopen can swap it out meanwhile
+            if self.thread.is_alive() and c is not None and c.sock is not None:
                 try:
                     import socket
-                    self.client.sock.shutdown(socket.SHUT_RDWR)
+                    c.sock.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
         threading.Timer(2.0, cut).start()
@@ -215,7 +216,8 @@ class PlaybackReader:
         # than guess a margin: the session starts at the newest footage the recorder will serve. Only for
         # recent footage; a 400 further back means something else, and is raised.
         backoff = (20, 20, 30, 30, 45, 60, 90, 120)
-        recent = lambda dt: (datetime.datetime.now(datetime.timezone.utc) - dt).total_seconds() < 600
+        recent = lambda dt: (datetime.datetime.now(datetime.timezone.utc)
+                             - (dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc))).total_seconds() < 600
         tries = len(backoff) + 1
         for attempt in range(tries):
             end_dt = start_dt + datetime.timedelta(hours=24)

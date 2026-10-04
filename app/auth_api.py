@@ -319,7 +319,9 @@ def avatar_photo(user_id: int, request: Request):
     path = auth.avatar_photo_path(user_id)
     if not path.exists():
         raise HTTPException(404, "No photo")
-    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=31536000"})
+    with open(path, "rb") as f:   # stored as sent: a JPEG from the app, or a PNG
+        png = f.read(8) == b"\x89PNG\r\n\x1a\n"
+    return FileResponse(path, media_type="image/png" if png else "image/jpeg", headers={"Cache-Control": "private, max-age=31536000"})
 
 
 class CodeReq(BaseModel):
