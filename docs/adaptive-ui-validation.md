@@ -1,4 +1,4 @@
-# Adaptive UI validation — adaptive-v11
+# Adaptive UI validation — adaptive-v12
 
 Implementation and local validation completed on 2026-10-05 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
 
@@ -23,6 +23,12 @@ Implementation and local validation completed on 2026-10-05 on `fix/ios-status-b
 The installed bottom-inset correction is informed by WebKit's report of standalone safe-area values including absent browser chrome: [WebKit bug 301172](https://bugs.webkit.org/show_bug.cgi?id=301172#c8). Its applicability to the user's iOS 27 device is an inference, not a measured native root cause. The bounded inset and shell anchoring passed synthetic geometry checks; verify the physical home-indicator clearance on both devices.
 
 ## Executed checks
+
+### Fullscreen follow-up — adaptive-v12
+
+The follow-up uses the same isolated PWA preview with synthetic safe-area values, not a native iPhone/iPad compositor or a connected recorder. In portrait at 390×844, the measured usable-area video center is 444.5px (45px below the physical viewport center, matching the injected 79px top and 34px bottom content insets). The single-camera Exit control sits below the measured 144px header; after idle it has zero opacity and no pointer events. At 844×390, the camera remains centered at y=195, the Playback Exit control begins below its 128px toolbar, and the transport remains clear at the bottom. Desktop 1440×900 verifies Live grid and Playback fullscreen labels/icons change to collapse/“Exit full screen” on entry and return to expand/“Full screen” on exit. Pointer movement reveals controls, and both Live Focus and Playback Exit actions leave their current route intact.
+
+`tools/test_viewer.mjs` now covers independent Exit auto-hide, keyboard wake and immediate touch wake. Physical iPhone/iPad orientation, native fullscreen APIs, actual touch/tap timing and connected-recorder behavior remain release acceptance items.
 
 | Suite | Result | What it establishes |
 | --- | --- | --- |
@@ -96,7 +102,7 @@ Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixt
 
 ## Native and deployment acceptance
 
-1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v11`. It reports geometry/version only, without recorder/account/video data.
+1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v12`. It reports geometry/version only, without recorder/account/video data.
 2. Check all routes, both orientations/themes, the status-area sharpness, home-indicator/nav spacing and keyboard/AutoFill. Exercise Focus, channel-zero wall and one/two-camera Playback expansion; return in one action after chrome hides and after rotation. Verify tap, double tap, pinch, pan and menus separately.
 3. Verify a physical TV with viewer/operator accounts, directional remote, OK, Back, play/pause, page changes and idle/reveal. Confirm controls hide without blacking out the hardware-decoded video and that return remains usable if native fullscreen is absent.
 4. With a connected recorder, complete the Playback/export/enhancement acceptance items above, including session cleanup, time alignment, produced evidence files and background jobs.

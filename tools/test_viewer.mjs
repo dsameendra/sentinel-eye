@@ -14,10 +14,10 @@ class Node extends EventTarget {
   getAttribute(k) { return this.attrs.get(k) ?? null; }
   setAttribute(k,v) { this.attrs.set(k,v); }
   removeAttribute(k) { this.attrs.delete(k); }
-  closest(selector) { return selector.includes(this.kind) ? this : this.parent?.closest(selector) || null; }
+  closest(selector) { return selector.includes(this.kind) || this.tagName && selector.includes(this.tagName.toLowerCase()) ? this : this.parent?.closest(selector) || null; }
   contains(node) { return node === this || this.children.some(child => child.contains(node)); }
   querySelectorAll(selector) { return selector === '.chrome' ? this.children.filter(n => n.kind === '.chrome') : this.children.flatMap(n => [n,...n.children]).filter(n => n.kind === 'button'); }
-  querySelector(selector) { return this.querySelectorAll(selector)[0]; }
+  querySelector(selector) { return selector === ':scope > .viewer-exit' ? this.children.find(n => n.kind === '.viewer-exit') || null : this.querySelectorAll(selector)[0]; }
   focus() { document.activeElement = this; this.dispatchEvent(new Event('focusin')); }
 }
 const doc = new EventTarget();
@@ -44,13 +44,23 @@ const advance = ms => {
   }
   now = end;
 };
-const { ViewerControls, toggleViewer, leaveViewer } = await import('../web/js/viewer.js');
-const el = new Node('viewer'), chrome = new Node('.chrome'), button = new Node('button');
-el.children = [chrome]; chrome.parent = el; chrome.children = [button]; button.parent = chrome;
+const { ViewerControls, toggleViewer, leaveViewer, bindViewerToggle } = await import('../web/js/viewer.js');
+const el = new Node('viewer'), chrome = new Node('.chrome'), button = new Node('button'), exit = new Node('.viewer-exit');
+exit.tagName = 'BUTTON'; el.children = [chrome, exit]; chrome.parent = el; chrome.children = [button]; button.parent = chrome; exit.parent = el;
 let paused = false, held = false, enabled = true;
 const controls = new ViewerControls(el, { chrome: '.chrome', background: 'viewer', paused: () => paused, held: () => held, enabled: () => enabled, delay: () => 1000 });
 let checks = 0;
 const check = (label, value) => { assert.ok(value,label); checks++; };
+const toggleRoot = new Node('viewer'), toggleButton = new Node('button');
+bindViewerToggle(toggleButton, toggleRoot);
+const pointerActivate = () => { const e=new Event('pointerup'); Object.assign(e,{isPrimary:true,pointerType:'touch',button:0}); toggleButton.dispatchEvent(e); };
+pointerActivate(); check('fullscreen pointer action enters immersion', toggleRoot.classList.contains('immersive'));
+const synthesizedClick = new Event('click'); Object.defineProperty(synthesizedClick,'detail',{value:1}); toggleButton.dispatchEvent(synthesizedClick);
+check('pointer and synthesized click do not double-toggle', toggleRoot.classList.contains('immersive'));
+pointerActivate(); check('fullscreen pointer action exits immersion', !toggleRoot.classList.contains('immersive'));
+const keyboardClick = new Event('click'); Object.defineProperty(keyboardClick,'detail',{value:0}); toggleButton.dispatchEvent(keyboardClick);
+check('keyboard click enters immersion', toggleRoot.classList.contains('immersive'));
+leaveViewer(toggleRoot);
 check('starts visible', controls.visible);
 advance(1000); check('idle hides', !controls.visible);
 check('hidden chrome inert', chrome.hasAttribute('inert'));
@@ -104,14 +114,18 @@ el.requestFullscreen = () => new Promise(resolve => { completeNative = () => { d
 const pendingNative = toggleViewer(el);
 leaveViewer(el); completeNative(); await pendingNative;
 check('leaving during pending native entry cannot reopen fullscreen', !document.fullscreenElement && !el.classList.contains('immersive'));
-const exit = new Node('.viewer-exit'); exit.parent = el;
 controls.input = 'touch'; document.activeElement = el; controls.show(); advance(1000);
 const pointer = new Event('pointerdown'); Object.assign(pointer,{pointerType:'touch',pointerId:9,clientX:1,clientY:1});
 Object.defineProperty(pointer,'target',{value:exit}); el.dispatchEvent(pointer);
-check('exit pointerdown does not remove its own hidden-chrome button', !controls.visible);
+check('exit pointerdown wakes hidden chrome', controls.visible && !el.classList.contains('exit-hidden'));
 const cancel = new Event('pointercancel'); Object.assign(cancel,{pointerId:9}); Object.defineProperty(cancel,'target',{value:exit}); el.dispatchEvent(cancel);
+advance(1000); check('exit control auto hides independently', el.classList.contains('exit-hidden'));
 controls.input = 'keyboard'; const focus = new Event('focusin'); Object.defineProperty(focus,'target',{value:exit}); el.dispatchEvent(focus);
-check('exit focus does not remove its own button', !controls.visible);
+check('keyboard focus wakes hidden exit control', !el.classList.contains('exit-hidden'));
+document.activeElement = el; controls.input = 'touch'; controls.hide();
+const surfaceDown = new Event('pointerdown'); Object.assign(surfaceDown,{pointerType:'touch',pointerId:10,clientX:2,clientY:2}); Object.defineProperty(surfaceDown,'target',{value:el}); el.dispatchEvent(surfaceDown);
+check('a touch wakes hidden controls immediately', controls.visible);
+const surfaceUp = new Event('pointerup'); Object.assign(surfaceUp,{pointerId:10}); Object.defineProperty(surfaceUp,'target',{value:el}); el.dispatchEvent(surfaceUp);
 controls.destroy(); check('teardown removes immersion', !el.classList.contains('immersive'));
 check('teardown restores interaction', !chrome.hasAttribute('inert'));
 check('teardown clears timers', timers.size === 0);

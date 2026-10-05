@@ -1,7 +1,7 @@
 // Playback view: DVR review, 1-4 cameras at once (the DVR's hard playback-session limit — spec 2.2/7.2).
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
-import { ViewerControls, immersive, toggleViewer, leaveViewer } from './viewer.js';
+import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle } from './viewer.js';
 import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
@@ -200,7 +200,7 @@ export class PlaybackView {
     this.root.querySelector('[data-a=export]').addEventListener('click', () => (this.clips.length ? this.openClipListDialog() : this.openExportDialog()));
     this.root.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleEnhanceMenu());
     this.root.querySelector('[data-a=aienhance]').addEventListener('click', () => this._openFrameEnhancer());
-    this.root.querySelector('[data-a=pbfs]').addEventListener('click', () => this.toggleFullscreen());
+    bindViewerToggle(this.root.querySelector('[data-a=pbfs]'), this.root.querySelector('.pb'));
     this.root.querySelector('[data-a=pbmore]').addEventListener('click', (e) => this._openMoreMenu(e.currentTarget));
     this.root.querySelector('[data-a=dayprev]').addEventListener('click', () => { this.seekTo(this.currentEpoch - 86400); this.timeline?.goTo(this.currentEpoch); });
     this.root.querySelector('[data-a=daynext]').addEventListener('click', () => { this.seekTo(Math.min(Date.now() / 1000 - 5, this.currentEpoch + 86400)); this.timeline?.goTo(this.currentEpoch); });

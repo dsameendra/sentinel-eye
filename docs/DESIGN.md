@@ -134,7 +134,7 @@ Redesign v2 (see `ROADMAP.md`) rebuilt the Watch Room three times. The third pas
 
 Four colors, four jobs: a system blue for everything interactive (selected, primary, focus, in progress), red for "this is live right now," green for "this succeeded / is healthy," and purple for tamper events specifically. Status and selection never compete for the same pixel the way a single accent used to force them to.
 
-The foundation history above describes redesign v2. The adaptive-v11 material, navigation and input contract below supersedes its broad glass treatment and large destination headers. Destination selection now uses a neutral raised surface; blue remains for primary actions, interactive focus and selected editing controls.
+The foundation history above describes redesign v2. The adaptive-v12 material, navigation and input contract below supersedes its broad glass treatment and large destination headers. Destination selection now uses a neutral raised surface; blue remains for primary actions, interactive focus and selected editing controls.
 
 **Key Characteristics:**
 - Dark by default (`color-scheme: dark`), with a fully-specified light theme as a first-class alternate, not an afterthought.
@@ -174,7 +174,7 @@ Neutral, cool-grey surfaces that carry almost the entire UI — true neutral, no
 - **Info Teal** (`#2dd4bf` dark / `#0d9488` light): reserved, low-frequency informational accent — not actually used anywhere in the UI yet.
 
 ### Chrome and media materials
-The adaptive-v11 contract replaces the foundation's broad glass treatment with opaque structural surfaces. Headers, normal Playback transport/timeline and save controls use `--chrome-bg`; menus, dialogs, authentication and phone navigation use Panel. Installed Apple headers retain the accepted stationary status-area surface.
+The adaptive-v12 contract replaces the foundation's broad glass treatment with opaque structural surfaces. Headers, normal Playback transport/timeline and save controls use `--chrome-bg`; menus, dialogs, authentication and phone navigation use Panel. Installed Apple headers retain the accepted stationary status-area surface.
 
 Floating Focus/replay controls, immersion transport and permanent return controls use the theme-invariant `--media-plate` (`#18181b`) with light media text. Navigation arrows and small existing on-video badges retain their local scrims. Legacy Glass Fill/Fill Heavy/Border/Highlight tokens remain for transient notifications and compatibility; they do not define the page header, navigation or forms.
 
@@ -327,7 +327,7 @@ A dark rounded tile (`#141417`, radius 30/108) holding a white iris — a ring a
 - **Don't** add a display/hero type size anywhere; large titles are as big as it gets — this is an Operate-mode instrument panel, not a marketing surface.
 - **Don't** give a mode-switch button (one whose own label already states which mode is active, like Overview/Grid) the pressed-accent treatment — that treatment means "the selected option among several," not "this is currently on."
 
-## Shared viewer contract (adaptive-v11)
+## Shared viewer contract (adaptive-v12)
 
 Normal review, app immersion, and browser fullscreen share one input policy. A confirmed single background tap toggles controls; double tap, pinch, pan, scrub, crop, OCR, trim, and wipe retain their gesture ownership. Paused playback holds controls by default. Menus/editors hold their owner; hidden chrome is inert, including a tabindex fallback. Keyboard focus pins its controls. TV idle returns focus to the watching surface; wake restores the previous action without activating it.
 

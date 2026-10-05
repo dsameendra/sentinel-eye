@@ -5,7 +5,7 @@
   const appleTouch = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
   const installed = navigator.standalone === true || (appleTouch && matchMedia('(display-mode: standalone)').matches);
   root.classList.toggle('ios-pwa', installed);
-  const revision = 'adaptive-v11';
+  const revision = 'adaptive-v12';
   root.dataset.pwaRevision = revision;
 
   function syncTheme() {
@@ -44,9 +44,10 @@
     const selector = '.topbar, .focus-bar';
     const size = (bar) => {
       const space = bars.get(bar);
-      if (!space) return; // Focus/replay intentionally float over video; no layout space to reserve.
       const height = `${bar.getBoundingClientRect().height}px`;
-      if (space.style.height !== height) space.style.height = height;
+      const viewer = bar.closest('[data-viewer]');
+      viewer?.style.setProperty('--viewer-header-height', height);
+      if (space && space.style.height !== height) space.style.height = height;
     };
     const resize = new ResizeObserver((entries) => entries.forEach(({ target }) => size(target)));
     function reconcile() {

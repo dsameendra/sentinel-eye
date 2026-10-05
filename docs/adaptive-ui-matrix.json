@@ -1,5 +1,5 @@
 {
-  "revision": "adaptive-v11",
+  "revision": "adaptive-v12",
   "date": "2026-10-05",
   "source": "Synthetic preview; browser dimensions and injected PWA insets, not native hardware",
   "checks": [

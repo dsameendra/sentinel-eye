@@ -1,4 +1,4 @@
-import { ViewerControls, immersive, leaveViewer, toggleViewer } from './viewer.js';
+import { ViewerControls, immersive, leaveViewer, bindViewerToggle } from './viewer.js';
 // AI Frame Enhancer (docs/SPEC.md section 7.8; Enhance board) — a full screen in two steps:
 //   1. Pick frames: a large preview of the reference frame (the middle of the ones selected — what the
 //      server aligns the others to), cropped to the region when one is set, over a strip of the up-to-11
@@ -380,7 +380,7 @@ export function openEnhancePopup(opts) {
   });
   stage.addEventListener('mouseleave', () => { if (filterFlashlight) liveFilter?.setFlashlight(null); });
 
-  $('[data-x=fullscreen]').addEventListener('click', () => toggleViewer(viewer));
+  bindViewerToggle($('[data-x=fullscreen]'), viewer);
   const details = document.createElement('button');
   details.className = 'btn ghost enhancer-details'; details.textContent = 'Details'; details.setAttribute('aria-expanded', 'false');
   details.addEventListener('click', () => {

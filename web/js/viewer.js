@@ -1,15 +1,19 @@
 // Presentation only: never creates a player, changes playback time or opens a recorder session.
 import { disableInteraction } from './interaction.js';
+import { icon } from './ui.js';
 const controllers = new WeakMap();
 const CONTROL = 'button,a,input,select,textarea,[role=slider],[role=checkbox],[contenteditable],.menu,.dialog,.editing,.ocr-mode,.pb-roi-layer';
 const isTV = () => document.documentElement.classList.contains('tv-mode');
 export const immersive = (el) => !!el && (el.classList.contains('immersive') || document.fullscreenElement === el);
 function syncButtons(el) {
-  const label = document.fullscreenElement === el ? 'Exit full screen' : immersive(el) ? 'Exit immersive view' : 'Full screen';
+  const active = immersive(el);
+  const label = active ? 'Exit full screen' : 'Full screen';
   el.querySelectorAll('[data-a=wallfs],[data-a=tvfs],[data-a=fs],[data-a=pbfs],[data-x=fullscreen]').forEach(button => {
     if (button.closest('[data-viewer]') !== el) return;
     button.setAttribute('aria-label', label); button.title = label;
-    button.setAttribute('aria-pressed', String(immersive(el)));
+    button.setAttribute('aria-pressed', String(active));
+    const currentIcon = button.querySelector('svg.i');
+    if (currentIcon) currentIcon.outerHTML = icon(active ? 'collapse' : 'expand');
     if (button.dataset.a === 'tvfs') button.querySelector('span')?.replaceChildren(label);
   });
 }
@@ -37,12 +41,29 @@ export function leaveViewer(el) {
   document.dispatchEvent(new Event('viewerchange'));
 }
 
+// Some embedded/mobile browser shells omit the synthesized click after pointerup. Handle pointer and
+// click-only (keyboard/assistive technology) activation once, so every fullscreen control is reversible.
+export function bindViewerToggle(button, el) {
+  if (!button || !el) return;
+  let pointerAt = 0;
+  button.addEventListener('pointerup', (e) => {
+    if (!e.isPrimary || e.pointerType === 'mouse' && e.button !== 0) return;
+    pointerAt = performance.now();
+    toggleViewer(el);
+  });
+  button.addEventListener('click', (e) => {
+    if (e.detail !== 0 && performance.now() - pointerAt < 700) return;
+    toggleViewer(el);
+  });
+}
+
 export class ViewerControls {
   constructor(el, { chrome, background, enabled = () => true, paused = () => false, delay = () => 2600, held = () => false, exited = () => {} } = {}) {
     controllers.get(el)?.destroy();
     Object.assign(this, { el, chrome, background, enabled, paused, delay, held, exited });
     this.visible = true; this.points = new Map(); this.input = 'touch'; this.hover = false;
     this.saved = new Map(); this.listeners = [];
+    this.exit = el.querySelector(':scope > .viewer-exit'); this.exitRestore = null; this.exitTimer = 0;
     controllers.set(el, this);
     el.dataset.viewer = ''; el.tabIndex = -1;
     const on = (node, name, fn, options) => { node.addEventListener(name, fn, options); this.listeners.push([node, name, fn, options]); };
@@ -50,24 +71,25 @@ export class ViewerControls {
       if (!this.active()) return;
       this.input = e.pointerType; this.hover = e.pointerType === 'mouse' && !!e.target.closest(this.chrome);
       const plain = this.plain(e.target);
-      this.points.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), plain, dismiss: this.overlay(), moved: false });
+      const wake = !this.visible;
+      this.points.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), plain, wake, dismiss: this.overlay(), moved: false });
       if (this.points.size > 1) for (const p of this.points.values()) p.moved = true;
       clearTimeout(this.timer);
-      if (!plain && !e.target.closest('.viewer-exit')) this.show();
+      if (!plain || wake) this.show();
     });
     on(el, 'pointermove', e => {
       if (!this.active()) return;
       const p = this.points.get(e.pointerId);
       if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 6) { p.moved = true; this.show(); }
       if (e.pointerType === 'mouse' && !this.points.size) {
-        if (e.target.closest('.viewer-exit')) return;
-        this.input = 'mouse'; this.hover = !!e.target.closest(this.chrome); this.show();
+        this.input = 'mouse'; this.hover = !!e.target.closest(this.chrome) && !e.target.closest('.viewer-exit'); this.show();
       }
     });
     const up = (e, cancel = false) => {
       const p = this.points.get(e.pointerId); this.points.delete(e.pointerId);
       if (!this.active()) return;
       if (p?.dismiss) { this.suppressTapUntil = performance.now() + 350; this.show(); return; }
+      if (p?.wake) { this.schedule(); return; }
       // ZoomPan owns tap/double-tap decisions on picture hit zones and emits viewer-tap instead.
       if (p?.plain && !cancel && !p.moved && performance.now() - p.t < 450 && !e.target.closest('.hit,.hitzone')) {
         if (this.tapTimer) { clearTimeout(this.tapTimer); this.tapTimer = null; this.show(); }
@@ -79,7 +101,7 @@ export class ViewerControls {
     on(el, 'viewer-tap', e => { if (this.active() && this.plain(e.target) && performance.now() > (this.suppressTapUntil || 0)) this.toggle(); });
     on(el, 'viewer-gesture', () => this.show());
     on(el, 'click', e => { if (e.detail === 0 && e.target.closest(CONTROL)) { this.input = isTV() ? 'remote' : 'keyboard'; this.show(); } });
-    on(el, 'focusin', e => { if (!this.hiding && !e.target.closest('.viewer-exit') && (this.input === 'keyboard' || isTV())) this.show(); });
+    on(el, 'focusin', () => { if (!this.hiding && (this.input === 'keyboard' || isTV())) this.show(); });
     on(el, 'focusout', () => this.schedule());
     on(document, 'keydown', e => {
       if (!this.active() || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -118,16 +140,32 @@ export class ViewerControls {
       || this.input === 'keyboard' && !!focus?.closest(this.chrome) && this.el.contains(focus)
       || (!manual && this.paused());
   }
+  setExitVisible(on) {
+    const exit = this.exit;
+    if (!exit) return;
+    this.el.classList.toggle('exit-hidden', !on);
+    if (on) { this.exitRestore?.(); this.exitRestore = null; }
+    else {
+      if (exit.contains(document.activeElement)) this.el.focus({ preventScroll: true });
+      if (!this.exitRestore) this.exitRestore = disableInteraction(exit);
+    }
+  }
+  scheduleExit() {
+    clearTimeout(this.exitTimer);
+    if (!this.exit || !this.active() || document.hidden) return;
+    this.exitTimer = setTimeout(() => this.setExitVisible(false), Math.max(500, this.delay()));
+  }
   schedule() {
     clearTimeout(this.timer);
     if (!this.visible || !this.active() || document.hidden) return;
     this.timer = setTimeout(() => { if (this.locked()) this.schedule(); else this.hide(); }, Math.max(500, this.delay()));
   }
-  show() { this.setVisible(true); this.schedule(); }
+  show() { this.setExitVisible(true); this.scheduleExit(); this.setVisible(true); this.schedule(); }
   hide(manual = false) { if (this.locked(manual)) { this.show(); return; } this.setVisible(false); }
   toggle() { this.visible ? this.hide(true) : this.show(); }
   setVisible(on) {
     syncButtons(this.el);
+    if (!on) { clearTimeout(this.exitTimer); this.setExitVisible(false); }
     this.hiding = !on;
     this.visible = on; clearTimeout(this.timer);
     this.el.classList.toggle('show', on);
@@ -148,8 +186,9 @@ export class ViewerControls {
     this.hiding = false;
   }
   destroy() {
-    clearTimeout(this.timer); clearTimeout(this.tapTimer);
+    clearTimeout(this.timer); clearTimeout(this.tapTimer); clearTimeout(this.exitTimer);
     this.listeners.forEach(([node, name, fn, options]) => node.removeEventListener(name, fn, options));
+    this.exitRestore?.(); this.exitRestore = null; this.el.classList.remove('exit-hidden');
     this.setVisible(true); controllers.delete(this.el); leaveViewer(this.el);
   }
 }

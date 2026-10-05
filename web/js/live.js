@@ -1,5 +1,5 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
-import { ViewerControls, immersive, toggleViewer, leaveViewer } from './viewer.js';
+import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle } from './viewer.js';
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
 import { ZoomHud } from './zoomhud.js';
@@ -240,7 +240,7 @@ export class LiveView {
       if (!this.wall) { this.build(); return; }
       this.renderBar(); this.renderWall();
     });
-    this.bar.querySelector('[data-a=wallfs]')?.addEventListener('click', () => this.toggleFullscreen(this.live));
+    bindViewerToggle(this.bar.querySelector('[data-a=wallfs]'), this.live);
     if (this._lastEventRows) markBell(this.bar, this._lastEventRows);
     this._renderPager();
     this._syncFsControls();
@@ -260,7 +260,7 @@ export class LiveView {
     wireGlobal(this.bar, this.ctx);
     this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
     this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => this._setOverview(!this.chan0Displayed));
-    this.bar.querySelector('[data-a=tvfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    bindViewerToggle(this.bar.querySelector('[data-a=tvfs]'), this.live);
     const clock = this.bar.querySelector('.tv-clock');
     const tick = () => {
       const d = new Date();
@@ -693,7 +693,7 @@ export class LiveView {
     // Focus board: glass bars over the picture (fading on idle), a zoom navigator once you're zoomed in,
     // and the actions that matter one tap away. Everything the old control strip had is still here — the
     // rarer ones (fit/fill, zoom buttons, shortcuts) live under ⋯.
-    f.innerHTML = `<button class="viewer-exit" data-a="returngrid" aria-label="Back to all cameras">${icon('left')}<span>All cameras</span></button><div class="focus-bar">
+    f.innerHTML = `<button class="viewer-exit" data-a="leavefocus" aria-label="Exit full screen">${icon('collapse')}<span>Exit full screen</span></button><div class="focus-bar">
         <button class="btn icon ghost bar-back" data-a="close" title="Back to all cameras (Esc)" aria-label="Back to all cameras">${icon('left')}</button>
         <div class="bar-title"><h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2>
           <div class="bar-sub"><span class="dot live"></span><span class="stat"></span><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span></div></div>
@@ -727,7 +727,7 @@ export class LiveView {
     if (wasImmersive || wasFullscreen) f.classList.add('immersive');
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
     f.querySelector('[data-a=close]').addEventListener('click', () => this.ctx.go('#/live'));
-    f.querySelector('[data-a=returngrid]').addEventListener('click', () => this.ctx.go('#/live'));
+    f.querySelector('[data-a=leavefocus]').addEventListener('click', () => leaveViewer(f));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
     f.querySelector('[data-a=replay]')?.addEventListener('click', () => this.openReplay(cam));
     f.querySelector('[data-a=playback]')?.addEventListener('click', () => {
@@ -735,7 +735,7 @@ export class LiveView {
       this.ctx.go(`#/playback/${cam.id}/${Math.round(Date.now() / 1000 - 60)}`);
     });
     f.querySelector('[data-a=bookmark]').addEventListener('click', () => (c0 ? this.bookmarkAllCams() : this.bookmarkNow(cam)));
-    f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
+    bindViewerToggle(f.querySelector('[data-a=fs]'), f);
     f.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleFocusEnhanceMenu(tile));
     f.querySelector('[data-a=more]').addEventListener('click', (e) => this._openFocusMore(e.currentTarget, tile));
     f.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => tile.setKind(b.dataset.k)));

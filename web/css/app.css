@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v11;
+  --shell-revision: adaptive-v12;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -1997,11 +1997,14 @@ html.keyboard-open #app { height: var(--visual-height); }
 [data-chrome-hidden] { pointer-events: none !important; }
 .immersive { position: fixed !important; inset: 0 !important; z-index: 75; padding: 0 !important; background: #000; }
 .viewer-exit { display: none; position: absolute; z-index: 20; top: max(12px,var(--header-inset-top)); right: max(12px,var(--safe-right)); align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 0 14px; border: 1px solid rgba(255,255,255,.12); border-radius: var(--r-full); background: var(--media-plate); color: var(--media-text); font: inherit; font-size: 13px; cursor: pointer; }
-:is(.immersive,:fullscreen):not(.show) > .viewer-exit,:is(.focus,.replay-overlay):not(.show) > .viewer-exit,.liveview.immersive > .viewer-exit,.liveview:fullscreen > .viewer-exit { display: flex; }
+:is(.immersive,:fullscreen) > .viewer-exit,.replay-overlay > .viewer-exit { display: flex; }
+.exit-hidden > .viewer-exit { opacity: 0; pointer-events: none; }
 html.tv-mode .viewer-exit { min-height: 56px; font-size: 19px; }
 .viewer-exit:hover { background: #2c2c31; border-color: rgba(255,255,255,.25); }
 .viewer-exit:active { background: #35353b; transform: scale(.96); }
 .viewer-exit:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
+.focus.immersive > .viewer-exit,.pb.immersive > .viewer-exit { top: max(12px,calc(var(--viewer-header-height,var(--bar,60px)) + 8px)); }
+.focus.immersive .focus-zoom,.pb.immersive .pb-pane .zhud { top: max(76px,calc(var(--viewer-header-height,var(--bar,60px)) + 64px)); bottom: auto; }
 .pb.immersive .app-destinations,.pb.immersive .bar-global-actions { display: none; }
 .pb.immersive .pb-stage { padding: 0; }
 .pb.immersive .pb-panes { inset: 0; gap: 2px; }
@@ -2126,6 +2129,15 @@ html.compact-ui:not(.tv-mode) .focus-bar { gap: 6px; padding-inline: max(10px,va
 html.compact-ui:not(.tv-mode) .focus-bar .seg button { padding-inline: 10px; }
 html.compact-ui:not(.tv-mode) .focus-bottom { gap: 4px; }
 html.compact-ui:not(.tv-mode) .focus-bottom .btn { padding-inline: 10px; }
+/* On installed iOS, center footage in the usable area between the expanded status region and home indicator. */
+@media (orientation: portrait) {
+  html.ios-pwa:not(.tv-mode) :is(.focus .stage,.liveview.immersive .wall.chan0-single .stage,.replay-overlay .replay-stage) {
+    box-sizing: border-box; padding-top: var(--viewer-center-padding,0px);
+  }
+  html.ios-pwa:not(.tv-mode) :is(.pb.immersive .pb-panes:not(.stacked):not(.inspecting) > .pb-pane:only-child,.pb.immersive .pb-panes.inspecting > .pb-pane.inspected) {
+    box-sizing: border-box; padding-top: var(--viewer-center-padding,0px);
+  }
+}
 /* Landscape phone and short desktop: one shallow transport, precision tools remain on demand. */
 html.short-ui:not(.tv-mode) .topbar.appbar { min-height: 48px; padding-block: calc(2px + var(--header-inset-top)) 2px; row-gap: 0; flex-wrap: nowrap; }
 html.short-ui:not(.tv-mode) .topbar .bar-title h1 { font-size: 16px; }
