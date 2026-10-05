@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v26;
+  --shell-revision: adaptive-v27;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -2114,11 +2114,14 @@ html.ios-pwa .topbar,html.ios-pwa .focus-bar { background: var(--chrome-bg); bac
 }
 /* Short landscape phones retain the selected speed and its full options menu on Playback's second row.
    The saved width keeps all selected camera chips readable instead of clipping the last colored name. */
-@media (max-width: 900px) and (orientation: landscape) {
+@media (max-width: 1000px) and (orientation: landscape) {
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg > button[data-sp]:not([aria-pressed="true"]) { display: none; }
-  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-ctx { grid-column: 1 / -1; grid-row: 2; flex-wrap: nowrap; width: 100%; padding-right: 147px; box-sizing: border-box; overflow: visible; z-index: 1; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-ctx { grid-column: 1 / -1; grid-row: 2; flex-wrap: nowrap; width: 100%; padding-right: 159px; box-sizing: border-box; overflow: visible; z-index: 1; }
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chips { flex: 1 1 auto; overflow: visible; }
-  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-page-actions { position: absolute; right: 14px; bottom: 7px; z-index: 2; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-page-actions {
+    position: absolute; right: max(12px,var(--safe-right)); bottom: 7px; z-index: 9;
+    width: max-content; flex-wrap: nowrap; grid-area: auto;
+  }
 }
 @media (max-width: 700px) and (orientation: landscape) {
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step { width: 88px; padding-inline: 4px; }
@@ -2229,7 +2232,7 @@ html.short-ui:not(.tv-mode) .topbar .bar-actions { gap: 4px; }
 /* Installed compact mode also applies to short landscape viewports. Preserve Playback's deliberate
    two-row grid after the general short-header rule so its date/camera and speed/export controls cannot
    collapse into or clip a single 48px row. */
-@media (min-width: 641px) and (max-width: 900px) and (orientation: landscape) {
+@media (min-width: 641px) and (max-width: 1000px) and (orientation: landscape) {
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 6px; height: auto; min-height: 0; padding: 7px max(12px,var(--safe-right)) 7px max(12px,var(--safe-left)); }
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg { display: inline-flex; }
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip { width: clamp(80px,calc((100vw - 347px)/4),110px); max-width: clamp(80px,calc((100vw - 347px)/4),110px); min-width: 80px; gap: 4px; padding-inline: 4px; font-size: 11.5px; }
@@ -2451,6 +2454,60 @@ html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest { position: relat
 html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest .i { display: block; width: 20px; height: 20px; }
 html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest[data-locked]::after { top: 2px; right: 4px; left: auto; font-size: 10px; }
+
+/* Keep the shared destinations and account/notification controls in one stable trailing cluster on
+   iPhone landscape and iPad. Page headers have different context rows (Playback has two), so letting
+   these controls participate in each page's flex/grid layout makes them jump between rows and columns. */
+@media (min-width: 641px), (orientation: landscape) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar { position: relative; min-height: calc(var(--header-inset-top) + 58px); }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-destinations {
+    position: absolute; z-index: 8; top: calc(var(--header-inset-top) + 8px);
+    right: calc(max(12px,var(--safe-right)) + 106px); margin: 0; grid-area: auto;
+  }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar .bar-global-actions {
+    position: absolute; z-index: 8; top: calc(var(--header-inset-top) + 10px);
+    right: max(12px,var(--safe-right)); width: max-content; margin: 0; grid-area: auto;
+  }
+  /* Viewer accounts have no notification control, so keep the same compact gap before the avatar. */
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar:not(:has(.bar-global-actions .gbtn[data-g="bell"])) .app-destinations {
+    right: calc(max(12px,var(--safe-right)) + 52px);
+  }
+}
+@media (min-width: 641px) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.live .bar-page-actions { margin-right: 300px; }
+}
+
+/* Keep the Events search and its filters together on a second row when the tablet-width header cannot
+   fit them before the shared trailing cluster. On wider iPads they stay beside the title as before. */
+@media (min-width: 641px) and (max-width: 1139px) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar {
+    display: flex; flex-wrap: wrap; height: auto; min-height: var(--bar);
+    padding-block: calc(8px + var(--header-inset-top)) 8px; row-gap: 6px;
+  }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-back { order: 0; }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-title { order: 1; flex: 0 0 auto; }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-ctx {
+    order: 10; flex: 0 0 240px; width: 240px; max-width: 240px; margin: 0; overflow: visible;
+  }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar > .spacer { display: none; }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-page-actions { order: 11; flex: 0 0 auto; margin-left: 2px; }
+}
+@media (min-width: 641px) and (max-width: 799px) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-page-actions { flex-basis: 100%; margin-left: 0; }
+}
+@media (max-width: 640px) and (orientation: landscape) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-page-actions { order: 11; flex: 0 0 100%; }
+}
+
+/* Desktop Playback fullscreen uses the same edge-to-edge bottom chrome panel as its top bar. Keep the
+   center transport and side actions together inside that panel instead of a detached floating capsule. */
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv-mode):not(.apple-touch-device) :is(.pb.immersive,.pb:fullscreen) .pb-controls {
+    left: 0; right: 0; bottom: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0;
+    padding: 8px max(14px,var(--safe-right)) var(--safe-bottom) max(14px,var(--safe-left));
+    background: var(--chrome-bg); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
 
 /* Portrait phones have room for both the glyph and its destination name. Keep the compact text labels in
    the bottom pill for fast recognition; short landscape stays icon-only to protect the video/header width. */

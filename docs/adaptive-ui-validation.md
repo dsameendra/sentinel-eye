@@ -1,4 +1,12 @@
-# Adaptive UI validation — adaptive-v26
+# Adaptive UI validation — adaptive-v27
+
+## Follow-up navigation and Playback chrome — adaptive-v27
+
+The shared destination switcher and notification/account controls now stay at fixed coordinates for each viewport on iPhone landscape and both iPad orientations. They no longer inherit the per-page grid placement that moved Playback and Events to a different row. Live’s fullscreen action reserves space before that cluster; Events moves its filters to a second line at narrow widths; short landscape Playback keeps speed/export on its lower row. iPhone portrait keeps its existing labeled bottom dock.
+
+Desktop Playback fullscreen now uses a full-width bottom chrome panel with the same opaque surface and edge treatment as the top bar. Touch-device and TV fullscreen styles remain separately scoped.
+
+Local verification included 80 light/dark combinations across Live, Playback, Events, Settings and Account for eight phone/tablet profiles. Shared controls had identical coordinates across routes within each profile, with no interactive-control overlap or horizontal page overflow. A desktop fullscreen browser measurement confirmed the Playback panel spans the viewport bottom edge. `node tools/test_shell_update.mjs` checks cache revision rollover and fullscreen/header style contracts; `node tools/test_viewer.mjs` passed 60 behavior checks; `node tools/test_pwa_bootstrap.mjs` passed eight platform-detection cases. Native iPhone/iPad compositor and real-recorder acceptance still require on-device checks.
 
 Implementation and local validation completed on 2026-10-05 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
 
@@ -133,7 +141,7 @@ Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixt
 
 ## Native and deployment acceptance
 
-1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v26`. It reports geometry/version only, without recorder/account/video data.
+1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v27`. It reports geometry/version only, without recorder/account/video data.
 2. Check all routes, both orientations/themes, the status-area sharpness, home-indicator/nav spacing and keyboard/AutoFill. Exercise Focus, channel-zero wall and one/two-camera Playback expansion; return in one action after chrome hides and after rotation. Verify tap, double tap, pinch, pan and menus separately.
 3. Verify a physical TV with viewer/operator accounts, directional remote, OK, Back, play/pause, page changes and idle/reveal. Confirm controls hide without blacking out the hardware-decoded video and that return remains usable if native fullscreen is absent.
 4. With a connected recorder, complete the Playback/export/enhancement acceptance items above, including session cleanup, time alignment, produced evidence files and background jobs.

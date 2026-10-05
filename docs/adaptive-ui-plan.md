@@ -1,6 +1,6 @@
 # Sentinel Eye: unified interface and viewing experience
 
-**Status: approved by the user; implementation and local validation completed through `adaptive-v26`. Native device and recorder acceptance remains a release gate.**
+**Status: approved by the user; implementation and local validation completed through `adaptive-v27`. Native device and recorder acceptance remains a release gate.**
 
 Prepared 2026-10-04 against the current working tree on `fix/ios-status-bar`, including the previous PWA fix. The user has confirmed that the top blur is gone on their installed iPhone/iPad apps. That behavior is an accepted baseline to preserve.
 
