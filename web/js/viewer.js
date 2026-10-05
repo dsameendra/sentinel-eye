@@ -9,7 +9,8 @@ function syncButtons(el) {
   const active = immersive(el);
   const label = active ? 'Exit full screen' : 'Full screen';
   el.querySelectorAll('[data-a=wallfs],[data-a=tvfs],[data-a=fs],[data-a=pbfs],[data-x=fullscreen]').forEach(button => {
-    if (button.closest('[data-viewer]') !== el) return;
+    const owner = button.closest('[data-viewer]');
+    if (owner && owner !== el) return;
     button.setAttribute('aria-label', label); button.title = label;
     button.setAttribute('aria-pressed', String(active));
     const currentIcon = button.querySelector('svg.i');
@@ -22,6 +23,7 @@ export async function toggleViewer(el) {
   if (!el) return;
   if (immersive(el)) { leaveViewer(el); return; }
   el.classList.add('immersive');
+  syncButtons(el);
   controllers.get(el)?.show();
   document.dispatchEvent(new Event('viewerchange'));
   // Unsupported/rejected browser fullscreen still has the same useful app-level composition.
@@ -35,6 +37,7 @@ export async function toggleViewer(el) {
 export function leaveViewer(el) {
   if (!el) return;
   el.classList.remove('immersive');
+  syncButtons(el);
   if (document.fullscreenElement === el) document.exitFullscreen().catch(() => {});
   controllers.get(el)?.exited();
   controllers.get(el)?.show();
@@ -45,6 +48,7 @@ export function leaveViewer(el) {
 // click-only (keyboard/assistive technology) activation once, so every fullscreen control is reversible.
 export function bindViewerToggle(button, el) {
   if (!button || !el) return;
+  syncButtons(el);
   let pointerAt = 0;
   button.addEventListener('pointerup', (e) => {
     if (!e.isPrimary || e.pointerType === 'mouse' && e.button !== 0) return;

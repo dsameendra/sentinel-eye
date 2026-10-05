@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v12;
+  --shell-revision: adaptive-v13;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -2004,6 +2004,11 @@ html.tv-mode .viewer-exit { min-height: 56px; font-size: 19px; }
 .viewer-exit:active { background: #35353b; transform: scale(.96); }
 .viewer-exit:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
 .focus.immersive > .viewer-exit,.pb.immersive > .viewer-exit { top: max(12px,calc(var(--viewer-header-height,var(--bar,60px)) + 8px)); }
+/* Focus and Playback already keep their stateful fullscreen toggle in their bottom controls. On a
+   desktop pointer, remove the duplicate corner chip; touch iPads and TV remotes retain the easy exit. */
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv-mode):not(.ios-pwa):not(.apple-touch-device) :is(.focus.immersive,.pb.immersive,.focus:fullscreen,.pb:fullscreen) > .viewer-exit { display: none; }
+}
 .focus.immersive .focus-zoom,.pb.immersive .pb-pane .zhud { top: max(76px,calc(var(--viewer-header-height,var(--bar,60px)) + 64px)); bottom: auto; }
 .pb.immersive .app-destinations,.pb.immersive .bar-global-actions { display: none; }
 .pb.immersive .pb-stage { padding: 0; }
@@ -2247,6 +2252,29 @@ html.compact-ui:not(.tv-mode) .ev-scrim:not([hidden]) { display: block; position
 html.compact-ui:not(.tv-mode) .ev-bar .bar-actions > .ev-range { display: none; }
 html.compact-ui:not(.tv-mode) .auth-page { align-items: center; }
 html.keyboard-open .auth-page { height: var(--visual-height); }
+/* Keep Events' search beside its title on iPad and narrow desktop windows. Its range controls follow
+   search in the next toolbar group; on narrow tablets they remain inside the Filters sheet. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; column-gap: 8px; row-gap: 6px; height: auto; min-height: var(--bar); }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; height: auto; min-height: var(--bar); }
+  .topbar.appbar.ev-bar .bar-back { display: flex; }
+  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: auto; max-width: none; margin: 0; overflow: hidden; }
+  .topbar.appbar.ev-bar > .spacer { display: none; }
+  .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; grid-row: 1; flex: none; }
+  .topbar.appbar.ev-bar .app-destinations { grid-column: 5; grid-row: 1; }
+  .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; grid-row: 1; }
+}
+@media (min-width: 901px) and (max-width: 1350px) {
+  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; column-gap: 8px; height: auto; min-height: var(--bar); }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; height: auto; min-height: var(--bar); }
+  .topbar.appbar.ev-bar .bar-back { display: flex; }
+  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: auto; max-width: none; margin: 0; }
+  .topbar.appbar.ev-bar > .spacer { display: none; }
+  .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; gap: 3px; }
+  .topbar.appbar.ev-bar .app-destinations { grid-column: 5; }
+  .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; }
+  .topbar.appbar.ev-bar .ev-range { display: flex; }
+}
 html.short-ui:not(.tv-mode) .pb-stage { flex: 1; aspect-ratio: auto; }
 html.short-ui:not(.tv-mode) .pb-body { overflow: hidden; }
 html.short-ui:not(.tv-mode) .pb [data-a=export] .lbl { display: none; }

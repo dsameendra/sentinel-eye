@@ -1,5 +1,5 @@
 {
-  "revision": "adaptive-v12",
+  "revision": "adaptive-v13",
   "date": "2026-10-05",
   "source": "Synthetic preview; browser dimensions and injected PWA insets, not native hardware",
   "checks": [
@@ -9825,5 +9825,27 @@
       "name": "Compact camera grid gives full short names priority over supplementary stream statistics",
       "passed": true
     }
-  ]
+  ],
+  "followUp": {
+    "revision": "adaptive-v13",
+    "date": "2026-10-05",
+    "source": "Fresh synthetic preview browser session; no physical iOS or TV hardware",
+    "routeChecks": {
+      "passed": 260,
+      "profiles": ["390x844", "844x390", "768x1024", "1024x768", "1440x900", "1280x720 TV", "1920x1080 TV", "320x568", "1180x820", "1920x1080"],
+      "themesPerProfile": ["dark", "light"],
+      "routesPerTheme": 13,
+      "overflowOrClippingFailures": 0
+    },
+    "entryChecks": {"passed": 12, "scope": "login and pair, three phone/tablet/desktop profiles, both themes"},
+    "cameraMenuChecks": {"passed": 12, "scope": "six phone/tablet/desktop/TV profiles, both themes"},
+    "interactiveChecks": [
+      "Desktop Live Focus and Playback fullscreen enter/exit with dynamic labels and icons; duplicate corner Exit remains hidden",
+      "Installed-app iPad Focus keeps a visible corner Exit and exits in one action",
+      "Live overview icon and pressed state match before fullscreen, during fullscreen and after return",
+      "iPad Events range selection remains available in portrait Filters sheet and inline in landscape",
+      "TV viewer sees Live/Settings; TV operator sees Live/Playback/Events/Settings"
+    ],
+    "unitSuites": {"viewer": "54/54", "pwaBootstrap": "8/8", "shellUpdate": "63/63"}
+  }
 }

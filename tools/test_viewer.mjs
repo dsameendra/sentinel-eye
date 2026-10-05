@@ -52,12 +52,16 @@ const controls = new ViewerControls(el, { chrome: '.chrome', background: 'viewer
 let checks = 0;
 const check = (label, value) => { assert.ok(value,label); checks++; };
 const toggleRoot = new Node('viewer'), toggleButton = new Node('button');
+toggleRoot.children = [toggleButton]; toggleButton.parent = toggleRoot;
 bindViewerToggle(toggleButton, toggleRoot);
+check('fullscreen action has its enter state from the first render', toggleButton.getAttribute('aria-label') === 'Full screen' && toggleButton.getAttribute('aria-pressed') === 'false');
 const pointerActivate = () => { const e=new Event('pointerup'); Object.assign(e,{isPrimary:true,pointerType:'touch',button:0}); toggleButton.dispatchEvent(e); };
 pointerActivate(); check('fullscreen pointer action enters immersion', toggleRoot.classList.contains('immersive'));
+check('fullscreen action announces its exit state immediately', toggleButton.getAttribute('aria-label') === 'Exit full screen' && toggleButton.getAttribute('aria-pressed') === 'true');
 const synthesizedClick = new Event('click'); Object.defineProperty(synthesizedClick,'detail',{value:1}); toggleButton.dispatchEvent(synthesizedClick);
 check('pointer and synthesized click do not double-toggle', toggleRoot.classList.contains('immersive'));
 pointerActivate(); check('fullscreen pointer action exits immersion', !toggleRoot.classList.contains('immersive'));
+check('fullscreen action returns to its enter state after exit', toggleButton.getAttribute('aria-label') === 'Full screen' && toggleButton.getAttribute('aria-pressed') === 'false');
 const keyboardClick = new Event('click'); Object.defineProperty(keyboardClick,'detail',{value:0}); toggleButton.dispatchEvent(keyboardClick);
 check('keyboard click enters immersion', toggleRoot.classList.contains('immersive'));
 leaveViewer(toggleRoot);

@@ -5,7 +5,9 @@
   const appleTouch = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
   const installed = navigator.standalone === true || (appleTouch && matchMedia('(display-mode: standalone)').matches);
   root.classList.toggle('ios-pwa', installed);
-  const revision = 'adaptive-v12';
+  // Desktop-style hover rules must never remove touch affordances from iPad Safari or its PWA.
+  root.classList.toggle('apple-touch-device', appleTouch);
+  const revision = 'adaptive-v13';
   root.dataset.pwaRevision = revision;
 
   function syncTheme() {

@@ -1,4 +1,4 @@
-# Adaptive UI validation — adaptive-v12
+# Adaptive UI validation — adaptive-v13
 
 Implementation and local validation completed on 2026-10-05 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
 
@@ -9,6 +9,8 @@ Implementation and local validation completed on 2026-10-05 on `fix/ios-status-b
 | Blank login card | An existing server returned 302-to-login for newly imported helper paths while returning 200 JavaScript for `ui.js`. Shared public code now lives in the already-public `ui.js`, and shared styles live in `app.css`. Login no longer depends on a backend allow-list change/restart. The real anonymous import graph passes HTTP checks; signed-out forms render across the matrix. The existing running server also loads the updated authenticated app. |
 | Floating phone navigation too high | Installed shells anchor navigation to the full app height and bound the reported bottom inset. An injected 86px raw inset produces a 22px portrait / 12px landscape capsule gap. Browser tabs retain their dynamic browser inset. Actual device geometry remains an acceptance item. |
 | Desktop navigation misplaced / header heights inconsistent | Page controls precede destinations; destinations sit immediately left of Notifications and Account. Main desktop headers measure 60px at 1440px across Live, Playback, Events and Settings. Tablet context wraps separately; compact/TV profiles have their own measured heights. |
+| Fullscreen controls duplicated / Live overview icon changed after first use | Desktop Focus and Playback now keep their stateful bottom fullscreen toggle and suppress the redundant corner Exit chip. Apple touch devices and TV retain the corner exit. Live overview, Focus and Playback normalize icon, label and pressed state on bind, enter and exit. Browser interaction checks cover one-action return. |
+| iPad Events search separated from its context | Tablet Events places Back, title and Search first; time-range controls follow, then destinations, Notifications and Account. At iPad portrait widths the range remains available in the Filters sheet; at iPad landscape widths the range chips fit inline. Both profiles measure zero horizontal overflow. |
 | Landscape Playback crowded | At 844×390, the tested final stage is 221px high; the original audit measured 62.6px. Timeline and secondary tools open on demand; all eight speeds and the existing review actions remain available. |
 | Expand buttons unsupported in installed Apple apps | The shared controller enters app immersion without requesting native element fullscreen on installed Apple devices. Supported desktop/TV browsers additionally request native fullscreen; denial retains app immersion. |
 | Fullscreen exit leaves floating controls / no escape route | Same-button exit, explicit return, and native fullscreen exit restore normal composition. Playback inspection resets without replacing selected player panes. A persistent return remains reachable when chrome hides. A late native-entry promise cannot reopen a view after exit. |
@@ -28,7 +30,15 @@ The installed bottom-inset correction is informed by WebKit's report of standalo
 
 The follow-up uses the same isolated PWA preview with synthetic safe-area values, not a native iPhone/iPad compositor or a connected recorder. In portrait at 390×844, the measured usable-area video center is 444.5px (45px below the physical viewport center, matching the injected 79px top and 34px bottom content insets). The single-camera Exit control sits below the measured 144px header; after idle it has zero opacity and no pointer events. At 844×390, the camera remains centered at y=195, the Playback Exit control begins below its 128px toolbar, and the transport remains clear at the bottom. Desktop 1440×900 verifies Live grid and Playback fullscreen labels/icons change to collapse/“Exit full screen” on entry and return to expand/“Full screen” on exit. Pointer movement reveals controls, and both Live Focus and Playback Exit actions leave their current route intact.
 
-`tools/test_viewer.mjs` now covers independent Exit auto-hide, keyboard wake and immediate touch wake. Physical iPhone/iPad orientation, native fullscreen APIs, actual touch/tap timing and connected-recorder behavior remain release acceptance items.
+`tools/test_viewer.mjs` covers independent Exit auto-hide, keyboard wake and immediate touch wake. Physical iPhone/iPad orientation, native fullscreen APIs, actual touch/tap timing and connected-recorder behavior remain release acceptance items.
+
+### Desktop and tablet refinement — adaptive-v13
+
+The current follow-up hides the extra upper-corner Exit chip only for desktop-pointer Focus and Playback; their bottom-bar toggles remain present and return to the same route with the enter icon restored. Browser interaction checks entered and exited both views, verified the chip stayed hidden, and checked the Live grid control's icon, label and pressed state before entry, while expanded, and after return. A 768×1024 installed-app preview retained the corner Exit control in Focus and returned with one bottom-button action. TV navigation still exposes Live/Settings to viewer accounts and all four destinations to operators.
+
+The Events toolbar was measured at iPad portrait 768×1024 and landscape 1024×768 / 1180×820. Portrait keeps Back, Events and Search on the first row, then Filters/navigation/Notifications/Account; the range is selectable in the Filters sheet. Both landscape widths keep Back, Events, Search, Today/24h/7d/Custom, destinations, Notifications and Account on one row. All three have zero page overflow. Selecting a range in the portrait sheet updates its pressed state.
+
+The additional browser sweep passed 260 route/theme checks across nine phone, tablet, desktop and TV profiles; 12 login/pairing checks; and 12 camera-menu checks. Viewer controller tests pass 54 checks, PWA detection passes eight device cases, and service-worker/shell delivery passes 63 checks. These preview checks use synthetic app states and cannot replace native iOS/iPadOS 27 or physical TV verification.
 
 | Suite | Result | What it establishes |
 | --- | --- | --- |
@@ -102,7 +112,7 @@ Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixt
 
 ## Native and deployment acceptance
 
-1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v12`. It reports geometry/version only, without recorder/account/video data.
+1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v13`. It reports geometry/version only, without recorder/account/video data.
 2. Check all routes, both orientations/themes, the status-area sharpness, home-indicator/nav spacing and keyboard/AutoFill. Exercise Focus, channel-zero wall and one/two-camera Playback expansion; return in one action after chrome hides and after rotation. Verify tap, double tap, pinch, pan and menus separately.
 3. Verify a physical TV with viewer/operator accounts, directional remote, OK, Back, play/pause, page changes and idle/reveal. Confirm controls hide without blacking out the hardware-decoded video and that return remains usable if native fullscreen is absent.
 4. With a connected recorder, complete the Playback/export/enhancement acceptance items above, including session cleanup, time alignment, produced evidence files and background jobs.

@@ -15,8 +15,9 @@ const context = { URL, location:{origin:'https://sentinel.test'}, fetch:(...args
 runInNewContext(readFileSync(new URL('../web/sw.js',import.meta.url),'utf8'),context);
 let count=0;
 const check=(name,ok)=>{assert.ok(ok,name);count++;};
+check('worker and CSS declare the current shell revision',readFileSync(new URL('../web/sw.js',import.meta.url),'utf8').includes('sentinel-eye-shell-v13')&&readFileSync(new URL('../web/css/app.css',import.meta.url),'utf8').includes('--shell-revision: adaptive-v13'));
 let activation;handlers.activate({waitUntil:p=>activation=p});await activation;
-check('activation removes old shells and claims clients',removed.join()==='sentinel-eye-shell-v10,sentinel-eye-shell-v11'&&claimed);
+check('activation removes old shells and claims clients',removed.join()==='sentinel-eye-shell-v10,sentinel-eye-shell-v11,sentinel-eye-shell-v12'&&claimed);
 function request(path,method='GET') {
   let response;
   handlers.fetch({request:{url:new URL(path,'https://sentinel.test').href,method},respondWith:p=>response=p});
@@ -52,7 +53,7 @@ function visit(relative) {
 for(const entry of ['index.html','login.html','pair.html']) {
   const html=readFileSync(new URL('../web/'+entry,import.meta.url),'utf8');
   check(`${entry} loads adaptive styling`,html.includes('css/app.css') && readFileSync(new URL('../web/css/app.css',import.meta.url),'utf8').includes('Shared adaptive contract'));
-  check(`${entry} carries the current diagnostic version`,html.includes('adaptive-v12'));
+  check(`${entry} carries the current diagnostic version`,html.includes('adaptive-v13'));
   for(const match of html.matchAll(/(?:src|href)="((?:js|css)\/[^"?]+)"/g))visit(match[1]);
 }
 const manifest=JSON.parse(readFileSync(new URL('../web/manifest.json',import.meta.url),'utf8'));

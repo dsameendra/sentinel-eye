@@ -229,7 +229,7 @@ export class LiveView {
       ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
       ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
       ${this.edit ? '<button class="btn primary sm" data-a="edit-done" title="Finish arranging (E or Esc)">Done</button>' : ''}`;
-    const actions = this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button>` : '';
+    const actions = this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('expand')}</button>` : '';
     this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', after: this.wall ? this._healthHTML() : '', context, actions, cls: 'live' });
     wireGlobal(this.bar, this.ctx);
     this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
