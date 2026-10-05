@@ -220,7 +220,6 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .acct-pop { min-width: 240px; }
 /* Phone tab bar (Mobile board): glass, bottom, four tabs. Only ≤640px — desktop/iPad navigate from Live's bar. */
 .tabbar { display: none; }
-.live-hint { display: none; }
 .pill.health .all-note { display: none; }
 .pill.health.down { color: var(--danger); }
 
@@ -1836,9 +1835,7 @@ button.acct-av:active { transform: scale(.97); }
   .topbar.live.tv { display: flex; }
   .wall { padding: 4px 14px 12px; gap: 12px; }
   .wall .tile, .wall .tile.empty, .wall .tile-slot { aspect-ratio: 4 / 3; }
-  .live-hint { display: block; margin: 4px 0 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
   .tile .loadhd { display: none; }
-  .liveview:has(.overview-tile) .live-hint { display: none; }
 }
 @media (max-width: 640px) {
   .topbar.tabroot .bar-back { display: none; }
@@ -1863,8 +1860,6 @@ button.acct-av:active { transform: scale(.97); }
 @media (hover: none) {
   .tile-actions { opacity: 0; pointer-events: none; }
   .tile.show-actions .tile-actions { opacity: 1; transform: none; pointer-events: auto; }
-  .live-hint { display: block; margin: 2px 0 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
-  .liveview:has(.overview-tile) .live-hint, html.tv-mode .live-hint { display: none; }
 }
 /* Narrow windows and iPad portrait: a bar's context controls take a second, swipeable line rather than
    squeezing the title (Playback's date stepper and camera chips, Events' search). */
@@ -2203,7 +2198,6 @@ html.short-ui:not(.tv-mode) .pb-ctrl-right [data-a=timeline] { display: inline-f
 html.short-ui:not(.tv-mode) .pb-timeline-panel { display: none; }
 html.short-ui:not(.tv-mode) .pb.details-open .pb-timeline-panel { display: flex; position: absolute; z-index: 12; left: max(12px,var(--safe-left)); right: max(12px,var(--safe-right)); bottom: 52px; max-height: calc(var(--visual-height,100dvh) - 110px - var(--header-inset-top) - var(--nav-footprint)); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px; box-shadow: var(--shadow); background: var(--panel); }
 html.short-ui:not(.tv-mode) .tlp-legend,html.short-ui:not(.tv-mode) .tlp-foot .hint { display: none; }
-html.short-ui:not(.tv-mode) .live-hint { display: none; }
 html.short-ui:not(.tv-mode) .liveview { overflow: hidden; }
 html.short-ui:not(.tv-mode) .liveview .wall { flex: 1; overflow: hidden; min-height: 0; padding: 4px 12px; gap: 6px; }
 html.short-ui:not(.tv-mode) .wall .tile,html.short-ui:not(.tv-mode) .wall .tile-slot { aspect-ratio: auto; min-height: 0; }
