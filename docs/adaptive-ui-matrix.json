@@ -1,5 +1,5 @@
 {
-  "revision": "adaptive-v25",
+  "revision": "adaptive-v26",
   "date": "2026-10-05",
   "source": "Synthetic preview; browser dimensions and injected PWA insets, not native hardware",
   "checks": [
@@ -9827,7 +9827,7 @@
     }
   ],
   "followUp": {
-    "revision": "adaptive-v25",
+    "revision": "adaptive-v26",
     "date": "2026-10-05",
     "source": "Fresh synthetic preview browser session; no physical iOS or TV hardware",
     "routeChecks": {
@@ -9874,10 +9874,10 @@
     "unitSuites": {
       "viewer": "60/60",
       "pwaBootstrap": "8/8",
-      "shellUpdate": "71/71"
+      "shellUpdate": "73/73"
     },
     "latestTargetedChecks": {
-      "revision": "adaptive-v25",
+      "revision": "adaptive-v26",
       "source": "Synthetic PWA preview with iPhone/iPad user-agent, touch input and injected safe-area insets",
       "profiles": [
         {
@@ -9910,11 +9910,14 @@
       ],
       "limitation": "Synthetic browser layout/input checks; native iOS/iPadOS rendering and live recorder media are not covered.",
       "routeThemeSweep": {
-        "passed": 78,
+        "passed": 156,
         "profiles": [
           "iPhone portrait 390x844",
+          "iPhone landscape 844x390",
           "iPad portrait 820x1180",
-          "desktop 1440x900"
+          "iPad landscape 1180x820",
+          "desktop 1440x900",
+          "TV 1920x1080"
         ],
         "themes": [
           "dark",
@@ -9935,7 +9938,40 @@
           "settings/security",
           "settings/status"
         ],
-        "overflowOrPreviewErrorFailures": 0
+        "overflowOrPreviewErrorFailures": 0,
+        "scope": "Synthetic browser page and header overflow/error sweep"
+      },
+      "modeSwitch": {
+        "iPhonePortrait": {
+          "viewport": "390x844",
+          "bottomPill": "366x64",
+          "titles": [
+            "Live",
+            "Playback",
+            "Events",
+            "Settings"
+          ],
+          "horizontalOverflow": 0
+        },
+        "iPhoneLandscape": {
+          "viewport": "844x390",
+          "placement": "top app bar",
+          "style": "icon-only",
+          "bottomPill": "hidden",
+          "modeSwitch": "186x48",
+          "horizontalOverflow": 0
+        },
+        "iPadPortrait": {
+          "viewport": "820x1180",
+          "screens": [
+            "Playback",
+            "Events"
+          ],
+          "placement": "top app bar",
+          "style": "icon-only",
+          "modeSwitch": "186x48",
+          "horizontalOverflow": 0
+        }
       }
     }
   }

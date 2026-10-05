@@ -437,7 +437,7 @@ Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and pi
 
 ![Event review in the light theme](docs/screenshots/light-events.jpg)
 
-Online updates use a network-first static shell (`adaptive-v25`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. Compact iPhone/iPad navigation uses accessible icon-only destinations, and touch Playback fullscreen uses a safe-area-aware dock with a reachable exit. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
+Online updates use a network-first static shell (`adaptive-v26`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and iPad keeps a consistent icon switcher across Playback and Events. Touch Playback fullscreen uses a safe-area-aware dock with a reachable exit. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 
