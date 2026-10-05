@@ -11,14 +11,17 @@ const DIRS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDo
 function visible(el) {
   if (el.closest('[hidden], [inert]')) return false;
   const r = el.getBoundingClientRect();
-  if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
-  const cs = getComputedStyle(el);
-  return cs.visibility !== 'hidden' && cs.pointerEvents !== 'none' && +cs.opacity > 0.05;
+  if (r.width < 2 || r.height < 2) return false;
+  for (let node = el; node && node !== document.body; node = node.parentElement) {
+    const cs = getComputedStyle(node);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.pointerEvents === 'none' || +cs.opacity <= 0.05) return false;
+  }
+  return true;
 }
 
 /** The layer a remote is currently in: an open popover, else a modal, else the page. */
 function scope() {
-  return document.body._openPopover || document.querySelector('#modal-root > *') || [...document.querySelectorAll('[data-tv-scope]')].pop()
+  return document.body._openPopover || document.querySelector('.ev-side.open') || document.querySelector('#modal-root > *') || [...document.querySelectorAll('[data-tv-scope]')].pop()
     || document.fullscreenElement || document.body;
 }
 

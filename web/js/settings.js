@@ -2,6 +2,7 @@
 // Enhancement, Status (edit a draft copy; nothing is applied until Save), Security & sign-in (security.js,
 // saves as it goes) and Account (account.js, shown in the pane at #/settings/account). Non-admins get "This device" and Account.
 import { barHTML, wireBar } from './bar.js';
+import { compactLayout } from './adaptive.js';
 import { api } from './api.js';
 import { SecurityPanel } from './security.js';
 import { AccountView } from './account.js';
@@ -24,7 +25,7 @@ const ENHANCE_MODES = [['auto', 'Auto'], ['face', 'Face priority'], ['plate', 'P
 const HOST_RE = /^[A-Za-z0-9._-]+$/;
 const DEFAULT_CHANNEL_ZERO_PATH = '/Streaming/Channels/1';   // mirrors app/settings.py's DEFAULT_CHANNEL_ZERO_PATH
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const phone = () => matchMedia('(max-width: 640px)').matches;
+const phone = () => !document.documentElement.classList.contains('tv-mode') && compactLayout();
 const fpsText = (v) => (v === 'auto' || v == null ? '' : String(v));
 
 export class SettingsView {
@@ -44,6 +45,14 @@ export class SettingsView {
     this.found = null;         // discovered channels
     this.busy = new Set();
     this.build();
+    this.onLayout = () => {
+      const list = !location.hash.split('/')[2] && phone();
+      this.listMode = list;
+      this.root.querySelector('.settings')?.classList.toggle('list-mode', list);
+      const back = this.root.querySelector('[data-bar=back]');
+      if (back) { const label = phone() && !list ? 'Back to Settings' : 'Back to Live'; back.title = label; back.setAttribute('aria-label', label); }
+    };
+    document.addEventListener('layoutchange', this.onLayout);
   }
 
   get dirty() { return JSON.stringify(this.draft) !== JSON.stringify(this.base) || !!this.draft.connection.password || !!this.draft.connection.key; }
@@ -95,7 +104,7 @@ export class SettingsView {
         `<a href="#/settings/${id}" ${id === this.tab ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(label)}</span></a>`).join('')}
         ${this._showAccount() ? `<a href="#/settings/account" class="side-account" ${this.tab === 'account' ? 'aria-current="page"' : ''}>${icon('user')}<span>Account</span></a>` : ''}</nav>
       <main class="pane"><div class="pane-inner"></div></main></div><div class="savebar" hidden></div>`;
-    wireBar(this.root, this.ctx, { back: inSection ? '#/settings' : '#/live' });
+    wireBar(this.root, this.ctx, { back: () => phone() && !this.listMode ? '#/settings' : '#/live' });
     this.pane = this.root.querySelector('.pane-inner');
     this.bar = this.root.querySelector('.savebar');
     this.render();
@@ -103,11 +112,12 @@ export class SettingsView {
 
   render() {
     clearInterval(this.statusTimer);
+    this.security?.destroy(); this.security = null;
     this.account?.destroy(); this.account = null;
     const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', account: () => '', device: () => this.deviceTab() }[this.tab];
     this.pane.innerHTML = fn();
     this.pane.classList.toggle('wide', this.tab === 'channels' || this.tab === 'status');
-    if (this.tab === 'security') { this.bar.hidden = true; new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
+    if (this.tab === 'security') { this.bar.hidden = true; this.security = new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
     if (this.tab === 'enhancement' && this.models === undefined && !this._modelsLoading) { this._modelsLoading = true; this.loadModels().finally(() => { this._modelsLoading = false; }); }
     if (this.tab === 'account') { this.bar.hidden = true; this.account = new AccountView(this.pane, this.ctx, { embedded: true }); return; }
     this.wire();
@@ -251,7 +261,7 @@ export class SettingsView {
       <p class="pane-note">HD streams are usually H.265. Converting to H.264 here plays smoothly everywhere; playing H.265 directly saves CPU but can stutter on some cameras, and doesn't work in Firefox.</p>
       <div class="opts">${opt('main_codec', 'h264', 'Convert to H.264', 'Recommended — smooth everywhere, some CPU while HD is open')}${opt('main_codec', 'passthrough', 'Play directly', 'No extra CPU — may stutter or fail in some browsers')}</div></section>
     <section class="sgroup"><h2>Interaction</h2><div class="form">
-      ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Hide controls after', min: 1, max: 10, step: 0.5, unit: 's', hint: 'How long Focus and Playback controls stay up after the pointer stops, while playing. They stay up while paused.' })}
+      ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Hide controls after', min: 1, max: 10, step: 0.1, unit: 's', hint: 'Focus, replay and immersive Playback hide after inactivity. Tap the picture to show or hide controls. Pausing keeps them visible unless you hide them yourself.' })}
       ${this.rangeField('display.snapshot_quality', d.snapshot_quality, { id: 'f-snapq', label: 'Snapshot quality', min: 0.5, max: 1, step: 0.01, hint: 'JPEG quality for snapshots. Higher is sharper, and a larger file.' })}
     </div></section>
     <section class="sgroup"><div class="srows">${this.srow('Keyboard shortcuts', 'Every shortcut, on every screen. Press ? anywhere.', '<button class="btn glass-btn" data-a="keys">Show</button>')}</div></section>`;
@@ -502,7 +512,9 @@ export class SettingsView {
       title: 'Switch to TV mode?',
       body: needsChannelZero
         ? "Bigger text and arrow-key camera selection for watching from a distance. This also turns on the recorder's Channel-zero overview stream — for every device watching this recorder, not just this one — and takes you straight to it, full screen."
-        : "Bigger text and arrow-key camera selection for watching from a distance — takes you straight to the recorder's Channel-zero overview stream, full screen.",
+        : this.base.connection.channel_zero
+          ? "Bigger text and arrow-key camera selection for watching from a distance — takes you straight to the recorder's Channel-zero overview stream, full screen."
+          : "Bigger text and arrow-key camera selection for watching from a distance — opens the camera grid, full screen.",
       ok: 'Go to TV mode',
     });
     if (!go) { this.render(); return; }   // the checkbox is already visually checked (native behaviour); re-render to drop it back
@@ -609,9 +621,11 @@ export class SettingsView {
   }
 
   destroy() {
+    this.security?.destroy();
+    document.removeEventListener('layoutchange', this.onLayout);
     clearInterval(this.statusTimer);
     clearTimeout(this.modelTimer);
-    this.account = null;
+    this.account?.destroy(); this.account = null;
     this.ctx.applyTheme(this.ctx.settings().display.theme);   // drop any unsaved theme preview
     this.root.innerHTML = '';
   }

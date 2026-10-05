@@ -4,7 +4,7 @@
 import { createPlayer } from './player.js';
 import { ZoomPan } from './zoom.js';
 import { ZoomHud } from './zoomhud.js';
-import { esc, icon, openPopover } from './ui.js';
+import { esc, icon, openPopover, closePopover } from './ui.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { enhancePanelHTML, wireEnhancePanel } from './enhancePanel.js';
 
@@ -128,16 +128,32 @@ export class Tile {
       this.el.querySelector('[data-a=bookmark]').addEventListener('click', (e) => { e.stopPropagation(); opts.onBookmark?.(this); });
       this.el.querySelector('[data-a=enhance]').addEventListener('click', (e) => { e.stopPropagation(); this._toggleEnhanceMenu(); });
       this.el.querySelector('[data-a=focus]').addEventListener('click', (e) => { e.stopPropagation(); opts.onFocus?.(this); });
-      // Collapsed by default — a grid full of tiles each permanently showing all 7 action buttons (needed
-      // on touch, see .tile-actions' own (hover: none) rule, since there's no hover to reveal them with)
-      // reads as genuinely cluttered at any real camera count. One tap/click reveals this tile's own set;
-      // independent per tile, no reason toggling one should force another closed.
-      const actionsEl = this.el.querySelector('.tile-actions');
+      // Keep quick tools in one bounded menu, including on small touch tiles.
+      // The original bound controls remain inert; the menu invokes the same player actions.
       const toggleBtn = this.el.querySelector('[data-a=moreactions]');
+      const group = this.el.querySelector('.tile-actions-group');
+      group.hidden = true;
+      group.setAttribute('inert', '');
+      group.setAttribute('aria-hidden', 'true');
+      toggleBtn.setAttribute('aria-haspopup', 'true');
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const open = actionsEl.classList.toggle('expanded');
-        toggleBtn.setAttribute('aria-expanded', String(open));
+        const menu = openPopover(toggleBtn, `<div class="pop-title">Camera controls</div>
+          <button class="pop-item" data-tool="zout">${icon('minus')}<span>Zoom out</span></button>
+          <button class="pop-item" data-tool="zin">${icon('plus')}<span>Zoom in</span></button>
+          ${opts.fixedQuality ? '' : `<button class="pop-item" data-tool="quality">${icon('video')}<span>Switch to ${this.kind === 'main' ? 'SD' : 'HD'}</span></button>`}
+          <button class="pop-item" data-tool="snap" ${this.cur?.player.video?.videoWidth || !this.enhCanvas.hidden ? '' : 'disabled title="Available when a video frame is ready"'}>${icon('camera')}<span>Save snapshot</span></button>
+          ${opts.noReplay ? '' : `<button class="pop-item" data-tool="replay">${icon('back2')}<span>Instant replay</span></button>`}
+          <button class="pop-item" data-tool="enhance">${icon('wand')}<span>Picture adjustments</span></button>`,
+          { onClose: () => toggleBtn.setAttribute('aria-expanded', 'false') });
+        if (!menu) return;
+        toggleBtn.setAttribute('aria-expanded', 'true');
+        menu.querySelector('[data-tool=zout]').onclick = () => this.zoom.zoomBy(1 / 1.6);
+        menu.querySelector('[data-tool=zin]').onclick = () => this.zoom.zoomBy(1.6);
+        menu.querySelector('[data-tool=quality]')?.addEventListener('click', () => { closePopover(); this.setKind(this.kind === 'main' ? 'sub' : 'main'); });
+        menu.querySelector('[data-tool=snap]').onclick = () => { closePopover(); this.snapshot(); };
+        menu.querySelector('[data-tool=replay]')?.addEventListener('click', () => { closePopover(); opts.onReplay?.(this); });
+        menu.querySelector('[data-tool=enhance]').onclick = () => { closePopover(); this._toggleEnhanceMenu(toggleBtn); };
       });
       // Zoomed in, the tile shows the same minimap and − / % / + as Focus (replacing the old Reset pill).
       this.hud = new ZoomHud(this.el, () => this.zoom, { compact: true });
@@ -312,8 +328,7 @@ export class Tile {
   // was positioned relative to a button inside the tile. Presets are quick-fill starting points; every
   // slider underneath stays individually adjustable and stacks with the rest (docs/SPEC.md's L0
   // section) — there's no longer a single "which preset is active" state, just the current parameter mix.
-  _toggleEnhanceMenu() {
-    const btn = this.el.querySelector('[data-a=enhance]');
+  _toggleEnhanceMenu(btn = this.el.querySelector('[data-a=enhance]')) {
     const menu = openPopover(btn, enhancePanelHTML({}), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
     wireEnhancePanel(menu, {
@@ -452,6 +467,7 @@ export class Tile {
   }
 
   dispose() {
+    if (this.el.contains(document.body._openPopover?._anchor)) closePopover();
     clearInterval(this.timer);
     this.zoom?.destroy();
     this.hud?.destroy();

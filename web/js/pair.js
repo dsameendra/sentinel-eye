@@ -41,7 +41,8 @@ function form(code = '') {
       done(n);
     } catch (x) { err.textContent = x.message; err.hidden = false; btn.disabled = false; }
   });
-  card.querySelector(code ? '#n' : '#c').focus();
+  card.closest('.auth-page')?.scrollTo(0, 0);
+  card.querySelector(code ? '#n' : '#c').focus({ preventScroll: true });
 }
 
 function done(name) {

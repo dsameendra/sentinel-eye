@@ -4,7 +4,7 @@
 // straight into Playback at that instant. Motion/line/tamper spans arrive already stitched into start/end
 // windows by app/events.py, so no further run-collapsing is needed here.
 import { barHTML, wireBar } from './bar.js';
-import { closePopover, confirmDialog, esc, icon, openPopover, toast } from './ui.js';
+import { closePopover, confirmDialog, esc, icon, openPopover, scopeLayers, toast } from './ui.js';
 import { fetchTzOffset, knownTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
@@ -155,7 +155,7 @@ export class EventsView {
     q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { this.query = q.value.trim().toLowerCase(); this.renderResults(); }, 120); });
     q.addEventListener('keydown', (e) => { if (e.key === 'Escape' && q.value) { e.stopPropagation(); q.value = ''; this.query = ''; this.renderResults(); } });
     this._onKey = (e) => {
-      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !document.getElementById('modal-root')?.firstChild) { e.preventDefault(); q.focus(); }
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !q.closest('[inert]') && !document.getElementById('modal-root')?.firstChild) { e.preventDefault(); q.focus(); }
     };
     document.addEventListener('keydown', this._onKey);
     this.root.querySelector('#ev-thumbs').addEventListener('change', (e) => {
@@ -165,7 +165,8 @@ export class EventsView {
     });
     // Narrow windows: the sidebar becomes a sheet behind the bar's Filters button.
     const side = this.root.querySelector('.ev-side'), scrim = this.root.querySelector('.ev-scrim'), fbtn = this.root.querySelector('[data-a=filters]');
-    const sheet = (open) => { side.classList.toggle('open', open); scrim.hidden = !open; fbtn.setAttribute('aria-expanded', String(open)); };
+    const sheet = (open) => { side.classList.toggle('open', open); scrim.hidden = !open; fbtn.setAttribute('aria-expanded', String(open)); scopeLayers(); if (open) side.querySelector('button')?.focus(); else fbtn.focus(); };
+    side.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); sheet(false); } });
     fbtn.addEventListener('click', () => sheet(!side.classList.contains('open')));
     scrim.addEventListener('click', () => sheet(false));
     this.root.querySelector('[data-a=closefilters]').addEventListener('click', () => sheet(false));

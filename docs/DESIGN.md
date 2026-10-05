@@ -1,6 +1,6 @@
 ---
 name: Sentinel Eye
-description: A dark, calm operations dashboard for watching and reviewing your own Hikvision cameras — glass chrome over a neutral graphite ground, one accent color reserved for "this is interactive."
+description: A dark, calm operations dashboard for watching and reviewing your own Hikvision cameras — solid app chrome and neutral floating controls over a graphite ground, one accent color reserved for "this is interactive."
 colors:
   accent-blue: "#0074e8"
   accent-blue-text: "#2e97ff"
@@ -134,12 +134,14 @@ Redesign v2 (see `ROADMAP.md`) rebuilt the Watch Room three times. The third pas
 
 Four colors, four jobs: a system blue for everything interactive (selected, primary, focus, in progress), red for "this is live right now," green for "this succeeded / is healthy," and purple for tamper events specifically. Status and selection never compete for the same pixel the way a single accent used to force them to.
 
+The foundation history above describes redesign v2. The adaptive-v11 material, navigation and input contract below supersedes its broad glass treatment and large destination headers. Destination selection now uses a neutral raised surface; blue remains for primary actions, interactive focus and selected editing controls.
+
 **Key Characteristics:**
 - Dark by default (`color-scheme: dark`), with a fully-specified light theme as a first-class alternate, not an afterthought.
 - Four semantic colors, each with exactly one job: blue = interactive, red = live, green = success/healthy, purple = tamper. Never mixed, never decorative.
-- Glass material on chrome that floats above or sits apart from content (bars, popovers, dialogs, toasts, the tab bar, the auth card); flat borders everywhere else. Over video, glass only over a single stream and only while the chrome is showing (see the Glass-Over-One-Stream Rule).
+- Solid themed chrome for headers, docked tools, navigation, menus, dialogs and authentication. Floating viewer controls use a dark media plate; footage retains its own colors in either theme. Transient notification effects retain their existing treatment.
 - A six-step radius scale running from a 6px chip to a fully-round 999px pill — buttons, segmented controls and status pills are pills now, not rounded rectangles.
-- Small, functional type scale with one exception: large titles (24px desktop, 30px phone) lead the screens that are destinations — Settings, Events, Your account, phone tab roots. No hero/display type.
+- Small functional type: consistent 16px desktop header titles, 22px compact titles, and larger section headings. TV text and targets grow for distance. No hero/display type.
 - Tabular numerals on every timestamp, clock, duration, zoom percentage, and count.
 
 ## Colors
@@ -158,7 +160,7 @@ A near-monochrome graphite UI with four semantic hues, each scoped to exactly on
 ### Neutral — "Graphite"
 Neutral, cool-grey surfaces that carry almost the entire UI — true neutral, not blue-tinted (redesign v2's foundation pass: the previous "Gunmetal" family measurably leaned blue, which read as "a dark blue app" rather than "glass over black"). The light theme swaps in an equivalent light grey family at the same structural roles.
 - **Graphite Bg** (`#09090b` dark / `#f2f2f5` light): app background, input fields.
-- **Graphite Panel** (`#18181b` dark / `#fff` light): cards, tiles, dialogs, menus, toasts — the primary raised surface. (Several of these — topbar, popovers, dialogs, toasts, the save bar — render as glass over this value rather than a flat fill; see Elevation & Depth.)
+- **Graphite Panel** (`#18181b` dark / `#fff` light): cards, dialogs, menus and authentication — the primary raised surface. Navigation and docked chrome use opaque fills; transient toasts retain their existing glass treatment.
 - **Graphite Panel-2** (`#222226` dark / `#f2f2f5` light): secondary surface for buttons, pills, and nested controls sitting on a panel. In light theme this equals Graphite Bg rather than a separate near-white tone — a hover/pressed surface reading as "a step toward the ground," the same relationship the mockups' own minimal-tonal-range Daylight theme uses.
 - **Graphite Line / Line-2** (`rgba(255,255,255,.09)` / `#2c2c31` dark, `rgba(0,0,0,.08)` / `#e3e3e8` light): hairline dividers and borders. Line is translucent-over-whatever's-behind-it (true glass-era hairline, not a solid gray); Line-2 is the stronger, solid, hover/focus-adjacent border.
 - **Text Primary** (`#f5f5f7` dark / `#1d1d1f` light): body and heading text.
@@ -171,12 +173,10 @@ Neutral, cool-grey surfaces that carry almost the entire UI — true neutral, no
 - **Danger Red** (`#f87171` dark / `#d72323` light) + **Danger Red Soft** wash: destructive actions, offline/error states, form validation errors. Light theme's value was re-audited against the new ground and darkened a touch from `#da2323` (4.43:1, just under AA against the new, slightly lighter ground) to `#d72323` (4.52:1).
 - **Info Teal** (`#2dd4bf` dark / `#0d9488` light): reserved, low-frequency informational accent — not actually used anywhere in the UI yet.
 
-### Glass material
-Translucent, blurred surfaces (redesign v2 foundation) for chrome that floats above or sits apart from page content — ported from the mockups' own Obsidian/Daylight glass tokens, which are opacity/blur treatments of the *same* Graphite values above, not a separate color decision.
-- **Glass Fill** (`rgba(28,28,31,.66)` dark / `rgba(255,255,255,.72)` light) + `backdrop-filter: blur(26px) saturate(1.6)`: the screen bars, Focus's top and bottom bars and nav arrows, Playback's timeline panel and its full-screen controls.
-- **Glass Fill Heavy** (`rgba(18,18,20,.86)` dark / `rgba(255,255,255,.88)` light) + `backdrop-filter: blur(40px) saturate(1.7)`: popovers/menus, dialogs, toasts, the save bar, the auth card, the phone tab bar and the Events filter sheet — anything that needs to read clearly above whatever's behind it.
-- **Glass Border** (`rgba(255,255,255,.1)` dark / `rgba(0,0,0,.07)` light) and **Glass Highlight** (`rgba(255,255,255,.06)` dark / `rgba(255,255,255,.5)` light, used as an inset top highlight alongside Shadow-3): the hairline and specular edge that make a glass surface read as a physical sheet rather than a flat translucent fill.
-- Over video, only over one stream at a time (Focus, full-screen Playback) and only while that chrome is showing — it fades out on idle, so the blur isn't recomputed over moving footage while nobody is looking at the controls. Never across the multi-tile Live grid. Turned off under `html.tv-mode` and `prefers-reduced-transparency`, with an `@supports` fallback to an opaque Panel/Panel-2 fill for browsers without `backdrop-filter`.
+### Chrome and media materials
+The adaptive-v11 contract replaces the foundation's broad glass treatment with opaque structural surfaces. Headers, normal Playback transport/timeline and save controls use `--chrome-bg`; menus, dialogs, authentication and phone navigation use Panel. Installed Apple headers retain the accepted stationary status-area surface.
+
+Floating Focus/replay controls, immersion transport and permanent return controls use the theme-invariant `--media-plate` (`#18181b`) with light media text. Navigation arrows and small existing on-video badges retain their local scrims. Legacy Glass Fill/Fill Heavy/Border/Highlight tokens remain for transient notifications and compatibility; they do not define the page header, navigation or forms.
 
 ### On-Video Overlay (theme-invariant)
 Chrome painted directly over live camera footage — tile/focus overlays, event badges, ROI boxes, playback's floating transport buttons. The video underneath never re-themes, so this whole family is fixed across light and dark rather than switching with the rest of the UI.
@@ -208,8 +208,8 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 **Character:** One typeface for everything — no serif, no display face, no mono except for the odd `<kbd>` hint. The hierarchy is carried entirely by size, weight, and color (muted vs. primary text), not by a second font.
 
 ### Hierarchy
-- **Large Title** (600–700, 24px in a destination screen's bar, 30px as a phone tab root's title): Settings, Events, Your account, Live on a phone.
-- **Title** (600, 16–20px): screen-bar titles and card-scale headings (Settings panes carry no heading of their own — the selected sidebar row is the title). Smaller title-weight text (600, 19px / 15px) is reused for card-scale headings like empty-state and focus-view titles.
+- **Large Title** (600–700, 22–24px): compact route titles and Settings section headings.
+- **Title** (600, 16–20px): consistent desktop screen-bar titles, card headings, empty states and Focus titles. Settings panes retain their section heading and explanatory text.
 - **Body** (400, 14px, 1.45 line-height): the base UI size — nearly everything reads at or near this size.
 - **Small** (400, 13px): the system's actual secondary-text size — hints, sub-labels, result rows, muted supporting lines under a heading.
 - **Micro** (600, 11px): compact badges and tags (`.tag`, event badges) where Label's 12px/uppercase treatment would be too loud for a small pill sitting on video.
@@ -220,13 +220,15 @@ Event-kind and per-camera-lane colors on the canvas-drawn timeline (`timeline.js
 
 ## Layout
 
-A fill-the-viewport shell with one bar per screen, rendered by the screen itself (`bar.js`): 60px glass for working screens, 72px for destination screens with a large title. The body owns the rest (`overflow: hidden` on `html`/`body` — panes scroll internally). Settings has a 240px plain sidebar (an iOS-style section list on a phone); Events a 220px filter sidebar (a sheet below 900px); Export and the AI Frame Enhancer are full screens over the view rather than dialogs. At ≤640px a glass tab bar (Live, Playback, Events, Settings) replaces the bar's global cluster, and between 641 and 900px a bar's context controls drop to a second, swipeable line. The live grid is a CSS grid sized to fill available space with a 4px gutter; video tiles keep their real aspect ratio via `aspect-ratio` + container queries rather than letterboxing crudely.
+A viewport-filling shell with one shared header per screen (`bar.js`). Main desktop headers use the same 60 px height. Left to right: title/context, page actions, four destinations, notifications, Account. Tablet headers wrap context onto a separate row when needed. Compact touch windows use the same four destinations in a bounded floating bottom capsule; notifications and Account remain in the header. Compact means width ≤640 px, or touch landscape with height ≤540 px and width ≤1100 px. TV has a distinct larger profile on every route.
 
-Spacing is tight and functional rather than airy: card padding is 18–20px, pane padding 22–28px, control gaps mostly 6–14px. Responsive behavior collapses side rails and multi-column forms to single columns around 760–900px, and hides secondary chrome (clock, nav labels) below 800px rather than wrapping it.
+The body stays fixed; each workspace owns scrolling. Settings uses a sidebar on wide screens and a grouped section list on phones, with inset dividers and a separate Account row. Compact detail forms and channel tables preserve the same input elements during rotation. Events filters become a scoped sheet. Short Playback keeps a shallow transport and puts precision tools in Timeline and More. Export and enhancement remain editing workspaces with reachable primary actions.
+
+Navigation and save controls share a measured bottom footprint. Installed Apple apps anchor navigation to the full app shell, normalize inflated bottom insets, and preserve the accepted opaque status-area treatment. Browser tabs retain browser-toolbar safe areas. See the validation record for the native-device acceptance boundary.
 
 ## Elevation & Depth
 
-Flat at rest, glass above. Cards, tiles, and panels sit at the same visual depth as their background — a single hairline border (`Graphite Line`) is the only separation, no shadow. Depth is reserved for two cases: chrome that floats above or sits apart from the page (topbar, subbar, popovers, dialogs, toasts, the save bar, the auth card, touch drawers — these get translucent Glass fill + blur, not just a shadow), and the one in-flow element that lifts in direct response to a pointer: a hovered live-grid tile or event card.
+App headers and docked review chrome use the same solid theme background. Floating destinations, menus, dialogs, save controls and touch sheets use opaque neutral panels with restrained borders and shadows. Media controls use a dark plate with light text in either theme. In-flow cards stay quiet; moving footage never changes the app's chrome color.
 
 ### Shadow Vocabulary
 - **Shadow-1** (`0 1px 2px rgba(0,0,0,.4)` dark / `rgba(0,0,0,.08)` light): the lightest lift — reserved for future fine-grained use; not yet wired to any rule.
@@ -236,7 +238,7 @@ Flat at rest, glass above. Cards, tiles, and panels sit at the same visual depth
 
 ### Named Rules
 **The Floating-Only Shadow Rule.** If it's part of the normal page layout at rest, it's flat with a hairline border. A layer floats above or apart from the page → Float or Shadow-3, usually with Glass. A live-grid tile or Events card has the pointer directly on it → Hover-Lift, and only while the pointer stays there. Nothing else gets a shadow.
-**The Glass-Over-One-Stream Rule.** Glass may sit over video only where there is one stream on screen (Focus, full-screen Playback) and only while that chrome is visible — it fades on idle, so continuous `backdrop-filter` recomputation over moving footage is limited to the moments someone is actually using the controls. Never across the multi-tile grid, where every tile would pay for it at once. (Revised in the screen-by-screen pass: the old blanket No-Blur-On-Video rule predated the Focus and Playback boards, which put glass bars over the picture.)
+**The Media Contrast Rule.** Floating viewing controls use a high-contrast dark neutral plate. Auto-hide follows input and editing state, not CSS hover left behind by touch. The protected installed-app header stays opaque and stationary.
 
 ## Shapes
 
@@ -254,13 +256,14 @@ A six-step radius scale (redesign v2 foundation — was a denser 8-step 5/7/8/9/
 
 ## Components
 
-Controls stay compact and restrained in density, but read as tactile now (redesign v2): real press feedback (`:active { transform: scale(.96) }`, new in the foundation pass — the app had none before), brightness/wash shifts on hover, and glass depth on anything that floats — refined, not flashy, but no longer flat-only.
+Controls stay compact and restrained in density, but read as tactile now (redesign v2): real press feedback (`:active { transform: scale(.96) }`, new in the foundation pass — the app had none before), brightness/wash shifts on hover, and restrained depth on floating controls — refined, not flashy, but no longer flat-only.
 
 ### Buttons
 - **Shape:** full-round pill (redesign v2, was 8px-radius rectangle), 36px height (28px in the `.sm` variant, was 34px), icon-only variants are square (36px/28px).
 - **Primary:** Accent Blue background, Accent Blue Ink (white) text, 600 weight — the one emphasized action in a group.
 - **Secondary (default `.btn`):** Graphite Panel-2 background, 1px Graphite Line-2 border, primary text color, 600 weight.
 - **Ghost:** transparent background and border, muted text; fills to Panel-2 + primary text on hover.
+- **Input profiles:** compact targets are at least 44px; TV targets are at least 56px. Destination selection uses a neutral raised surface. Camera More opens a bounded, scrollable menu; hidden inline source controls are inert. Wall actions move below the permanent Exit corner and the TV header rather than covering them.
 - **Hover / Pressed:** primary brightens (`filter: brightness(1.08)`); secondary/ghost border or background shifts toward Line/Panel-2; every button presses with `scale(.96)` on `:active`; a toggled/pressed *selection* button (`aria-pressed="true"`) takes the Accent Blue Soft wash with an Accent Blue border and Accent Blue Text — except a mode-switch button like the live view's Overview/Grid toggle, which stays neutral regardless of state (see the One-Job-Per-Color Rule).
 
 ### Segmented Controls & Pills
@@ -274,7 +277,7 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 - **Zoom HUD (`zoomhud.js`):** wherever a picture zooms (Focus, grid tiles, Playback panes), while zoomed: a minimap with a live thumbnail and the visible part outlined — click or drag it to pan there — and a − / % / + cluster where the percentage resets. Plain dark, not glass.
 - **Adjust picture (live filters):** Photos-style — status and Reset, a swipeable preset row, collapsible slider groups in inset cards; a slider's accent fill runs from its resting value to the thumb, and double-click resets it.
 
-- **Instant replay:** looks and behaves like Focus — the picture fills the screen (scaled up as well as down), glass bars fade while it plays and stay while it's paused. The bottom bar stays simple: start over and a white round play/pause in the middle, the footage's time and how far behind live it is on the left, Back to live on the right.
+- **Instant replay:** looks and behaves like Focus — the picture fills the screen (scaled up as well as down), solid media controls fade while it plays and stay while it's paused; a background tap can explicitly hide them. The bottom bar stays simple: start over and a white round play/pause in the middle, the footage's time and how far behind live it is on the left, Back to live on the right.
 - **Focus transitions:** one continuous picture — the tile grows into Focus and shrinks back into its own cell (uniform scale plus a rounded clip, never a stretch); the previous/next camera slides in over a fading still of the last one. Off for reduced motion; a plain fade on TV.
 - **AI Frame Enhancer:** pick step — the reference frame (the middle of the selected ones, which the server aligns to) large and centred, or just the region when one is set; under it a strip of up to 11 frames (a yellow dot marks the paused one, a white bar the reference) and the actions. Result step — a before/after wipe; the **ENHANCED** label is an amber strip directly under the picture (never over it), on screen whenever any enhanced pixels are.
 ### Cards / Containers
@@ -293,7 +296,7 @@ Controls stay compact and restrained in density, but read as tactile now (redesi
 ### Navigation
 - **Screen bar:** brand mark (Live) or back chevron, title (+ optional subtitle), the screen's own context controls, then its actions; Live alone carries the global cluster (Playback, Events, notifications, Settings, account avatar — locked with an explanation for a viewer, never hidden).
 - **Sidebars:** plain icon+label rows; the current one takes a soft Panel-2 fill and primary text, not an accent tint.
-- **Tab bar (phones):** four glass tabs, Accent Blue Text on the current one; tab-root screens drop their back chevron.
+- **Tab bar (phones):** four destinations in one neutral floating capsule, with a filled neutral selection; tab-root screens drop their back chevron.
 - **TV mode:** its own appearance (Dark by default). The stage is black and the Overview full-bleed; header and hints float over the picture and fade when idle. A remote moves focus spatially (`tvnav.js` — rows stay rows, the end of one turns the page), OK presses, Back steps out (Focus → grid → Overview), Play/Pause switches Overview and grid. Focus style is Apple TV's: the focused control turns white and lifts; the focused camera gets a white ring.
 
 ### Live-Grid Tile Anatomy
@@ -312,14 +315,22 @@ A dark rounded tile (`#141417`, radius 30/108) holding a white iris — a ring a
 - **Do** treat each of the four semantic colors as a state signal first — reach for Accent Blue when something is selected, primary, or on; Live Red only for live status; Armed Green only for success/healthy; never as general brand color to sprinkle around.
 - **Do** use Accent Blue Text / Armed Green Text (not the fill color) whenever a semantic color is the *foreground* of text or an icon rather than a filled background.
 - **Do** keep numeric displays (clocks, timestamps, durations, percentages, counts) on tabular numerals.
-- **Do** keep containers flat with a hairline border; reserve glass + Float/Shadow-3 strictly for chrome that floats above or sits apart from the page.
+- **Do** keep containers flat with a hairline border; reserve Float/Shadow-3 strictly for chrome that floats above or sits apart from the page.
 - **Do** use full-round shape for buttons, segmented controls, status/selection chips, and toggles — never for content containers (cards, tiles, dialogs stay in the 16–30px range).
 
 ### Don't:
 - **Don't** put a label, badge or banner over evidence the operator is studying — the enhancer's ENHANCED strip sits under the picture, not on it.
 - **Don't** introduce a fifth semantic hue for "brand" purposes — warn-amber, danger-red and info-teal stay semantic-only.
-- **Don't** add shadow to any surface that's part of the normal page flow at rest (cards, tiles, panels) — that's reserved for floating/glass layers and the hover-lift exception.
-- **Don't** put glass/`backdrop-filter` over the multi-tile grid, or keep it over a single stream once its chrome has faded (see the Glass-Over-One-Stream Rule).
+- **Don't** add shadow to any surface that's part of the normal page flow at rest (cards, tiles, panels) — that's reserved for floating layers and the hover-lift exception.
+- **Don't** add blur to structural chrome or the protected installed-PWA status area. Hide inactive viewer controls without changing the footage or its player.
 - **Don't** ship designer annotations or invented numbers from the boards ("this click simulates…", an estimated size nobody can compute) — when a board shows data the app doesn't have, show what it does have, honestly labelled.
 - **Don't** add a display/hero type size anywhere; large titles are as big as it gets — this is an Operate-mode instrument panel, not a marketing surface.
 - **Don't** give a mode-switch button (one whose own label already states which mode is active, like Overview/Grid) the pressed-accent treatment — that treatment means "the selected option among several," not "this is currently on."
+
+## Shared viewer contract (adaptive-v11)
+
+Normal review, app immersion, and browser fullscreen share one input policy. A confirmed single background tap toggles controls; double tap, pinch, pan, scrub, crop, OCR, trim, and wipe retain their gesture ownership. Paused playback holds controls by default. Menus/editors hold their owner; hidden chrome is inert, including a tabindex fallback. Keyboard focus pins its controls. TV idle returns focus to the watching surface; wake restores the previous action without activating it.
+
+Installed Apple apps use app immersion for custom video/canvas views. Desktop and TV request browser fullscreen when supported and keep app immersion if denied. The same button, Exit view, or system fullscreen exit restores normal composition in one action; there is no intermediate floating-toolbar state. Playback camera expansion preserves every selected player. An explicit Exit view or Back to live/all cameras remains reachable while other chrome is hidden. Return controls are excluded from the reveal-on-pointer behavior so they cannot disappear on activation. Escape dismisses the innermost layer first. Rotation changes presentation rather than stream/session state.
+
+Local evidence and native acceptance: [adaptive-ui-validation.md](adaptive-ui-validation.md).

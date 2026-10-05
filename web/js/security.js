@@ -4,7 +4,7 @@
 import { authApi } from './api.js';
 import { deviceName, fmtWhen, wireCopy } from './account.js';
 import { avatarInner } from './avatar.js';
-import { confirmDialog, esc, icon, toast } from './ui.js';
+import { confirmDialog, esc, icon, toast, modalRoot } from './ui.js';
 
 const ROLE_LABEL = { viewer: 'Viewer', operator: 'Operator', admin: 'Admin' };
 const ROLE_HELP = 'Viewer: live cameras only. Operator: also playback, events, bookmarks and exports. Admin: everything, including these settings.';
@@ -25,17 +25,20 @@ export class SecurityPanel {
   }
 
   async load() {
+    if (this._dead) return;
     if (!this.ctx.me()?.auth_enabled) { this.paintOff(); return; }
     try {
       const [users, devices, sessions, config, audit] = await Promise.all([authApi.users(), authApi.devices(),
         authApi.allSessions(), authApi.config(), authApi.audit(100)]);
       this.data = { users, devices, sessions, config, audit };
     } catch (e) {
+      if (this._dead) return;
       this.root.innerHTML = `<div class="result bad">${icon('alert')}<div>${esc(e.message)}</div></div>`;
       return;
     }
-    this.paint();
+    if (!this._dead) this.paint();
   }
+  destroy() { this._dead = true; }
 
   async act(btn, fn, okMsg) {
     if (btn) btn.disabled = true;
@@ -187,12 +190,15 @@ export class SecurityPanel {
   }
 
   setPassword(u) {
-    const root = document.getElementById('modal-root');
+    const root = modalRoot();
     root.innerHTML = `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="New password">
       <h3>${icon('key')} New password for ${esc(u.username)}</h3><p>They're signed out everywhere and use this from now on.</p>
       <form class="form" novalidate><div class="field"><label for="np">New password</label><input id="np" type="password" autocomplete="new-password"><div class="hint">At least 10 characters.</div></div>
       <div class="row"><button class="btn" type="button" data-x>Cancel</button><button class="btn primary" type="submit">Set password</button></div></form></div></div>`;
-    const close = () => { root.innerHTML = ''; };
+    const close = () => { root._dispose = null; root.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); } };
+    document.addEventListener('keydown', onKey);
+    root._dispose = close;
     root.querySelector('[data-x]').addEventListener('click', close);
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });
     root.querySelector('form').addEventListener('submit', (e) => {

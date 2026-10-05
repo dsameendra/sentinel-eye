@@ -1,9 +1,10 @@
 // Playback view: DVR review, 1-4 cameras at once (the DVR's hard playback-session limit — spec 2.2/7.2).
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
+import { ViewerControls, immersive, toggleViewer, leaveViewer } from './viewer.js';
 import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
-import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog } from './ui.js';
+import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { partsFromEpoch, fetchTzOffset, knownTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
@@ -122,7 +123,7 @@ export class PlaybackView {
       actions: `<span class="pill pb-pool warn" hidden title="The recorder's shared playback-session budget is full"></span>
         <div class="seg speed-seg" role="group" aria-label="Speed">${SPEEDS.filter((sp) => ['0.5', '1', '4', '16'].includes(sp)).map((sp) => `<button data-sp="${sp}" aria-pressed="${sp === '1'}">${spLabel(sp)}</button>`).join('')}
           <button class="more-sp" data-a="speedmore" title="More speeds" aria-label="More speeds" aria-haspopup="true">${icon('down')}</button></div>
-        <button class="btn glass-btn" data-a="export">${icon('share')}<span class="lbl">Export clip</span><span class="clip-count" hidden>0</span></button>`,
+        <button class="btn glass-btn" data-a="export" aria-label="Export clip">${icon('share')}<span class="lbl">Export clip</span><span class="clip-count" hidden>0</span></button>`,
     })}
       <div class="pb-body">
         <div class="pb-stage"><div class="pb-panes"></div></div>
@@ -140,6 +141,7 @@ export class PlaybackView {
               <button class="btn icon ghost" data-a="stepfwd" title="Next frame (.)" aria-label="Next frame">${icon('right')}</button>
             </div>
             <div class="pb-ctrl-right">
+              <button class="btn icon ghost" data-a="timeline" title="Timeline and review tools" aria-label="Timeline and review tools" aria-expanded="false">${icon('calendar')}</button>
               <button class="btn icon ghost" data-a="bookmark" title="Bookmark this moment (B)" aria-label="Bookmark this moment">${icon('bookmark')}</button>
               <div class="menu-wrap enh-wrap"><button class="btn icon ghost" data-a="enhance" title="Picture adjustments" aria-label="Picture adjustments" aria-haspopup="true">${icon('sparkle')}</button></div>
               <button class="btn icon ghost" data-a="aienhance" title="AI frame enhancer — pause first" aria-label="AI frame enhancer">${icon('scan')}</button>
@@ -161,6 +163,7 @@ export class PlaybackView {
           </div>
         </div>
       </div>
+      <button class="viewer-exit" data-a="leaveview" aria-label="Exit expanded view">${icon('collapse')}<span>Exit view</span></button>
     </main>`;
     wireBar(this.root, this.ctx);
     this.statusEl = this.root.querySelector('.pb-status');
@@ -169,6 +172,7 @@ export class PlaybackView {
     this.poolEl = this.root.querySelector('.pb-pool');
     this.stage = this.root.querySelector('.pb-stage');
     this.panesEl = this.root.querySelector('.pb-panes');
+    this.root.querySelector('[data-a=leaveview]').addEventListener('click', () => leaveViewer(this.root.querySelector('.pb')));
 
     if (!('VideoDecoder' in window)) {
       this.stage.innerHTML = `<div class="state-card"><div class="state-ico danger">${icon('alert')}</div><h2>Can't play recordings in this browser</h2><p>${esc(unsupportedReason())}</p></div>`;
@@ -208,52 +212,59 @@ export class PlaybackView {
     this.timeline.goTo(this.currentEpoch);
     this._setSelection([first.id]); // sets this.playing before controls are bound, so the very first auto-hide countdown is correct
     this._bindAutoHideControls();
+    this.root.querySelector('[data-a=timeline]').addEventListener('click', () => this.toggleDetails());
     this._pollPool();
   }
 
-  // ---------------------------------------------------------------- overlay controls: show on activity, hide while playing and idle
+  // The same presentation contract as Focus/replay; normal review tools never auto-hide.
   _bindAutoHideControls() {
-    this.controlsEl = this.root.querySelector('.pb-controls');
-    // The topline joins the same show/hide cycle so fullscreen has no permanently-on-screen chrome for a
-    // 16:9 stream — it's a no-op in windowed mode (the CSS only floats/hides it under .pb:fullscreen, so
-    // toggling .show there just sits on an element with no opacity/position rule reading it).
-    this.toplineEl = this.root.querySelector('.pb > .topbar');
-    // A popover (e.g. the enhance menu) is anchored to a button inside these controls but, since
-    // openPopover() renders it to <body>, moving the mouse onto it fires no mousemove on the stage — so a
-    // hide timer armed just *before* the menu opened would otherwise fire out from under it. The armed
-    // callback re-checks at fire time and reschedules rather than trusting the check made when it was
-    // scheduled, which is the only way this holds regardless of when the popover opens relative to it.
-    const busy = () => !!document.body._openPopover || !!document.getElementById('modal-root')?.firstChild;
-    const maybeHide = () => {
-      if (!this.playing || busy()) { this._hideTimer = setTimeout(maybeHide, 600); return; }
-      this.controlsEl.classList.remove('show');
-      this.toplineEl.classList.remove('show');
-    };
-    const show = () => {
-      this.controlsEl.classList.add('show');
-      this.toplineEl.classList.add('show');
-      clearTimeout(this._hideTimer);
-      // Settings > Display > Interaction — was hardcoded 2600ms.
-      const delayMs = (this.ctx.settings().display.controls_autohide_sec ?? 2.6) * 1000;
-      if (this.playing) this._hideTimer = setTimeout(maybeHide, delayMs); // paused: stays up, checked continuously if it ever does fire
-    };
-    this._showControls = show;
-    this.stage.addEventListener('mousemove', show);
-    this.stage.addEventListener('mouseenter', show);
-    this.stage.addEventListener('touchstart', show, { passive: true });
-    this.stage.addEventListener('mouseleave', () => { if (this.playing) clearTimeout(this._hideTimer) || (this._hideTimer = setTimeout(() => { this.controlsEl.classList.remove('show'); this.toplineEl.classList.remove('show'); }, 400)); });
-    // .pb-topline is a sibling of .pb-stage (only floats over it via position:absolute once fullscreen),
-    // not a descendant — the stage's own mousemove listener never sees the cursor sitting directly over the
-    // topline's buttons, which would otherwise auto-hide out from under it mid-hover.
-    this.toplineEl.addEventListener('mousemove', show);
-    this.toplineEl.addEventListener('mouseenter', show);
-    show();
+    const el = this.root.querySelector('.pb');
+    this.viewerControls?.destroy();
+    this.viewerControls = new ViewerControls(el, {
+      chrome: '.topbar,.pb-controls,.pb-inspect,.pb-pane-label,.pb-pane-time,.zhud', background: '.pb-stage',
+      enabled: () => immersive(el), paused: () => !this.playing,
+      delay: () => (this.ctx.settings().display.controls_autohide_sec ?? 2.6) * 1000,
+      held: () => this._roiSelectMode || this.timeline?.selectMode || el.classList.contains('details-open'),
+      exited: () => this.resetInspection(),
+    });
+    this._showControls = () => this.viewerControls.show();
   }
 
-  toggleFullscreen() {
+  toggleFullscreen() { toggleViewer(this.root.querySelector('.pb')); }
+
+  resetInspection() {
+    this.inspected = null;
+    this.panesEl?.classList.remove('inspecting');
+    for (const p of this.panes || []) {
+      p.el.classList.remove('inspected');
+      const button = p.el.querySelector('[data-a=inspect]');
+      button?.setAttribute('aria-pressed', 'false');
+      button?.setAttribute('aria-label', 'Enlarge this camera');
+      if (button) button.title = 'Enlarge this camera';
+    }
+  }
+
+  toggleDetails(force) {
     const el = this.root.querySelector('.pb');
-    if (document.fullscreenElement) document.exitFullscreen();
-    else el?.requestFullscreen?.().catch(() => toast('Full screen is not available here.', 'bad'));
+    const on = force ?? !el.classList.contains('details-open');
+    el.classList.toggle('details-open', on);
+    el.querySelector('[data-a=timeline]')?.setAttribute('aria-expanded', String(on));
+    this.viewerControls?.show();
+  }
+
+  inspectPane(pane) {
+    this.inspected = this.inspected === pane ? null : pane;
+    this.panesEl.classList.toggle('inspecting', !!this.inspected);
+    for (const p of this.panes) {
+      p.el.classList.toggle('inspected', p === this.inspected);
+      p.el.querySelector('[data-a=inspect]').setAttribute('aria-pressed', String(p === this.inspected));
+      p.el.querySelector('[data-a=inspect]').setAttribute('aria-label', p === this.inspected ? 'Show all selected cameras' : 'Enlarge this camera');
+      p.el.querySelector('[data-a=inspect]').title = p === this.inspected ? 'Show all selected cameras' : 'Enlarge this camera';
+    }
+    this.viewerControls?.show();
+    const viewer = this.root.querySelector('.pb');
+    if (this.inspected && !immersive(viewer)) toggleViewer(viewer);
+    else if (!this.inspected) leaveViewer(viewer);
   }
 
   // ---------------------------------------------------------------- bar: cameras, date, speed
@@ -381,10 +392,11 @@ export class PlaybackView {
     const fill = this.fitMode() === 'cover';
     // On a phone the bar's speed control and the select-range/fullscreen buttons are hidden for room —
     // they surface here instead, so nothing is lost at any width.
-    const hidden = (sel) => { const el = this.root.querySelector(sel); return !!el && getComputedStyle(el).display === 'none'; };
+    const hidden = (sel) => { const el = this.root.querySelector(sel); return !!el && (!el.getClientRects().length || getComputedStyle(el).display === 'none'); };
     const speedRow = hidden('.speed-seg') ? `<div class="pop-row"><span>Speed</span><div class="seg" role="group" aria-label="Speed">
-        ${['0.5', '1', '4', '16'].map((sp) => `<button data-s="${sp}" aria-pressed="${sp === this.speed}">${sp === '0.5' ? '½' : sp}×</button>`).join('')}</div></div>` : '';
+        ${SPEEDS.map((sp) => `<button ${+sp > +maxSpeedFor(this.panes.length) ? 'disabled' : ''} data-s="${sp}" aria-pressed="${sp === this.speed}">${sp === '0.5' ? '½' : sp}×</button>`).join('')}</div></div>` : '';
     const extra = [
+      ...[['stepback','Previous frame'],['stepfwd','Next frame'],['bookmark','Bookmark this moment'],['enhance','Picture adjustments'],['aienhance','AI frame enhancer'],['now','Jump to now']].filter(([a]) => hidden(`[data-a=${a}]`)).map(([a,label]) => `<button class="pop-item" data-proxy="${a}" ${this.root.querySelector(`[data-a=${a}]`)?.disabled ? 'disabled title="Pause playback first"' : ''}><span>${label}</span></button>`),
       hidden('[data-a=selectrange]') ? `<button class="pop-item" data-m="range">${icon('range')}<span>Select a range to export</span></button>` : '',
       hidden('[data-a=pbfs]') ? `<button class="pop-item" data-m="fs">${icon('expand')}<span>Full screen</span></button>` : '',
     ].join('');
@@ -399,6 +411,7 @@ export class PlaybackView {
       <button class="pop-item" data-m="keys">${icon('layout')}<span>Keyboard shortcuts</span><kbd>?</kbd></button>
     </div>`, { className: 'view-pop' });
     if (!menu) return;
+    menu.querySelectorAll('[data-proxy]').forEach(b => b.addEventListener('click', () => { closePopover(); if (b.dataset.proxy === 'enhance') this._toggleEnhanceMenu(anchor); else this.root.querySelector(`[data-a=${b.dataset.proxy}]`)?.click(); }));
     menu.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => {
       this._pickSpeed(b.dataset.s);
       menu.querySelectorAll('[data-s]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
@@ -472,7 +485,7 @@ export class PlaybackView {
     if (!cam) return null;
     const el = document.createElement('div');
     el.className = 'pb-pane';
-    el.innerHTML = `<div class="pb-pane-label"><b>${esc(cam.name || 'Camera ' + cam.channel)}</b><span class="tag kind">HD</span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span></div>
+    el.innerHTML = `<button class="pb-inspect btn icon" data-a="inspect" aria-label="Enlarge this camera" aria-pressed="false" title="Enlarge this camera">${icon('expand')}</button><div class="pb-pane-label"><b>${esc(cam.name || 'Camera ' + cam.channel)}</b><span class="tag kind">HD</span><span class="tag fx" hidden title="Live filters active">${icon('wand')}</span></div>
       <div class="pb-pane-time"></div>
       <div class="pb-pic">
         <canvas></canvas>
@@ -481,6 +494,7 @@ export class PlaybackView {
       <div class="hitzone"></div>
       <div class="pb-roi-layer"><div class="pb-roi-box" hidden></div></div>
       <div class="pb-veil"><div class="spin"></div><div class="msg">Loading…</div></div>`;
+    el.querySelector('[data-a=inspect]').addEventListener('click', () => this.inspectPane(pane));
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
     const veil = el.querySelector('.pb-veil');
@@ -601,8 +615,8 @@ export class PlaybackView {
   // ---------------------------------------------------------------- L0 live enhancement (all panes together)
   // Presets are quick-fill starting points; every slider underneath (and the ROI/flashlight tools, Playback-
   // only) stays individually adjustable and stacks with the rest — see enhancePanel.js and enhance.js.
-  _toggleEnhanceMenu() {
-    const btn = this.root.querySelector('[data-a=enhance]');
+  _toggleEnhanceMenu(anchor) {
+    const btn = anchor || this.root.querySelector('[data-a=enhance]');
     const menu = openPopover(btn, enhancePanelHTML({ roi: true, flashlight: true }), { className: 'enh-menu enh2-panel' });
     if (!menu) return;
     menu.querySelector('[data-x=roi]')?.setAttribute('aria-pressed', String(this._roiSelectMode));
@@ -669,7 +683,8 @@ export class PlaybackView {
 
   _layoutPanes() {
     if (!this.panesEl) return; // resize fired before build() set it up, or after destroy() tore it down
-    this.panesEl.innerHTML = '';
+    if (this.inspected && !this.panes.includes(this.inspected)) this.inspected = null;
+    this.panesEl.replaceChildren(...this.panes.map(p => p.el));
     const n = this.panes.length;
     const fill = this.fitMode() === 'cover'; // same setting live view uses (Settings > Display > Picture & behaviour), overridable for this session only via the topline's Fit/Fill toggle
     this.panesEl.className = 'pb-panes' + (n > 1 ? ' multi' : '') + (fill ? ' fill' : '');
@@ -689,10 +704,12 @@ export class PlaybackView {
       this.panesEl.style.gridTemplateColumns = n <= 1 ? '1fr' : n === 2 ? 'repeat(2, 1fr)' : n === 3 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)';
       this.panesEl.style.gridTemplateRows = n <= 2 ? '1fr' : 'repeat(2, 1fr)';
     }
-    for (const p of this.panes) this.panesEl.append(p.el);
+    this.panesEl.classList.toggle('inspecting', !!this.inspected);
+    for (const p of this.panes) p.el.classList.toggle('inspected', p === this.inspected);
   }
 
   _setSelectRangeMode(on) {
+    if (on) this.toggleDetails(true);
     this.timeline?.setSelectMode(on);
     this.root.querySelector('[data-a=selectrange]')?.setAttribute('aria-pressed', String(on));
     this._setHint();
@@ -917,7 +934,6 @@ export class PlaybackView {
     // without this, e.g. the shortcuts overlay's own Escape/Tab handling raced against this handler's own
     // key bindings underneath it (confirmed directly: Space toggled playback behind an open dialog).
     if (document.getElementById('modal-root').firstChild) return;
-    if (e.key === '?') { shortcutsDialog(); return; }
     if (e.key === ' ') { e.preventDefault(); this.togglePlay(); }
     else if (e.key === '.') this.stepFrame(1);
     else if (e.key === ',') this.stepFrame(-1);
@@ -984,7 +1000,7 @@ export class PlaybackView {
     const eta = (span) => { const s = Math.max(10, span / EXPORT_SCALE * cams.length); return s < 60 ? `about ${Math.ceil(s / 5) * 5} s` : `about ${Math.ceil(s / 60)} min`; };
     const files = [...cams.map((c) => `clip_${(c.name || 'ch' + c.channel).replace(/[^A-Za-z0-9_-]/g, '_')}.mp4`), 'manifest.json', 'signature.json', 'verify.html'];
 
-    const root = document.getElementById('modal-root');
+    const root = modalRoot();
     root.innerHTML = `<div class="xp" role="dialog" aria-modal="true" aria-label="Export clip">
       ${barHTML({ lead: 'back', title: 'Export clip', sub: '<span class="xp-sub"></span>',
         actions: `<button class="btn glass-btn xp-clips" data-x="clips" aria-pressed="false">${icon('list')} Clips <span class="count"></span></button>` })}
@@ -1025,6 +1041,8 @@ export class PlaybackView {
       </div></div>`;
     const el = root.querySelector('.xp');
     const $ = (sel) => el.querySelector(sel);
+    const backButton = $('[data-bar=back]');
+    backButton.title = 'Back to Playback'; backButton.setAttribute('aria-label', 'Back to Playback');
     const statusEl = $('.xp-status');
     const setStatus = (txt, cls = '') => { statusEl.hidden = !txt; statusEl.className = `xp-status ${cls}`; statusEl.innerHTML = txt || ''; };
 
@@ -1125,10 +1143,12 @@ export class PlaybackView {
     });
 
     const close = () => {
+      root._dispose = null;
       if (running) toast('Export continues in the background — it downloads when ready.', 'ok', 5000);
       document.removeEventListener('keydown', onKey, true);
       root.innerHTML = '';
     };
+    root._dispose = close;
     const onKey = (e) => { if (e.key === 'Escape' && !document.body._openPopover) { e.preventDefault(); close(); } };
     document.addEventListener('keydown', onKey, true);
     $('[data-bar=back]').addEventListener('click', close);
@@ -1241,6 +1261,7 @@ export class PlaybackView {
 
   destroy() {
     this._dead = true;
+    this.viewerControls?.destroy();
     document.removeEventListener('keydown', this.onKey);
     window.removeEventListener('resize', this.onResize);
     if (this._onFsChange) document.removeEventListener('fullscreenchange', this._onFsChange);

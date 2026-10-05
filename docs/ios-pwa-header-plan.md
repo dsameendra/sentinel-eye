@@ -1,6 +1,6 @@
 # iPhone and iPad PWA header audit and proposed fix
 
-Status: approved by the user and implemented locally on `fix/ios-status-bar`. Synthetic layout validation passes; native iOS/iPadOS 27 acceptance and deployment remain pending.
+Status: approved by the user and implemented locally on `fix/ios-status-bar`. The user confirmed that the installed-app top blur is gone. Synthetic layout validation passes; the broader native matrix remains pending. The adaptive refinement is tracked separately in adaptive-ui-plan.md.
 
 Audited on 2026-10-04 at commit `2206272`, branch `fix/ios-status-bar`, matching the local `origin/fix/ios-status-bar` tracking reference. The user reports iOS 27 and iPadOS 27: the defect appears in the installed PWA; regular Safari works correctly. Freshness of the installed assets remains unverified.
 

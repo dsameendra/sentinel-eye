@@ -19,6 +19,7 @@ export class ZoomPan {
     this.hit = hit;
     this.max = opts.max || 8;
     this.dbl = opts.dbl !== false;
+    this.hit.dataset.zoomGestures = '';
     this.onChange = opts.onChange || (() => {});
     this.s = 1; this.x = 0; this.y = 0;
     this.ptrs = new Map();
@@ -145,6 +146,7 @@ export class ZoomPan {
 
   wheel(e) {
     if (this.editing()) return;
+    this.hit.dispatchEvent(new CustomEvent('viewer-gesture', { bubbles: true }));
     e.preventDefault();   // never scroll or page-zoom while the pointer is over a picture
     let d = e.deltaY;
     if (e.deltaMode === 1) d *= 16; else if (e.deltaMode === 2) d *= 400;
@@ -152,7 +154,7 @@ export class ZoomPan {
   }
 
   // Safari trackpad pinch
-  gStart(e) { e.preventDefault(); this.gBase = this.s; }
+  gStart(e) { e.preventDefault(); clearTimeout(this.tapTimer); this.lastTap = null; this.gBase = this.s; this.hit.dispatchEvent(new CustomEvent('viewer-gesture', { bubbles: true })); }
   gChange(e) {
     e.preventDefault();
     if (this.ptrs.size >= 2 || this.editing()) return;   // iOS also sends touch pointers: avoid applying the pinch twice
@@ -196,14 +198,22 @@ export class ZoomPan {
     if (this.ptrs.size > 0) return;
     this.hit.classList.remove('panning');
     this.swallow = this.moved > 6 || this.pinched;         // a drag/pinch must not become a click
+    if (this.swallow) { clearTimeout(this.tapTimer); this.lastTap = null; this.hit.dispatchEvent(new CustomEvent('viewer-gesture', { bubbles: true })); }
     if (this.swallow) setTimeout(() => { this.swallow = false; }, 0);
+    if (cancelled) { clearTimeout(this.tapTimer); this.lastTap = null; }
     if (cancelled || this.swallow || !this.dbl) return;
     // double tap / double click
     const now = performance.now(), t = this.lastTap;
     if (t && now - t.t < TAP_MS && Math.hypot(e.clientX - t.x, e.clientY - t.y) < TAP_PX) {
+      clearTimeout(this.tapTimer);
+      this.hit.dispatchEvent(new CustomEvent('viewer-gesture', { bubbles: true }));
       this.lastTap = null;
       this.toggleAt(e.clientX, e.clientY);
-    } else this.lastTap = { t: now, x: e.clientX, y: e.clientY };
+    } else {
+      this.lastTap = { t: now, x: e.clientX, y: e.clientY };
+      clearTimeout(this.tapTimer);
+      this.tapTimer = setTimeout(() => this.hit.dispatchEvent(new CustomEvent('viewer-tap', { bubbles: true })), TAP_MS);
+    }
   }
 
   swallowClick(e) {
@@ -214,5 +224,7 @@ export class ZoomPan {
     this.bound.forEach(([t, n, f, o]) => t.removeEventListener(n, f, o));
     this.ro.disconnect();
     clearTimeout(this.animTimer);
+    clearTimeout(this.tapTimer);
+    delete this.hit.dataset.zoomGestures;
   }
 }

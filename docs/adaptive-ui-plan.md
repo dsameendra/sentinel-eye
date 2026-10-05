@@ -1,6 +1,6 @@
 # Sentinel Eye: unified interface and viewing experience
 
-**Status: proposal awaiting approval. No new application UI changes are authorized by this plan yet.**
+**Status: approved by the user; implementation and local validation completed in `adaptive-v11`. Native device and recorder acceptance remains a release gate.**
 
 Prepared 2026-10-04 against the current working tree on `fix/ios-status-bar`, including the previous PWA fix. The user has confirmed that the top blur is gone on their installed iPhone/iPad apps. That behavior is an accepted baseline to preserve.
 
@@ -122,7 +122,7 @@ Use a shared viewer controller for entry, exit, visibility, focus restoration an
 
 **Fullscreen request failure:** keep the immersive app view usable, with an accurate state/exit icon. Do not claim the browser is fullscreen when the promise rejects. Do not force a native video-only player for canvas Playback, enhancement or multi-camera viewing; that would lose custom features. Do not automatically enter fullscreen just because the device rotated.
 
-**Return behavior:** exit browser fullscreen back to the immersive view, then Close/Back returns to the originating route/pane. Browser Escape may exit fullscreen itself; respond to `fullscreenchange` without also navigating away accidentally. Restore selected camera(s), playback epoch/play state, timeline view, filters, zoom and scroll as applicable. Reuse the existing player/canvas; do not duplicate streams or create extra recorder sessions to change presentation.
+**Return behavior (updated after user feedback):** the same expand button, explicit Exit view, or browser fullscreen exit restores normal composition in one action. Selected-pane expansion restores all existing panes. Close/Back returns to the originating route/pane. Browser Escape may exit fullscreen itself; respond to `fullscreenchange` without also navigating away accidentally. Restore selected camera(s), playback epoch/play state, timeline view, filters, zoom and scroll as applicable. Reuse the existing player/canvas; do not duplicate streams or create extra recorder sessions to change presentation.
 
 **Layer ownership:** menus, tool sheets, dialogs, notifications and recovery controls mount inside the active viewer/fullscreen subtree where necessary. Only the active viewer responds to reveal/hide input. Background pages are not interactive under covering views. Make disposal explicit when a route/viewer closes; running jobs may continue through their existing job mechanism and must not be cancelled merely by closing a presentation.
 
@@ -316,6 +316,12 @@ These sources guide the design; native Swift/UIKit behavior is not a claim that 
 - [W3C: target size](https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced), [focus not obscured](https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum) and [orientation](https://www.w3.org/WAI/WCAG22/Understanding/orientation.html) inform hit areas, fixed-surface/focus handling and rotation coverage. A 44 px project target is stricter than the minimum AA target-size requirement; do not claim a conformance level from isolated checks.
 - [MDN: requestFullscreen](https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen) documents asynchronous success/failure and user-activation requirements. Implement capability-aware fullscreen plus a usable app-level immersive state; verify actual platform behavior instead of relying on an OS-version string.
 
-## Approval decision
+## Approval and implementation record
 
-Approve this whole-app scope and the phased implementation above: shared adaptive navigation/materials, touch/desktop/remote viewer behavior, all-screen layout migration, regression/install/update gates, and final README/screenshots. The accepted PWA status-area fix is preserved throughout. Device acceptance and publishing are recorded separately from local implementation.
+The user approved this whole-app scope and authorized implementation, regression checks, documentation and screenshot replacement. Subsequent feedback also authorized right-aligned desktop navigation, consistent header heights, a lower iPhone navigation capsule, grouped mobile Settings, and reliable expanded-view exits on every input profile.
+
+Implemented: shared adaptive geometry and materials; destinations immediately left of notifications/Account; portrait and short landscape navigation; grouped Settings and responsive forms/tables; compact Playback transport with Timeline/More; selected-pane expansion without replacing players; shared viewer tap/idle/gesture/focus behavior; installed Apple app expansion without depending on native element fullscreen; accessible persistent return controls; scoped overlays and lifecycle cleanup; all-entry static delivery and cache revision; refreshed synthetic screenshots and README/design documentation.
+
+Follow-up audit: anonymous login helpers/styles remain in existing public assets, so an already-running backend does not need a new asset allow-list; camera quick actions use a bounded menu instead of a clipped inline strip; wall actions clear the persistent Exit corner and measured TV header; channel-zero has one discoverable bookmark for permitted roles; TV destinations respect viewer/operator access; native-entry races cannot reopen a view after exit; short-screen two-factor forms preserve their heading and scrolling.
+
+See [adaptive-ui-validation.md](adaptive-ui-validation.md) for executed evidence, screenshot provenance, update checks, and the remaining native iOS/iPadOS, TV, recorder and Docker runtime acceptance steps. These device/deployment gates are not represented as passed by desktop emulation.

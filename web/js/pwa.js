@@ -5,7 +5,7 @@
   const appleTouch = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
   const installed = navigator.standalone === true || (appleTouch && matchMedia('(display-mode: standalone)').matches);
   root.classList.toggle('ios-pwa', installed);
-  const revision = 'ios-headers-v10';
+  const revision = 'adaptive-v11';
   root.dataset.pwaRevision = revision;
 
   function syncTheme() {
@@ -24,6 +24,10 @@
         standalone: navigator.standalone === true, displayMode: matchMedia('(display-mode: standalone)').matches,
         viewport: { width: innerWidth, height: innerHeight, visualHeight: window.visualViewport?.height },
         safeTop: style.getPropertyValue('--safe-top').trim(),
+        safeBottomRaw: style.getPropertyValue('--safe-bottom-raw').trim(),
+        safeBottom: style.getPropertyValue('--safe-bottom').trim(),
+        shellHeight: document.getElementById('app')?.getBoundingClientRect().height,
+        nav: (() => { const nav = document.querySelector('.tabbar'); return nav ? { top: nav.getBoundingClientRect().top, bottom: nav.getBoundingClientRect().bottom, offset: getComputedStyle(nav).bottom } : null; })(),
         headers: [...document.querySelectorAll('.topbar, .focus-bar')].map((bar) => {
           const s = getComputedStyle(bar), r = bar.getBoundingClientRect();
           return { top: r.top, height: r.height, paddingTop: s.paddingTop, background: s.backgroundColor,

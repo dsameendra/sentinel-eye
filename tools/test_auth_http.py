@@ -10,6 +10,8 @@ import sys
 import tempfile
 import threading
 import time
+import re
+from urllib.parse import urljoin
 
 os.environ["SENTINEL_DATA"] = tempfile.mkdtemp(prefix="se-auth-http-")
 os.environ.pop("SENTINEL_ADMIN_PASSWORD", None)
@@ -119,6 +121,19 @@ def anonymous():
         r = c.get(path)
         check(f"anon {path} public", r.status_code == 200, r.status_code)
     r = c.get("/api/status")
+    visited = set()
+    def public_module(path):
+        if path in visited:
+            return
+        visited.add(path)
+        result = c.get(path)
+        ok = result.status_code == 200 and "javascript" in result.headers.get("content-type", "")
+        check(f"anonymous module graph: {path}", ok)
+        if ok:
+            for spec in re.findall(r"(?:from\s*|import\s*(?:\(\s*)?)['\"](\.?\.?/[^'\"]+)['\"]", result.text):
+                public_module(urljoin(path, spec))
+    for entry in ("/js/login.js", "/js/pair.js", "/js/pwa.js"):
+        public_module(entry)
     check("anon /api/status only says go2rtc", r.status_code == 200 and r.json() == {"go2rtc": True}, r.text)
     r = c.get("/api/settings")
     check("anon API -> 401 JSON", r.status_code == 401 and r.json()["code"] == "auth_required")

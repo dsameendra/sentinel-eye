@@ -6,8 +6,8 @@ import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
 import { SettingsView } from './settings.js';
-import { esc, icon, toast } from './ui.js';
-import { tabBarHTML } from './bar.js';
+import { closeModal, closePopover, esc, icon, shortcutsDialog, toast } from './ui.js';
+import { configureNavigation, tabBarHTML } from './bar.js';
 import { layoutIds } from './layouts.js';
 import { fetchTzOffset } from './dvrtime.js';
 
@@ -17,6 +17,15 @@ const can = (role) => (ROLE_RANK[state.me?.role] ?? -1) >= ROLE_RANK[role];
 // Sections that need more than watching live (enforced by the server; this only hides what would 403).
 const SECTION_ROLE = { playback: 'operator', events: 'operator', search: 'operator' };
 const app = document.getElementById('app');
+
+// The guide is available from every authenticated page; its playback/live actions remain contextual.
+document.addEventListener('keydown', e => {
+  if (e.key !== '?' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey
+    || e.target?.closest?.('input,textarea,select,[contenteditable]')
+    || document.getElementById('modal-root')?.firstChild) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  closePopover(); shortcutsDialog();
+}, true);
 
 function applyTheme(t) {
   // A TV in TV mode follows its own appearance (dark unless chosen otherwise), not the synced theme: a
@@ -137,11 +146,11 @@ async function route() {
     history.replaceState(null, '', state.hash);
     return;
   }
-  if (state.hash && state.hash !== hash) state.prev = state.hash;
+  if (state.hash && state.hash !== hash) { closePopover(); if (state.kind !== section) closeModal(); state.prev = state.hash; }
   state.hash = hash;
   const host = document.getElementById('view');
   const navSection = section === 'search' ? 'events' : section;
-  document.querySelectorAll('.tabbar .tab').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+  document.querySelectorAll('.tabbar .tab,.app-dest').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   if (section === 'account') {
     if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
     return;
@@ -183,6 +192,7 @@ async function boot() {
   if (state.me.auth_enabled && state.me.via === 'anon') { signInAgain(); return; }   // e.g. a cached shell from the service worker
   authHooks.needs2fa = () => { if (!document.querySelector('#modal-root .dialog')) openAccount(ctx, { force2fa: true }); };
   document.documentElement.classList.toggle('role-viewer', !can('operator'));   // hides review-only buttons (app.css)
+  configureNavigation(ctx);
   shell();
   if (state.me.limited) { openAccount(ctx, { force2fa: true }); return; }
   if (can('operator')) fetchTzOffset();   // remembered, so Playback and Events never wait on it later

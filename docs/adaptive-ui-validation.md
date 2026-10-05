@@ -1,0 +1,105 @@
+# Adaptive UI validation — adaptive-v11
+
+Implementation and local validation completed on 2026-10-05 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
+
+## Fixes verified locally
+
+| Reported problem | Final behavior and evidence |
+| --- | --- |
+| Blank login card | An existing server returned 302-to-login for newly imported helper paths while returning 200 JavaScript for `ui.js`. Shared public code now lives in the already-public `ui.js`, and shared styles live in `app.css`. Login no longer depends on a backend allow-list change/restart. The real anonymous import graph passes HTTP checks; signed-out forms render across the matrix. The existing running server also loads the updated authenticated app. |
+| Floating phone navigation too high | Installed shells anchor navigation to the full app height and bound the reported bottom inset. An injected 86px raw inset produces a 22px portrait / 12px landscape capsule gap. Browser tabs retain their dynamic browser inset. Actual device geometry remains an acceptance item. |
+| Desktop navigation misplaced / header heights inconsistent | Page controls precede destinations; destinations sit immediately left of Notifications and Account. Main desktop headers measure 60px at 1440px across Live, Playback, Events and Settings. Tablet context wraps separately; compact/TV profiles have their own measured heights. |
+| Landscape Playback crowded | At 844×390, the tested final stage is 221px high; the original audit measured 62.6px. Timeline and secondary tools open on demand; all eight speeds and the existing review actions remain available. |
+| Expand buttons unsupported in installed Apple apps | The shared controller enters app immersion without requesting native element fullscreen on installed Apple devices. Supported desktop/TV browsers additionally request native fullscreen; denial retains app immersion. |
+| Fullscreen exit leaves floating controls / no escape route | Same-button exit, explicit return, and native fullscreen exit restore normal composition. Playback inspection resets without replacing selected player panes. A persistent return remains reachable when chrome hides. A late native-entry promise cannot reopen a view after exit. |
+| Giant empty wall capsule | The pager uses intrinsic width/height and explicit positioning; it disappears when there is only one page. Exit has its own compact control. TV immersion uses one pager presentation. |
+| Exit/camera actions overlap | Actions in the exit corner receive measured clearance; compact portrait grid content clears the safe top/exit area. Normal TV overview actions and captions clear the measured header. The camera-menu sweep caught and corrected a click hitting Account instead of the intended camera action. |
+| Camera quick tools clipped in small tiles | More opens a bounded, scrollable menu. Zoom, quality, snapshot, replay and picture adjustments stay reachable. Unavailable snapshots are disabled until a frame exists. Old inline source controls are hidden and inert. Auto-rotation holds while a menu/dialog is open. |
+| Channel-zero duplicate bookmark | One top-right all-camera bookmark remains, including on touch/TV. Its meaningless duplicate expand action is removed. Viewer accounts do not receive the bookmark action. |
+| TV permissions and entry | Viewer TV destinations are Live/Settings; operator/admin also receive Playback/Events. Entry expands the camera grid when channel-zero is unavailable and describes that behavior accurately. |
+| Settings disconnected from the visual language | Compact Settings uses grouped 52px section rows, inset dividers and a separate Account row. Forms, cards, save controls and headers use shared theme materials. Drafts survive rotation and route discard protection remains active. |
+| Authentication heading jumps out of view | Short forms scroll from a reachable top; initial touch login does not open the keyboard automatically. Two-factor/recovery transitions reset their scroll and focus without scrolling the heading away. |
+
+The installed bottom-inset correction is informed by WebKit's report of standalone safe-area values including absent browser chrome: [WebKit bug 301172](https://bugs.webkit.org/show_bug.cgi?id=301172#c8). Its applicability to the user's iOS 27 device is an inference, not a measured native root cause. The bounded inset and shell anchoring passed synthetic geometry checks; verify the physical home-indicator clearance on both devices.
+
+## Executed checks
+
+| Suite | Result | What it establishes |
+| --- | --- | --- |
+| Browser route layout matrix | 442 passed | 17 profiles × 2 themes × 13 routes; requested dimensions/theme, horizontal overflow, header control clipping and fixture script/resource errors |
+| Authentication/pairing layout matrix | 68 passed | Both entry points × both themes × 17 profiles; rendered controls, card positioning, width and script delivery; TV login includes its pairing-code state |
+| Camera menu matrix | 34 passed | Bounded menu geometry, complete action access, unavailable snapshot state and background interaction scope in both themes on all profiles |
+| Additional browser workflows | 59 passed | Fullscreen/inspection return, menus, calendar, keyboard focus, role filtering, drafts/discard, two-factor/recovery, clip-list UI, enhancer result/Details, event-to-Playback, Account cancel/password visibility, actual synthetic streams, TV entry, filter outside-dismissal and stacked/global keyboard guide |
+| `node tools/test_viewer.mjs` | 45 passed | Real viewer/gesture implementation with deterministic input/timers: idle, holds, touch recognition, cancellation, legacy inert fallback, remote wake, native rejection/exit/races and teardown |
+| `node tools/test_shell_update.mjs` | 62 passed | Worker cache/update behavior, redirect exclusion, missing offline assets, slow network, install identity, shipped imports and named ESM export linking for all entries |
+| `node tools/test_pwa_bootstrap.mjs` | 8 passed | Installed iPhone/iPad detection, desktop-UA iPad, browser-tab exclusions and other platforms |
+| `.venv/bin/python tools/test_auth_core.py` | 96 passed | Real account/session, 2FA/recovery, pairing, trusted-network and CLI logic in temporary data |
+| `.venv/bin/python tools/test_auth_http.py` | 97 passed | Anonymous entry import graph, route/WebSocket access by role, login flows and network bypass rules in the isolated test app |
+| `.venv/bin/python tools/test_playback_service.py` | 9 passed | Coverage/backfill failures retain recoverable state and clear running flags |
+| `.venv/bin/python tools/test_enhance_models.py` | 19 passed | Model catalog, verified-download and settings logic in temporary data. A separate fallback check skipped because the scratch directory has no Real-ESRGAN weights; this is not real inference validation. |
+| JavaScript syntax, Python compilation, `git diff --check` | Passed | Shipping JS modules and changed Python test/preview files parse; no whitespace errors |
+
+These are bounded checks with synthetic fixtures, not a claim to have exercised every possible hardware/recorder combination. Expected unavailable-media errors are excluded in the no-recorder preview; unexpected script/resource failures remain visible. See [adaptive-ui-matrix.json](adaptive-ui-matrix.json) for the executed browser measurements and workflow inventory.
+
+### Viewports and routes
+
+| Profile family | Tested browser dimensions |
+| --- | --- |
+| Phone portrait | 320×568, 375×667, 390×844 |
+| Phone landscape | 667×375, 844×390, 932×430 |
+| Tablet portrait | 768×1024, 820×1180 |
+| Tablet landscape / larger window | 1024×768, 1180×820, 1366×1024 |
+| Desktop | 800×450, 1440×900, 1920×1080, 2560×1080 |
+| TV browser profile | 1280×720, 1920×1080 |
+
+Every route sweep includes Live, Playback, Events, Settings root, Connection, Channels, Display, Channel-zero, Enhancement, Status, Security, Settings Account and direct Account. Profile tests cover both light and dark. Targeted workflows additionally cover Focus, event preview, enhancer selection/result/inspection, export trimming/clip-list, menus, dialogs, authentication challenges and TV mode entry.
+
+## Feature and state coverage
+
+| Area | Executed coverage | Acceptance still needed |
+| --- | --- | --- |
+| Live / Focus | Four decoded streams in the isolated rig; actual 960×480 SD and 1920×1080 HD; quality menu, enabled snapshot state, next camera and return; wall/overview expansion, one bookmark, exit placement and menu zoom/filter actions | Native touch gestures, physical TV decoder/remote behavior and recorder channel-zero playback |
+| Playback | Normal/compact layouts; date/calendar and all speeds; Timeline/More; selected-camera expansion; two-pane restoration/rotation; filters, range/export entry and persistent return; unsupported/rejected fullscreen covered in controller tests | Real synchronized multi-camera recordings, seeking/frame-step accuracy, reconnect and recorder session limits |
+| Events | Demo events/thumbnails, filters/layouts, preview scope/close and event-selected camera/time routing into Playback | Actual alarm data, recordings, previews and download jobs |
+| Export / Verify | Trim handle keyboard input, add-to-clips, list mode, packaging controls, Back and landscape fit; existing export/signing/standalone verifier backend code is unchanged | Real MP4/package generation, ranges, multi-clip jobs, hashes/signatures and offline `verify.html` on produced artifacts |
+| Enhancement | All mode choices in short layout; synthetic result/comparison, provenance, inspector and fullscreen return; model suite | Real GPU/CPU inference, crop/OCR accuracy, saved result/original/provenance files and job survival across app updates |
+| Settings / Account / Security | All sections in matrix, draft rotation, save/navigation clearance, explicit discard guard, Account editing cancellation and password visibility; backend auth suites cover security mutations | Native keyboard/AutoFill, photo picker/upload and physical cross-device pairing/session revocation |
+| Input / overlays | Browser clicks, pointer movement, keyboard/remote focus, Escape; scoped dialogs/popovers, filter backdrop dismissal, stacked-dialog focus and global guide; deterministic tap/double-tap/pan/pinch/cancel/idle/hold tests | Actual touchscreen gestures, accessibility settings and Safari/native compositor interaction |
+| Install / update | Stable manifest ID/start/scope/orientation; worker network-first/old-cache removal; uncached API/auth; missing offline assets surface a failure; public entry compatibility and module delivery | On-device close/relaunch upgrade, launch offline after warm cache, update during an active review/job, Docker rebuild/runtime |
+
+No real recorder settings or accounts were changed by these tests. The video rig has its own scratch settings/data and fake RTSP test patterns. The UI preview uses in-memory jobs and synthetic account/role responses; it does not write to a recorder or run AI inference.
+
+## Screenshots and reproducibility
+
+The eight former README PNG screenshots are replaced by JPEG captures of the final interface. Six additional captures document important adaptive views. Captures are direct browser screenshots, without post-capture image editing. All footage shown is from the disposable test-pattern rig; fixture thumbnails and the enhancer's source/result are explicitly synthetic. The enhancer image demonstrates the interface, not improved image quality.
+
+| Capture | Dimensions | Source |
+| --- | --- | --- |
+| [Live grid](screenshots/live-grid.jpg) | 1440×900 | Four decoded fake-camera streams |
+| [Focus](screenshots/focus.jpg) | 1440×900 | Decoded 1920×1080 synthetic HD stream, settled controls |
+| [Phone Live](screenshots/mobile-live.jpg) | 390×844 | Fake-camera rig in a browser dimension profile; no native PWA compositor |
+| [Playback](screenshots/playback.jpg) | 1440×900 | Review fixture; no connected recorder |
+| [Events](screenshots/events.jpg) | 1440×900 | Synthetic events and thumbnails |
+| [Enhancer](screenshots/enhancer.jpg) | 1440×900 | In-memory comparison/result fixture, no AI inference |
+| [Settings](screenshots/settings.jpg) | 1440×900 | Display/layout fixture |
+| [TV profile](screenshots/tv-mode.jpg) | 1280×720 | Real decoded fake stream and keyboard-focused navigation in desktop Chrome; no physical TV |
+| [Landscape Playback](screenshots/phone-landscape-playback.jpg) | 844×390 | Installed signals/insets injected into the review fixture |
+| [iPad Playback](screenshots/ipad-playback.jpg) | 1180×820 | Two selected review panes, injected installed signals/insets |
+| [Light Events](screenshots/light-events.jpg) | 1440×900 | Light-theme event fixture |
+| [Phone Settings](screenshots/mobile-settings.jpg) | 390×844 | Grouped sections and injected installed signals/insets |
+| [Landscape Export](screenshots/export-landscape.jpg) | 844×390 | Export UI fixture; no job executed |
+| [Repaired phone login](screenshots/login-phone.jpg) | 390×844 | Anonymous form with injected installed signals/insets |
+
+Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixture. Its URL flags select `theme`, `pwa`, `top`, `bottom`, `tv`, `role`, `signed`, `overview`, `demo`, `unsupported` and a capture overlay (`screen=enhancer` or `screen=export`). `capture=1` hides fixture instrumentation. Injected device flags are fixture-only, not production detection logic.
+
+`tools/adaptive_browser_checks.mjs` exports the profile list and `runRoutes`, `runEntries`, `runCameraTools` for the documented Browser skill runtime's tab/viewport APIs. Run profiles in small batches and save results between batches. This module is a runtime helper, not a standalone CLI test. `tools/test_rig.sh start` prepares the fake camera rig; `serve` keeps it under a foreground session owner when detached children would be reaped. UI settings tests belong only in this rig or the preview.
+
+## Native and deployment acceptance
+
+1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v11`. It reports geometry/version only, without recorder/account/video data.
+2. Check all routes, both orientations/themes, the status-area sharpness, home-indicator/nav spacing and keyboard/AutoFill. Exercise Focus, channel-zero wall and one/two-camera Playback expansion; return in one action after chrome hides and after rotation. Verify tap, double tap, pinch, pan and menus separately.
+3. Verify a physical TV with viewer/operator accounts, directional remote, OK, Back, play/pause, page changes and idle/reveal. Confirm controls hide without blacking out the hardware-decoded video and that return remains usable if native fullscreen is absent.
+4. With a connected recorder, complete the Playback/export/enhancement acceptance items above, including session cleanup, time alignment, produced evidence files and background jobs.
+5. Docker's daemon was unavailable locally. Static Docker asset inclusion passed; image build, container update and runtime smoke tests remain pending. Existing native static serving needs no Python restart for these frontend/public-entry changes; Docker updates still require rebuilding the image as documented in the README.
+
+The redesign does not change manifest installation identity, recorder protocols, authentication policy, export signing, AI models or database schema. It does not force a reload over an active job or draft. Warm-cache launch is distinct from offline camera playback: live/recorded media still requires its existing services.
