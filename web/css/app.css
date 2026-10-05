@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v14;
+  --shell-revision: adaptive-v23;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -153,7 +153,15 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 [hidden] { display: none !important; }
 
 /* ---------- shell ---------- */
-#app { height: 100%; display: flex; flex-direction: column; }
+#app { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+#view { background: var(--bg); }
+@supports (view-transition-name: app-route) {
+  html.ios-pwa #view { view-transition-name: app-route; }
+  ::view-transition-group(app-route) { animation-duration: 160ms; }
+  ::view-transition-old(app-route) { animation: route-view-out 160ms ease-out both; }
+  ::view-transition-new(app-route) { animation: none; }
+  @keyframes route-view-out { to { opacity: 0; } }
+}
 /* ---------- the bar (bar.js) ----------
    One bar per screen (redesign v2), matching the design boards: Live leads with the brand mark and carries
    the global cluster on the right; every other screen leads with a back chevron. Glass — see the guardrail
@@ -402,7 +410,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .tile.is-wait .veil .msg { font-size: 12px; color: var(--muted); max-width: 30ch; }
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 /* Overview (Live board): full-bleed, its own caption chrome instead of a camera tile's. */
-.wall.chan0-single { padding: 0; gap: 0; }
+.wall.chan0-single { grid-template-columns: minmax(0,1fr) !important; grid-template-rows: minmax(0,1fr) !important; padding: 0; gap: 0; }
+.wall.chan0-single > .tile { grid-area: 1 / 1; width: 100%; height: 100%; min-height: 0; aspect-ratio: auto; }
 .tile.overview-tile { border: 0; border-radius: 0; }
 .tile.overview-tile:hover { transform: none; box-shadow: none; }
 .tile.overview-tile .ov { display: none; }
@@ -1008,8 +1017,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-panes { position: absolute; inset: 16px 18px 10px; display: grid; gap: 12px; place-items: stretch; }
 .pb-panes > .pb-pane { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .pb-pane { position: relative; background: #060608; overflow: hidden; display: grid; place-items: center; container-type: size; border-radius: var(--r-md); border: 1px solid var(--line); }
-.pb-pane-label { position: absolute; top: 10px; left: 12px; z-index: 5; display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
-.pb-pane-label b { font-weight: 600; }
+.pb-pane-label { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 5; display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; font-size: 12.5px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
+.pb-pane-label b { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pb-pane-label .tag.kind { border-radius: var(--r-full); padding: 2px 7px; font-size: 10px; background: rgba(255, 255, 255, .12); color: #e5e5ea; text-shadow: none; }
 .pb-pane-time { position: absolute; right: 12px; bottom: 10px; z-index: 5; font-size: 12.5px; color: rgba(255, 255, 255, .7); font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
 .pb-panes.stacked { gap: 8px; }
@@ -1047,6 +1056,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .date-step button:hover { background: rgba(127, 127, 127, .16); color: var(--text); }
 .cam-chips { display: flex; align-items: center; gap: 6px; margin-left: 8px; min-width: 0; overflow: hidden; }
 .cam-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px 0 5px; border-radius: var(--r-full); border: 0; background: rgba(127, 127, 127, .14); color: var(--text); font-size: 12.5px; white-space: nowrap; }
+.cam-chip { flex: none; max-width: min(260px,68vw); }
+.cam-chip .cam-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cam-chip.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .cam-chip .av { width: 20px; height: 20px; border-radius: 50%; background: rgba(127, 127, 127, .3); flex: none; }
 .cam-more { height: 30px; border: 0; padding: 0 11px; font-weight: 600; cursor: pointer; font-variant-numeric: tabular-nums; }
@@ -1821,14 +1832,15 @@ button.acct-av:active { transform: scale(.97); }
    health line under it; tiles keep their quick actions behind a long press. */
 @media (max-width: 640px) {
   /* Live header: big "Live", the health line beneath it, Overview and the bell on the right. */
-  .topbar.live { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: "title ctx actions" "health ctx actions"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + var(--header-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
+  .topbar.live { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; grid-template-areas: "title ctx page global" "health health health global"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + var(--header-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
   .topbar.live .bar-brand, .topbar.live > .spacer { display: none; }
   .topbar.live .bar-title { grid-area: title; }
   .topbar.live .bar-title h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
   .topbar.live .pill.health .all-note { display: inline; }
   .topbar.live .pill.health { grid-area: health; justify-self: start; height: auto; padding: 0; background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 400; }
   .topbar.live .bar-ctx { grid-area: ctx; }
-  .topbar.live .bar-actions { grid-area: actions; }
+  .topbar.live .bar-page-actions { grid-area: page; }
+  .topbar.live .bar-global-actions { grid-area: global; }
   .topbar.live .view-toggle span, .topbar.live [data-a=wallfs], .topbar.live .bar-sep,
   .topbar.live .gbtn[data-g=playback], .topbar.live .gbtn[data-g=events], .topbar.live .gbtn[data-g=settings] { display: none; }
   .topbar.live .view-toggle { width: 40px; padding: 0; justify-content: center; }
@@ -1959,6 +1971,11 @@ html.keyboard-open #app { height: var(--visual-height); }
   html:not(.tv-mode) .topbar.appbar .app-destinations { height: 44px; }
   html:not(.tv-mode) .topbar.appbar .app-dest { min-height: 36px; }
 }
+@media (min-width: 641px) and (max-width: 900px) {
+  .topbar.appbar.live .bar-title { flex: 0 0 auto; min-width: max-content; }
+  .topbar.appbar.live .pill.health { flex: 0 1 112px; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .topbar.appbar.live .pill.health .livecount { display: block; overflow: hidden; text-overflow: ellipsis; }
+}
 .focus-bar { background: var(--media-plate); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .topbar.appbar.big { height: calc(var(--bar) + var(--header-inset-top)); min-height: calc(var(--bar) + var(--header-inset-top)); padding-block: var(--header-inset-top) 0; }
 .topbar.appbar.big .bar-title h1 { font-size: 16px; }
@@ -2014,11 +2031,9 @@ html.tv-mode .liveview > .viewer-exit { display: none !important; } /* the TV ti
 .viewer-exit:active { background: #35353b; transform: scale(.96); }
 .viewer-exit:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
 .focus.immersive > .viewer-exit,.pb.immersive > .viewer-exit { top: max(12px,calc(var(--viewer-header-height,var(--bar,60px)) + 8px)); }
-/* Focus and Playback already keep their stateful fullscreen toggle in their bottom controls. On a
-   desktop pointer, remove the duplicate corner chip; touch iPads and TV remotes retain the easy exit. */
-@media (hover: hover) and (pointer: fine) {
-  html:not(.tv-mode):not(.ios-pwa):not(.apple-touch-device) :is(.focus.immersive,.pb.immersive,.focus:fullscreen,.pb:fullscreen) > .viewer-exit { display: none; }
-}
+/* Focus, Replay and Playback already have a labeled return/fullscreen action in their control bars.
+   Keep that single action across touch, desktop and TV; the corner chip duplicates it on every profile. */
+:is(.focus.immersive,.pb.immersive,.focus:fullscreen,.pb:fullscreen,.replay-overlay.immersive,.replay-overlay:fullscreen) > .viewer-exit { display: none !important; }
 .focus.immersive .focus-zoom,.pb.immersive .pb-pane .zhud { top: max(76px,calc(var(--viewer-header-height,var(--bar,60px)) + 64px)); bottom: auto; }
 .pb.immersive .app-destinations,.pb.immersive .bar-global-actions { display: none; }
 .pb.immersive .pb-stage { padding: 0; }
@@ -2097,6 +2112,20 @@ html.ios-pwa .topbar,html.ios-pwa .focus-bar { background: var(--chrome-bg); bac
   .pb > .topbar.appbar .speed-seg { display: inline-flex; }
   .pb > .topbar.appbar [data-a=export] .lbl { display: inline; }
 }
+/* Short landscape phones retain the selected speed and its full options menu on Playback's second row.
+   The saved width keeps all selected camera chips readable instead of clipping the last colored name. */
+@media (max-width: 900px) and (orientation: landscape) {
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg > button[data-sp]:not([aria-pressed="true"]) { display: none; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-ctx { grid-column: 1 / -1; grid-row: 2; flex-wrap: nowrap; width: 100%; padding-right: 147px; box-sizing: border-box; overflow: visible; z-index: 1; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chips { flex: 1 1 auto; overflow: visible; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-page-actions { position: absolute; right: 14px; bottom: 7px; z-index: 2; }
+}
+@media (max-width: 700px) and (orientation: landscape) {
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step { width: 88px; padding-inline: 4px; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step > button[data-a="dayprev"],
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step > button[data-a="daynext"] { display: none; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step .date-label { width: 80px; min-width: 80px; height: 40px; padding: 0; font-size: 11px; }
+}
 @media (min-width: 641px) and (max-width: 1000px) {
   .topbar .bar-title h1 { font-size: 18px; }
   .topbar.tabroot .bar-back { display: none; }
@@ -2130,6 +2159,18 @@ html.compact-ui:not(.tv-mode) .topbar .bar-ctx { order: 10; flex: 1 0 100%; over
 html.compact-ui:not(.tv-mode) .topbar.live .bar-actions { display: flex; }
 html.compact-ui:not(.tv-mode) .topbar.live .avatar { display: grid; }
 html.compact-ui:not(.tv-mode) .topbar.live > .spacer { display: block; flex: 1; }
+@media (max-width: 640px) {
+  html.compact-ui:not(.tv-mode) .topbar.live { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; grid-template-areas: "title ctx page global" "health health health global"; }
+  html.compact-ui:not(.tv-mode) .topbar.live .bar-ctx { grid-area: ctx; order: 0; flex: initial; width: auto; overflow: visible; }
+  html.compact-ui:not(.tv-mode) .topbar.live .bar-page-actions { grid-area: page; }
+  html.compact-ui:not(.tv-mode) .topbar.live .bar-global-actions { grid-area: global; }
+  html.compact-ui:not(.tv-mode) .topbar.live > .spacer { display: none; }
+  /* The Overview toggle and layout picker share the single context row. Keep both recognizable by icon;
+     their full names remain available to VoiceOver and through each button's title. */
+  html.compact-ui:not(.tv-mode) .topbar.live .lay-btn { width: 44px; padding-inline: 0; justify-content: center; }
+  html.compact-ui:not(.tv-mode) .topbar.live .lay-btn span,
+  html.compact-ui:not(.tv-mode) .topbar.live .lay-btn > .i:last-child { display: none; }
+}
 html.compact-ui:not(.tv-mode) :is(.btn,.btn.icon,.seg button,.date-step button,.cam-chip,.avatar,.pop-item,.cal-day,.cal-nav) { min-width: 44px; min-height: 44px; }
 html.compact-ui:not(.tv-mode) .topbar.live .lay-btn { display: flex; }
 html.compact-ui:not(.tv-mode) .topbar.live [data-a=wallfs] { display: flex; }
@@ -2170,14 +2211,14 @@ html.compact-ui:not(.tv-mode) .focus-bar .seg button { padding-inline: 10px; }
 html.compact-ui:not(.tv-mode) .focus-bottom { gap: 4px; }
 html.compact-ui:not(.tv-mode) .focus-bottom .btn { padding-inline: 10px; }
 /* On installed iOS, center footage in the usable area between the expanded status region and home indicator. */
-@media (orientation: portrait) {
-  html.ios-pwa:not(.tv-mode) :is(.focus .stage,.liveview.immersive .wall.chan0-single .stage,.replay-overlay .replay-stage) {
-    box-sizing: border-box; padding-top: var(--viewer-center-padding,0px);
-  }
-  html.ios-pwa:not(.tv-mode) :is(.pb.immersive .pb-panes:not(.stacked):not(.inspecting) > .pb-pane:only-child,.pb.immersive .pb-panes.inspecting > .pb-pane.inspected) {
-    box-sizing: border-box; padding-top: var(--viewer-center-padding,0px);
-  }
+html.ios-pwa:not(.tv-mode) :is(.focus.immersive .stage,.liveview.immersive .wall.chan0-single .stage,.replay-overlay.immersive .replay-stage) {
+  box-sizing: border-box; padding-block: var(--header-inset-top) var(--safe-bottom);
 }
+html.ios-pwa:not(.tv-mode) :is(.pb.immersive .pb-panes:not(.stacked):not(.inspecting) > .pb-pane:only-child,.pb.immersive .pb-panes.inspecting > .pb-pane.inspected) {
+  box-sizing: border-box; padding-block: var(--header-inset-top) var(--safe-bottom);
+}
+html.ios-pwa:not(.tv-mode) :is(.liveview.immersive,.liveview:fullscreen) .overview-cap.top { top: max(30px,calc(var(--safe-top) + 12px)); }
+html.ios-pwa:not(.tv-mode) .evp-scrim { padding-block: max(16px,calc(var(--header-inset-top) + 8px)); }
 /* Landscape phone and short desktop: one shallow transport, precision tools remain on demand. */
 html.short-ui:not(.tv-mode) .topbar.appbar { min-height: 48px; padding-block: calc(2px + var(--header-inset-top)) 2px; row-gap: 0; flex-wrap: nowrap; }
 html.short-ui:not(.tv-mode) .topbar .bar-title h1 { font-size: 16px; }
@@ -2185,6 +2226,16 @@ html.short-ui:not(.tv-mode) .topbar .bar-sub,html.short-ui:not(.tv-mode) .bar-se
 html.short-ui:not(.tv-mode) .topbar .bar-ctx { flex: 1 1 auto; order: 0; overflow: auto; }
 html.short-ui:not(.tv-mode) .topbar .bar-title { flex: 0 1 100px; }
 html.short-ui:not(.tv-mode) .topbar .bar-actions { gap: 4px; }
+/* Installed compact mode also applies to short landscape viewports. Preserve Playback's deliberate
+   two-row grid after the general short-header rule so its date/camera and speed/export controls cannot
+   collapse into or clip a single 48px row. */
+@media (min-width: 641px) and (max-width: 900px) and (orientation: landscape) {
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 6px; height: auto; min-height: 0; padding: 7px max(12px,var(--safe-right)) 7px max(12px,var(--safe-left)); }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg { display: inline-flex; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip { width: clamp(80px,calc((100vw - 347px)/4),110px); max-width: clamp(80px,calc((100vw - 347px)/4),110px); min-width: 80px; gap: 4px; padding-inline: 4px; font-size: 11.5px; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip .av { width: 18px; height: 18px; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-ctx { padding-right: 159px; }
+}
 html.short-ui:not(.tv-mode) .tabbar { height: 52px; bottom: var(--nav-bottom); }
 html.short-ui:not(.tv-mode) .tabbar .tab { flex-direction: row; gap: 6px; }
 html.short-ui:not(.tv-mode) .pb-stage { padding: 4px 12px; }
@@ -2297,6 +2348,9 @@ html.keyboard-open .auth-page { height: var(--visual-height); }
   .topbar.appbar.ev-bar .app-destinations { grid-column: 5; grid-row: 1; }
   .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; grid-row: 1; }
   .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
+  /* Keep the four labeled destinations while preserving room for the far-right Account target on iPad. */
+  .topbar.appbar.ev-bar .app-destinations { gap: 1px; padding-inline: 2px; }
+  .topbar.appbar.ev-bar .app-dest { padding-inline: 5px; }
 }
 @media (min-width: 901px) and (max-width: 1350px) {
   .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; column-gap: 8px; height: auto; min-height: var(--bar); }
@@ -2324,6 +2378,7 @@ html.short-ui:not(.tv-mode) .pb [data-a=export] .lbl { display: none; }
   .cal-pop .cal-grid { gap: 2px 0; }
   .pb .topbar .bar-ctx { flex-wrap: wrap; overflow: visible !important; }
   .pb .cam-chips { flex: 1 0 100%; overflow-x: auto; min-width: 0; }
+  .pb .cam-chip { max-width: min(250px,72vw); }
   .pb .date-step { min-height: 44px; }
   .pb .cam-more { min-width: 44px; min-height: 44px; }
 }

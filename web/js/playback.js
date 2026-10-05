@@ -1,7 +1,7 @@
 // Playback view: DVR review, 1-4 cameras at once (the DVR's hard playback-session limit — spec 2.2/7.2).
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
-import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle } from './viewer.js';
+import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay } from './viewer.js';
 import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
@@ -223,7 +223,7 @@ export class PlaybackView {
     this.viewerControls = new ViewerControls(el, {
       chrome: '.topbar,.pb-controls,.pb-inspect,.pb-pane-label,.pb-pane-time,.zhud', background: '.pb-stage',
       enabled: () => immersive(el), paused: () => !this.playing,
-      delay: () => (this.ctx.settings().display.controls_autohide_sec ?? 2.6) * 1000,
+      delay: () => viewerAutoHideDelay(this.ctx.settings().display.controls_autohide_sec),
       held: () => this._roiSelectMode || this.timeline?.selectMode || el.classList.contains('details-open'),
       exited: () => this.resetInspection(),
     });
@@ -257,9 +257,13 @@ export class PlaybackView {
     this.panesEl.classList.toggle('inspecting', !!this.inspected);
     for (const p of this.panes) {
       p.el.classList.toggle('inspected', p === this.inspected);
-      p.el.querySelector('[data-a=inspect]').setAttribute('aria-pressed', String(p === this.inspected));
-      p.el.querySelector('[data-a=inspect]').setAttribute('aria-label', p === this.inspected ? 'Show all selected cameras' : 'Enlarge this camera');
-      p.el.querySelector('[data-a=inspect]').title = p === this.inspected ? 'Show all selected cameras' : 'Enlarge this camera';
+      const button = p.el.querySelector('[data-a=inspect]');
+      const selected = p === this.inspected;
+      button.setAttribute('aria-pressed', String(selected));
+      button.setAttribute('aria-label', selected ? 'Show all selected cameras' : 'Enlarge this camera');
+      button.title = selected ? 'Show all selected cameras' : 'Enlarge this camera';
+      const svg = button.querySelector('svg.i');
+      if (svg) svg.outerHTML = icon(selected ? 'collapse' : 'expand');
     }
     this.viewerControls?.show();
     const viewer = this.root.querySelector('.pb');
@@ -276,7 +280,7 @@ export class PlaybackView {
     if (!host) return;
     const rest = this.cams().length - this.panes.length;
     const multi = this.panes.length > 1;
-    host.innerHTML = this.panes.map((p, i) => `<button class="cam-chip on" data-pick title="Change cameras"><span class="av"${multi ? ` style="background:var(--cam-${(i % 4) + 1})"` : ''}></span>${esc(p.cam.name || 'Camera ' + p.cam.channel)}</button>`).join('')
+    host.innerHTML = this.panes.map((p, i) => `<button class="cam-chip on" data-pick title="${esc(p.cam.name || 'Camera ' + p.cam.channel)}"><span class="av"${multi ? ` style="background:var(--cam-${(i % 4) + 1})"` : ''}></span><span class="cam-name">${esc(p.cam.name || 'Camera ' + p.cam.channel)}</span></button>`).join('')
       + `<button class="pill cam-more" data-pick title="${rest ? 'Add cameras (up to 4 at once)' : 'Change cameras'}">${rest ? `+${rest}` : icon('down')}</button>`;
     host.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', (e) => this._openCamPicker(e.currentTarget)));
   }
@@ -695,7 +699,9 @@ export class PlaybackView {
     // more of. Landscape phones are deliberately excluded (checked orientation, not just width) — there
     // width is the abundant dimension and a short landscape strip is the wrong place to stack 3-4 panes
     // full-height-divided instead of side by side.
-    const stacked = n > 1 && window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
+    // Two portrait panes can use the full width when stacked; three and four cameras stay in the 2×2
+    // wall so a phone never turns Playback into a long vertical strip of tiny feeds.
+    const stacked = n === 2 && window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
     this.panesEl.classList.toggle('stacked', stacked);
     if (stacked) {
       this.panesEl.style.gridTemplateColumns = '1fr';

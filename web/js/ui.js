@@ -21,7 +21,6 @@ export function disableInteraction(node) {
 
 // Shared viewport geometry. Rendering and streams remain owned by the current view.
 const root = document.documentElement;
-let insetProbe = null;
 let frame = 0;
 const bars = new Set();
 const observer = new ResizeObserver(queue);
@@ -64,18 +63,6 @@ function update() {
   root.classList.toggle('keyboard-open', keyboard);
   root.style.setProperty('--visual-height', `${vv?.height || height}px`);
   root.style.setProperty('--visual-top', `${vv?.offsetTop || 0}px`);
-  if (!insetProbe) {
-    insetProbe = document.createElement('div');
-    insetProbe.setAttribute('aria-hidden', 'true');
-    insetProbe.style.cssText = 'position:fixed;left:-10000px;top:0;width:0;height:0;visibility:hidden;pointer-events:none;contain:strict;padding-block:var(--header-inset-top) var(--safe-bottom)';
-    root.append(insetProbe);
-  }
-  const insets = getComputedStyle(insetProbe);
-  const headerInset = parseFloat(insets.paddingTop) || 0;
-  const safeBottom = parseFloat(insets.paddingBottom) || 0;
-  const centerPadding = root.classList.contains('ios-pwa') && matchMedia('(orientation: portrait)').matches
-    ? Math.max(0, headerInset - safeBottom) : 0;
-  root.style.setProperty('--viewer-center-padding', `${centerPadding}px`);
   const layers = [...document.querySelectorAll('.focus,.replay-overlay,.enh2,.xp,.immersive')];
   root.classList.toggle('viewer-open', !!layers.length || !!document.fullscreenElement);
   root.classList.toggle('cover-open', !!document.querySelector('.enh2,.xp,#modal-root > *'));

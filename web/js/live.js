@@ -1,5 +1,5 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
-import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle } from './viewer.js';
+import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay } from './viewer.js';
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
 import { ZoomHud } from './zoomhud.js';
@@ -198,7 +198,7 @@ export class LiveView {
     document.addEventListener('viewerchange', this.layoutExit);
     this.wallControls = new ViewerControls(this.live, {
       chrome: '.tv-fs-controls,.overview-cap,.tile .ov,.tile-actions,.zhud', background: '.wall',
-      enabled: () => immersive(this.live), delay: () => this.tvMode ? 6000 : (this.d.controls_autohide_sec ?? 2.6) * 1000,
+      enabled: () => immersive(this.live), delay: () => this.tvMode ? 6000 : viewerAutoHideDelay(this.d.controls_autohide_sec),
       held: () => this.edit,
     });
     this._fsShow = () => this.wallControls.show();
@@ -233,8 +233,8 @@ export class LiveView {
     // button only exists in grid mode.
     const single = this.chan0Displayed;
     const context = `
-      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
-      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
+      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-label="${single ? 'Show all cameras' : 'Show overview'}" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-label="Camera layout: ${LAYOUTS[layout].label}" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
       ${this.edit ? '<button class="btn primary sm" data-a="edit-done" title="Finish arranging (E or Esc)">Done</button>' : ''}`;
     const actions = this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('expand')}</button>` : '';
     this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', after: this.wall ? this._healthHTML() : '', context, actions, cls: 'live' });
@@ -810,7 +810,7 @@ export class LiveView {
     const controls = new ViewerControls(f, {
       chrome: '.focus-bar,.focus-bottom,.nav-arrow,.focus-zoom',
       background: '.stage-host,.replay-stage,.focus,.replay-overlay',
-      paused: stayUp, delay: () => (this.d.controls_autohide_sec ?? 2.6) * 1000,
+      paused: stayUp, delay: () => viewerAutoHideDelay(this.d.controls_autohide_sec),
       held: () => !!f.querySelector('.editing') || !!this.replay && this.replay.el !== f,
     });
     f._viewerControls = controls;

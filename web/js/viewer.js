@@ -4,6 +4,12 @@ import { icon } from './ui.js';
 const controllers = new WeakMap();
 const CONTROL = 'button,a,input,select,textarea,[role=slider],[role=checkbox],[contenteditable],.menu,.dialog,.editing,.ocr-mode,.pb-roi-layer';
 const isTV = () => document.documentElement.classList.contains('tv-mode');
+export function viewerAutoHideDelay(seconds = 2.6) {
+  const configured = Number.isFinite(Number(seconds)) ? Number(seconds) * 1000 : 2600;
+  const touch = document.documentElement.classList.contains('ios-pwa')
+    || document.documentElement.classList.contains('apple-touch-device') || matchMedia('(any-pointer: coarse)').matches;
+  return Math.max(touch ? 6500 : 500, configured);
+}
 export const immersive = (el) => !!el && (el.classList.contains('immersive') || document.fullscreenElement === el);
 function syncButtons(el) {
   const active = immersive(el);

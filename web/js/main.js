@@ -147,42 +147,51 @@ async function route() {
     return;
   }
   if (state.hash && state.hash !== hash) { closePopover(); if (state.kind !== section) closeModal(); state.prev = state.hash; }
-  state.hash = hash;
-  const host = document.getElementById('view');
-  const navSection = section === 'search' ? 'events' : section;
-  document.querySelectorAll('.tabbar .tab,.app-dest').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
-  if (section === 'account') {
-    if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
-    return;
-  }
+  const commitRoute = () => {
+    state.hash = hash;
+    const host = document.getElementById('view');
+    const navSection = section === 'search' ? 'events' : section;
+    document.querySelectorAll('.tabbar .tab,.app-dest').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+    if (section === 'account') {
+      if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
+      return;
+    }
 
-  if (section === 'settings') {
-    if (state.kind === 'settings') { state.view.setTab(arg); return; }
-    state.view?.destroy();
-    state.view = new SettingsView(host, ctx, arg);
-    state.kind = 'settings';
-    return;
-  }
-  if (section === 'playback') {
-    // the view updates the URL itself when the camera selection changes (ctx.go below); once we're already
-    // in playback, that's a notification, not a request to rebuild — rebuilding would tear down live panes
-    // mid-switch. A real navigation into playback from elsewhere in the app still builds fresh.
-    if (state.kind === 'playback') return;
-    state.view?.destroy();
-    state.view = new PlaybackView(host, ctx, arg || null, arg2 || null);
-    state.kind = 'playback';
-    return;
-  }
-  if (section === 'events' || section === 'search') {   // 'search' kept as an alias for old links/bookmarks
-    if (state.kind !== 'events') { state.view?.destroy(); state.view = new EventsView(host, ctx); state.kind = 'events'; }
-    return;
-  }
-  if (state.kind !== 'live') {
-    state.view?.destroy();
-    state.view = new LiveView(host, ctx);
-    state.kind = 'live';
-  }
-  state.view.route(arg || null);
+    if (section === 'settings') {
+      if (state.kind === 'settings') { state.view.setTab(arg); return; }
+      state.view?.destroy();
+      state.view = new SettingsView(host, ctx, arg);
+      state.kind = 'settings';
+      return;
+    }
+    if (section === 'playback') {
+      // The view updates the URL itself when camera selection changes; don't rebuild live panes mid-switch.
+      if (state.kind === 'playback') return;
+      state.view?.destroy();
+      state.view = new PlaybackView(host, ctx, arg || null, arg2 || null);
+      state.kind = 'playback';
+      return;
+    }
+    if (section === 'events' || section === 'search') {
+      if (state.kind !== 'events') { state.view?.destroy(); state.view = new EventsView(host, ctx); state.kind = 'events'; }
+      return;
+    }
+    if (state.kind !== 'live') {
+      state.view?.destroy();
+      state.view = new LiveView(host, ctx);
+      state.kind = 'live';
+    }
+    state.view.route(arg || null);
+  };
+  // Preserve the current frame while iOS standalone WebKit replaces page-level view trees. The route
+  // callback stays synchronous (players, permissions and settings keep their existing ownership); on
+  // browsers without View Transitions it falls straight back to the ordinary SPA update.
+  const transition = document.documentElement.classList.contains('ios-pwa')
+    && state.view && state.kind !== section && typeof document.startViewTransition === 'function';
+  if (transition) {
+    try { document.startViewTransition(commitRoute).finished.catch(() => {}); }
+    catch { commitRoute(); }
+  } else commitRoute();
 }
 
 async function boot() {
