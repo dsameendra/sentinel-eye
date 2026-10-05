@@ -24,6 +24,9 @@ const CHAN0_ID = 'chan0';
 // entirely, the same escape hatch a real camera's own Aspect setting (Channels tab) already offers.
 const CHAN0_CAM = { id: CHAN0_ID, channel: 0, name: 'Channel 0', enabled: true, aspect: '16:9' };
 const isChan0 = (cam) => cam?.id === CHAN0_ID;
+const desktopFullscreenDock = () => matchMedia('(hover: hover) and (pointer: fine)').matches
+  && !document.documentElement.classList.contains('ios-pwa')
+  && !document.documentElement.classList.contains('apple-touch-device');
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -129,6 +132,7 @@ export class LiveView {
         <button class="tv-fs-btn" data-a="pgprev" title="Previous page" aria-label="Previous page">${icon('left')}</button>
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
+        <button class="tv-fs-btn wall-fs-exit" data-a="wallexit" title="Exit full screen" aria-label="Exit full screen">${icon('collapse')}<span>Exit</span></button>
       </div>${this.tvMode ? `<button class="tv-page prev" data-a="tvprev" aria-label="Previous page">${icon('left')}</button><button class="tv-page next" data-a="tvnext" aria-label="Next page">${icon('right')}</button><div class="tv-ambient" aria-hidden="true"><span class="dot live"></span><span class="t"></span></div>` : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
     this.bar = this.root.querySelector('.live-bar');
@@ -136,6 +140,7 @@ export class LiveView {
     this.pager = this.root.querySelector('.pager-row');
     this.wall.addEventListener('focusin', (e) => this._tvFocusIn(e));
     this.live.querySelector('[data-a=leavewall]').addEventListener('click', () => leaveViewer(this.live));
+    this.live.querySelector('[data-a=wallexit]').addEventListener('click', () => leaveViewer(this.live));
     this.live.querySelector('[data-a=pgprev]').addEventListener('click', () => this.goPage(this.page - 1));
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
@@ -171,15 +176,16 @@ export class LiveView {
     this.wallControls?.destroy();
     this.exitObserver?.disconnect();
     if (this.layoutExit) document.removeEventListener('viewerchange', this.layoutExit);
-    // Reserve only the corner occupied by Exit. The picture and the other tiles keep their
-    // geometry; camera actions in that corner move below the persistent return control.
+    // On touch/TV layouts, reserve the corner return control and measured TV header. The desktop Exit
+    // lives in the bottom dock instead, so it should not push camera actions away from a free corner.
     this.layoutExit = () => {
+      const desktopDockExit = !this.tvMode && desktopFullscreenDock();
       const exit = this.live.querySelector('.viewer-exit').getBoundingClientRect();
       const tvHeader = this.tvMode && !immersive(this.live) ? this.bar.getBoundingClientRect().height : 0;
       this.live.style.setProperty('--tv-header-height', `${tvHeader}px`);
       for (const tile of this.wall.querySelectorAll('.tile')) {
         const box = tile.getBoundingClientRect();
-        const overlaps = immersive(this.live) && exit.width && box.right > exit.left && box.left < exit.right
+        const overlaps = !desktopDockExit && immersive(this.live) && exit.width && box.right > exit.left && box.left < exit.right
           && box.top < exit.bottom && box.bottom > exit.top;
         const clearance = Math.max(10, overlaps ? exit.bottom - box.top + 8 : 0, tvHeader ? tvHeader - box.top + 10 : 0);
         tile.style.setProperty('--exit-clearance', `${clearance}px`);
@@ -206,7 +212,9 @@ export class LiveView {
     if (!el) return;
     const single = this.chan0Displayed;
     const pages = this.pages(), multi = !single && pages > 1;
-    el.classList.toggle('no-pages', !multi);
+    const desktopExit = !this.tvMode && desktopFullscreenDock();
+    el.classList.toggle('has-exit', desktopExit);
+    el.classList.toggle('no-pages', !multi && !desktopExit);
     el.querySelector('[data-a=pgprev]').hidden = !multi;
     el.querySelector('[data-a=pgnext]').hidden = !multi;
     // hidden, not just emptied — a single-page view (or channel-zero's own single view) has nothing here,
@@ -255,7 +263,7 @@ export class LiveView {
     const context = `<span class="tv-clock"></span>
       ${this.channelZeroOn ? `<button class="btn ghost tv-btn view-toggle" data-a="overview" aria-pressed="${single}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Camera grid' : 'Overview'}</span></button>` : ''}
       ${single || !this.wall ? '' : `<button class="btn ghost tv-btn lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}`;
-    const actions = `<button class="btn ghost tv-btn" data-a="tvfs" aria-label="${fs ? 'Exit immersive view' : 'Full screen'}">${icon(fs ? 'collapse' : 'expand')}<span>${fs ? 'Exit immersive view' : 'Full screen'}</span></button>`;
+    const actions = `<button class="btn ghost tv-btn" data-a="tvfs" aria-label="${fs ? 'Exit full screen' : 'Full screen'}">${icon(fs ? 'collapse' : 'expand')}<span>${fs ? 'Exit full screen' : 'Full screen'}</span></button>`;
     this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', context, actions, cls: 'live tv' });
     wireGlobal(this.bar, this.ctx);
     this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));

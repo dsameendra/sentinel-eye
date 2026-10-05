@@ -1,5 +1,5 @@
 {
-  "revision": "adaptive-v13",
+  "revision": "adaptive-v14",
   "date": "2026-10-05",
   "source": "Synthetic preview; browser dimensions and injected PWA insets, not native hardware",
   "checks": [
@@ -9827,7 +9827,7 @@
     }
   ],
   "followUp": {
-    "revision": "adaptive-v13",
+    "revision": "adaptive-v14",
     "date": "2026-10-05",
     "source": "Fresh synthetic preview browser session; no physical iOS or TV hardware",
     "routeChecks": {

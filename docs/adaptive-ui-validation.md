@@ -1,4 +1,4 @@
-# Adaptive UI validation — adaptive-v13
+# Adaptive UI validation — adaptive-v14
 
 Implementation and local validation completed on 2026-10-05 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
 
@@ -32,7 +32,7 @@ The follow-up uses the same isolated PWA preview with synthetic safe-area values
 
 `tools/test_viewer.mjs` covers independent Exit auto-hide, keyboard wake and immediate touch wake. Physical iPhone/iPad orientation, native fullscreen APIs, actual touch/tap timing and connected-recorder behavior remain release acceptance items.
 
-### Desktop and tablet refinement — adaptive-v13
+### Desktop and tablet refinement — adaptive-v13 (previous)
 
 The current follow-up hides the extra upper-corner Exit chip only for desktop-pointer Focus and Playback; their bottom-bar toggles remain present and return to the same route with the enter icon restored. Browser interaction checks entered and exited both views, verified the chip stayed hidden, and checked the Live grid control's icon, label and pressed state before entry, while expanded, and after return. A 768×1024 installed-app preview retained the corner Exit control in Focus and returned with one bottom-button action. TV navigation still exposes Live/Settings to viewer accounts and all four destinations to operators.
 
@@ -112,10 +112,18 @@ Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixt
 
 ## Native and deployment acceptance
 
-1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v13`. It reports geometry/version only, without recorder/account/video data.
+1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v14`. It reports geometry/version only, without recorder/account/video data.
 2. Check all routes, both orientations/themes, the status-area sharpness, home-indicator/nav spacing and keyboard/AutoFill. Exercise Focus, channel-zero wall and one/two-camera Playback expansion; return in one action after chrome hides and after rotation. Verify tap, double tap, pinch, pan and menus separately.
 3. Verify a physical TV with viewer/operator accounts, directional remote, OK, Back, play/pause, page changes and idle/reveal. Confirm controls hide without blacking out the hardware-decoded video and that return remains usable if native fullscreen is absent.
 4. With a connected recorder, complete the Playback/export/enhancement acceptance items above, including session cleanup, time alignment, produced evidence files and background jobs.
 5. Docker's daemon was unavailable locally. Static Docker asset inclusion passed; image build, container update and runtime smoke tests remain pending. Existing native static serving needs no Python restart for these frontend/public-entry changes; Docker updates still require rebuilding the image as documented in the README.
 
 The redesign does not change manifest installation identity, recorder protocols, authentication policy, export signing, AI models or database schema. It does not force a reload over an active job or draft. Warm-cache launch is distinct from offline camera playback: live/recorded media still requires its existing services.
+
+
+### Toolbar and Live fullscreen refinement — adaptive-v14
+
+- Desktop Live fullscreen now places its auto-hiding Exit action in the bottom-center control dock, alongside page navigation. Single-page and Channel-zero Overview layouts keep the dock visible; camera tiles retain their corner actions. Touch and TV layouts keep their established return controls.
+- Tablet Live keeps Overview/Grid and layout selection on one row. Tablet Playback uses two intentional rows: title/navigation above, with date/cameras and speed/export together below. Other bars share aligned control heights.
+- iPad Events search is width-capped; range presets stay in the toolbar when there is room and move into the Filters sheet at narrow widths.
+- Checks: `node tools/test_viewer.mjs`, `node tools/test_pwa_bootstrap.mjs`, `node tools/test_shell_update.mjs`, JS syntax checks, and `git diff --check`. Browser preview checks cover desktop Live grid and Overview exit/dock auto-hide, iPad toolbar geometry, and TV/touch control visibility. Physical iOS/iPadOS 27 and live-recorder verification remain device acceptance items.

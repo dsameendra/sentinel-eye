@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v13;
+  --shell-revision: adaptive-v14;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -1268,6 +1268,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .events-view { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--bg); }
 .ev-bar .bar-ctx { flex: 1; max-width: 340px; margin-left: 18px; }
 .ev-search { flex: 1; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: var(--r-full); background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.ev-search { width: 100%; min-width: 0; box-sizing: border-box; }
 .ev-search:focus-within { border-color: var(--accent); }
 .ev-search .i { width: 15px; height: 15px; flex: none; }
 .ev-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; outline: none; }
@@ -1335,7 +1336,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .ev-custom { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .ev-custom-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ev-custom-foot .hint { color: var(--danger); font-size: 12.5px; }
-@media (max-width: 1100px) { .ev-bar .ev-range { display: none; } .ev-sec-range { display: block; } }
+@media (max-width: 900px) { .ev-bar .ev-range { display: none; } .ev-sec-range { display: block; } }
 @media (max-width: 900px) {
   .ev-filters-btn { display: inline-flex; }
   .ev-side { position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; width: min(320px, 86vw); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border-right: 1px solid var(--glass-border); box-shadow: var(--shadow-3); transform: translateX(-102%); transition: transform var(--dur-base, .25s) var(--ease-out-expo, ease-out); }
@@ -1588,25 +1589,9 @@ html.tv-mode .tile:has(.hit:focus-visible) .tile-actions { opacity: 0 !important
 html.tv-mode :is(button, a, [tabindex], input, select):focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
 html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
 
-/* Full screen on the live grid, on any device (not TV mode specifically — see the .tv- prefixes' own note
-   below): hide the bar entirely — every stream tile is the point of this screen, not the toolbar above
-   it — and leave a single floating cluster in its place (page prev/next, when there's more than one page,
-   plus an indicator, plus exit), positioned over the video and hidden until the cursor/finger/remote moves
-   (live.js's _bindWallFsAutoHide, same idle-hide cycle .focus-bar/.nav-arrow already use in the
-   single-camera focus view). Escape (or the two-finger-pinch-out gesture on iPad/iPhone) always still works
-   too — that's the browser's own Fullscreen API, not this cluster.
-   Vertically centered on the right edge, not the top-right corner — every tile's own controls anchor to
-   ONE of its corners (.tile-actions to its top, the zoom HUD to its bottom when zoomed), and whichever tile
-   ends up in the wall's own top-right or bottom-right corner sits exactly there too, so either corner could
-   float this cluster directly over that tile's real controls and block them outright (found directly: the
-   top-right tile's own expand toggle, unreachable underneath it). The vertical middle of the right edge has
-   nothing else living there in the grid — same reasoning the single-camera focus view's own nav-arrows
-   already use for exactly this edge.
-   Named .tv-fs-* / built for TV mode first (page-switching + exit while full screen, on a screen with no
-   normal way back to the bar), but nothing about full-bleed full screen is actually TV-specific — a
-   laptop, iPad, or iPhone wants exactly the same "maximum space for the cameras" once it's full screen too,
-   so these rules apply generically rather than staying gated to html.tv-mode. The class names stayed as-is;
-   renaming them touches nothing behavioral. */
+/* Full-screen Live uses a transient bottom-center dock for page navigation and (on desktop pointer
+   layouts) Exit. This keeps the return action near familiar media controls and away from camera actions
+   at the corners. Touch devices retain the larger corner exit; TV uses remote-friendly UI. */
 .liveview:fullscreen .live-bar { display: none; }
 .tv-fs-controls { display: none; }
 .liveview:fullscreen .tv-fs-controls {
@@ -1624,6 +1609,11 @@ html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
 .tv-fs-btn:active { background: rgba(255, 255, 255, .24); }
 .tv-fs-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 .tv-fs-page { padding: 2px 0; color: rgba(255, 255, 255, .8); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wall-fs-exit { display: none; width: auto; gap: 8px; padding: 0 14px; border-radius: var(--r-full); font-size: 13px; font-weight: 600; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv-mode):not(.ios-pwa):not(.apple-touch-device) :is(.liveview.immersive,.liveview:fullscreen) > .viewer-exit { display: none; }
+  html:not(.tv-mode):not(.ios-pwa):not(.apple-touch-device) :is(.liveview.immersive,.liveview:fullscreen) .wall-fs-exit { display: inline-flex; align-items: center; }
+}
 
 /* Same idle cycle, extended to every tile's own identifying chrome — name, live dot, SD/HD tag, the
    tile-actions menu, the zoom-reset pill — not just the bar and the floating exit/page cluster above.
@@ -1950,6 +1940,30 @@ html.keyboard-open #app { height: var(--visual-height); }
 .topbar h1 { overflow: hidden; text-overflow: ellipsis; }
 .topbar .bar-actions { flex-shrink: 0; }
 .topbar .bar-ctx { min-width: 0; }
+/* App bars share a compact control rhythm on desktop/tablet; row layout still adapts per screen. */
+@media (min-width: 641px) {
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { min-height: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn.icon:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { width: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-back { width: 40px; min-width: 40px; min-height: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-ctx > .btn:not(.sm) { min-height: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-global-actions > .avatar { width: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg { min-height: 40px; height: 40px; padding: 3px; align-items: center; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg button { min-height: 34px; height: 34px; }
+  html:not(.tv-mode) .topbar.appbar .ev-search { height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .app-destinations { height: 40px; padding: 3px; }
+  html:not(.tv-mode) .topbar.appbar .app-dest { min-height: 32px; }
+}
+@media (min-width: 641px) and (max-width: 1350px) {
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn.icon:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { width: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-back { width: 44px; min-width: 44px; min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-ctx > .btn:not(.sm) { min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg { min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg button { min-height: 38px; height: 38px; }
+  html:not(.tv-mode) .topbar.appbar .ev-search { height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .app-destinations { height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .app-dest { min-height: 36px; }
+}
 .focus-bar { background: var(--media-plate); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .topbar.appbar.big { height: calc(var(--bar) + var(--header-inset-top)); min-height: calc(var(--bar) + var(--header-inset-top)); padding-block: var(--header-inset-top) 0; }
 .topbar.appbar.big .bar-title h1 { font-size: 16px; }
@@ -2000,6 +2014,7 @@ html.keyboard-open #app { height: var(--visual-height); }
 :is(.immersive,:fullscreen) > .viewer-exit,.replay-overlay > .viewer-exit { display: flex; }
 .exit-hidden > .viewer-exit { opacity: 0; pointer-events: none; }
 html.tv-mode .viewer-exit { min-height: 56px; font-size: 19px; }
+html.tv-mode .liveview > .viewer-exit { display: none !important; } /* the TV title bar owns the single fullscreen toggle */
 .viewer-exit:hover { background: #2c2c31; border-color: rgba(255,255,255,.25); }
 .viewer-exit:active { background: #35353b; transform: scale(.96); }
 .viewer-exit:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
@@ -2025,6 +2040,7 @@ html.tv-mode .viewer-exit { min-height: 56px; font-size: 19px; }
 .pb.immersive :is(> .topbar,.pb-controls) { transition: opacity var(--dur-chrome-out); }
 .pb.immersive :is(> .topbar,.pb-controls):not(.show) { opacity: 0; pointer-events: none; }
 .liveview.immersive .live-bar { display: none; }
+html.tv-mode .liveview.immersive .live-bar { display: block; } /* app-level TV fullscreen keeps its title-bar return toggle */
 .liveview.immersive .wall { height: 100%; }
 :is(.liveview.immersive,.liveview:fullscreen) .tile-actions { top: var(--exit-clearance,10px); }
 /* A single overview has room for its actions. Keep its sole bookmark discoverable on touch/remote. */
@@ -2045,7 +2061,7 @@ html.tv-mode .overview-tile .tile-actions .i { width: 24px; height: 24px; }
 .liveview :is(.tv-fs-controls.show) { opacity: 1; pointer-events: auto; }
 .liveview.immersive .tv-fs-controls:not(.show),.liveview:fullscreen .tv-fs-controls:not(.show) { opacity: 0; pointer-events: none; }
 html.tv-mode .liveview.immersive .tv-fs-controls,html.tv-mode .liveview:fullscreen .tv-fs-controls { display: flex !important; }
-html :is(.liveview.immersive,.liveview:fullscreen) .tv-fs-controls.no-pages { display: none !important; }
+html :is(.liveview.immersive,.liveview:fullscreen) .tv-fs-controls.no-pages:not(.has-exit) { display: none !important; }
 .tv-fs-btn[data-a=wallfs] { display: flex; width: auto; gap: 8px; padding-inline: 14px; font-size: 13px; }
 .liveview.immersive:not(.show) :is(.tile .ov,.tile-actions,.overview-cap,.tv-fs-controls) { opacity: 0; pointer-events: none; }
 @media (orientation: portrait) {
@@ -2064,12 +2080,36 @@ html.ios-pwa .topbar,html.ios-pwa .focus-bar { background: var(--chrome-bg); bac
   .app-dest .i { display: none; }
   .topbar.big { padding-bottom: 8px; }
 }
+/* Live's iPad toolbar has only a few high-frequency choices: keep mode + layout together on row one.
+   Playback has more controls, so group its date/camera context with speed/export on a clear second row. */
+@media (min-width: 641px) and (max-width: 1350px) {
+  .topbar.appbar.live { flex-wrap: nowrap; }
+  .topbar.appbar.live .bar-ctx { order: 0; flex: 0 1 auto; width: auto; max-width: none; margin: 0; overflow: visible; }
+  .topbar.appbar.live .bar-page-actions { order: 0; }
+  .topbar.appbar.live .bar-ctx > .btn:not(.sm) { min-height: 44px; height: 44px; }
+  .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 6px; height: auto; min-height: 0; padding-block: calc(7px + var(--header-inset-top)) 7px; }
+  .pb > .topbar.appbar .bar-back { grid-column: 1; grid-row: 1; display: flex; }
+  .pb > .topbar.appbar .bar-title { grid-column: 2; grid-row: 1; max-width: 145px; }
+  .pb > .topbar.appbar > .spacer { grid-column: 3; grid-row: 1; }
+  .pb > .topbar.appbar .app-destinations { grid-column: 4; grid-row: 1; }
+  .pb > .topbar.appbar .bar-global-actions { grid-column: 5; grid-row: 1; }
+  .pb > .topbar.appbar .bar-ctx { grid-column: 1 / 4; grid-row: 2; order: 0; flex: 1 1 auto; width: auto; min-width: 0; margin: 0; overflow: hidden; }
+  .pb > .topbar.appbar .bar-page-actions { grid-column: 4 / 6; grid-row: 2; order: 0; justify-self: end; }
+  .pb > .topbar.appbar .cam-chips { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .pb > .topbar.appbar .date-step { height: 44px; flex: none; }
+  .pb > .topbar.appbar .date-step button { width: 40px; min-height: 40px; height: 40px; }
+  .pb > .topbar.appbar .cam-chip { min-height: 38px; height: 38px; }
+  .pb > .topbar.appbar .speed-seg { display: inline-flex; }
+  .pb > .topbar.appbar [data-a=export] .lbl { display: inline; }
+}
 @media (min-width: 641px) and (max-width: 1000px) {
   .topbar .bar-title h1 { font-size: 18px; }
   .topbar.tabroot .bar-back { display: none; }
   .topbar .bar-title { max-width: 145px; }
   .topbar .bar-actions { flex-wrap: wrap; gap: 6px; }
   .speed-seg { display: none; }
+  .pb > .topbar.appbar .speed-seg { display: inline-flex; }
+  .pb > .topbar.appbar .bar-global-actions { grid-column: 5; }
   .settings { grid-template-columns: 190px minmax(0,1fr); grid-template-rows: 1fr; }
   .settings .side { flex-direction: column; border-right: 1px solid var(--line); border-bottom: 0; }
   .pane { padding-inline: 20px; }
@@ -2252,27 +2292,28 @@ html.compact-ui:not(.tv-mode) .ev-scrim:not([hidden]) { display: block; position
 html.compact-ui:not(.tv-mode) .ev-bar .bar-actions > .ev-range { display: none; }
 html.compact-ui:not(.tv-mode) .auth-page { align-items: center; }
 html.keyboard-open .auth-page { height: var(--visual-height); }
-/* Keep Events' search beside its title on iPad and narrow desktop windows. Its range controls follow
-   search in the next toolbar group; on narrow tablets they remain inside the Filters sheet. */
+/* Events keeps title and search together; shorter tablet widths move the range into Filters. */
 @media (min-width: 641px) and (max-width: 900px) {
-  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; column-gap: 8px; row-gap: 6px; height: auto; min-height: var(--bar); }
-  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; height: auto; min-height: var(--bar); }
+  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; column-gap: 8px; row-gap: 6px; height: auto; min-height: var(--bar); }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; height: auto; min-height: var(--bar); }
   .topbar.appbar.ev-bar .bar-back { display: flex; }
-  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: auto; max-width: none; margin: 0; overflow: hidden; }
+  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: 100%; max-width: 240px; min-width: 0; margin: 0; overflow: visible; }
   .topbar.appbar.ev-bar > .spacer { display: none; }
   .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; grid-row: 1; flex: none; }
   .topbar.appbar.ev-bar .app-destinations { grid-column: 5; grid-row: 1; }
   .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; grid-row: 1; }
+  .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
 }
 @media (min-width: 901px) and (max-width: 1350px) {
-  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; column-gap: 8px; height: auto; min-height: var(--bar); }
-  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto auto minmax(110px,1fr) auto auto auto; height: auto; min-height: var(--bar); }
+  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; column-gap: 8px; height: auto; min-height: var(--bar); }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; height: auto; min-height: var(--bar); }
   .topbar.appbar.ev-bar .bar-back { display: flex; }
-  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: auto; max-width: none; margin: 0; }
+  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: 100%; max-width: 260px; min-width: 0; margin: 0; overflow: visible; }
   .topbar.appbar.ev-bar > .spacer { display: none; }
   .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; gap: 3px; }
   .topbar.appbar.ev-bar .app-destinations { grid-column: 5; }
   .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; }
+  .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
   .topbar.appbar.ev-bar .ev-range { display: flex; }
 }
 html.short-ui:not(.tv-mode) .pb-stage { flex: 1; aspect-ratio: auto; }

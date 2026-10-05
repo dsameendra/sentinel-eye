@@ -437,7 +437,7 @@ Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and pi
 
 ![Event review in the light theme](docs/screenshots/light-events.jpg)
 
-Online updates use a network-first static shell (`adaptive-v13`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. Fullscreen controls switch enter/exit state; desktop Focus and Playback use their bottom toggles without a duplicate corner Exit chip, while touch devices and TV retain the corner exit. Live overview icons now start in the same state they use after a fullscreen return. iPad Events keeps search next to its title and before range controls. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
+Online updates use a network-first static shell (`adaptive-v14`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. Desktop Live grid and Overview share an auto-hiding bottom-center Exit/page dock; touch and TV retain their established return controls. Tablet Live keeps mode/layout choices together, Playback uses an intentional two-row toolbar, and Events search is width-capped with range controls kept visible where space permits. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 
