@@ -45,23 +45,23 @@ const advance = ms => {
   }
   now = end;
 };
-const { ViewerControls, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay } = await import('../web/js/viewer.js');
+const { ViewerControls, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay, viewerIsTouchDevice } = await import('../web/js/viewer.js');
 const el = new Node('viewer'), chrome = new Node('.chrome'), button = new Node('button'), exit = new Node('.viewer-exit');
 exit.tagName = 'BUTTON'; el.children = [chrome, exit]; chrome.parent = el; chrome.children = [button]; button.parent = chrome; exit.parent = el;
 let paused = false, held = false, enabled = true;
-const controls = new ViewerControls(el, { chrome: '.chrome', background: 'viewer', paused: () => paused, held: () => held, enabled: () => enabled, delay: () => 1000 });
+const controls = new ViewerControls(el, { chrome: '.chrome', background: 'viewer', paused: () => paused && !viewerIsTouchDevice(), held: () => held, enabled: () => enabled, delay: () => 1000 });
 let checks = 0;
 const check = (label, value) => { assert.ok(value,label); checks++; };
 check('desktop controls retain configured auto-hide', viewerAutoHideDelay(2.6) === 2600);
 document.documentElement.classList.add('ios-pwa');
-check('installed iOS controls remain available for a usable touch interval', viewerAutoHideDelay(2.6) === 6500);
+check('installed iOS controls remain available for a usable touch interval', viewerAutoHideDelay(2.6) === 8000);
 check('a longer configured touch interval is respected', viewerAutoHideDelay(8) === 8000);
 document.documentElement.classList.remove('ios-pwa');
 document.documentElement.classList.add('apple-touch-device');
-check('iPad browser controls receive the same touch interval', viewerAutoHideDelay(2.6) === 6500);
+check('iPad browser controls receive the same touch interval', viewerAutoHideDelay(2.6) === 8000);
 document.documentElement.classList.remove('apple-touch-device');
 coarsePointer = true;
-check('other coarse-pointer touch screens receive the same interval', viewerAutoHideDelay(2.6) === 6500);
+check('other coarse-pointer touch screens receive the same interval', viewerAutoHideDelay(2.6) === 8000);
 coarsePointer = false;
 const toggleRoot = new Node('viewer'), toggleButton = new Node('button');
 toggleRoot.children = [toggleButton]; toggleButton.parent = toggleRoot;
@@ -86,6 +86,8 @@ check('restores focusability', !chrome.hasAttribute('inert') && !button.hasAttri
 controls.toggle(); check('background hides manually', !controls.visible);
 paused = true; controls.show(); advance(2500); check('paused default held', controls.visible);
 controls.toggle(); check('paused manual hiding allowed', !controls.visible);
+coarsePointer = true; controls.show(); advance(1000); check('touch playback chrome may auto-hide while paused', !controls.visible);
+coarsePointer = false;
 controls.show(); paused = false; advance(1000); check('resume idle hides', !controls.visible);
 held = true; controls.show(); advance(1200); check('editor holds', controls.visible);
 controls.toggle(); check('editor resists manual hiding', controls.visible);

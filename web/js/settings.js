@@ -167,7 +167,7 @@ export class SettingsView {
       <button class="btn glass-btn" id="t-run" ${this.busy.has('conn') ? 'disabled' : ''}>Test connection</button>
       ${this.testStatus(this.conn, this.busy.has('conn'), 'Not tested yet this session')}
       <span class="spacer"></span>
-      <select id="t-ch" aria-label="Channel to test">${this.draft.channels.map((x) => `<option value="${x.id}" ${first && x.id === first.id ? 'selected' : ''}>${esc(x.name || 'Channel ' + x.channel)}</option>`).join('') || '<option value="">Channel 1</option>'}</select>
+      <span class="test-channel-select"><select id="t-ch" aria-label="Channel to test">${this.draft.channels.map((x) => `<option value="${x.id}" ${first && x.id === first.id ? 'selected' : ''}>${esc(x.name || 'Channel ' + x.channel)}</option>`).join('') || '<option value="">Channel 1</option>'}</select></span>
       <div class="seg" role="group" aria-label="Stream"><button data-tk="sub" aria-pressed="${this.tk !== 'main'}">SD</button><button data-tk="main" aria-pressed="${this.tk === 'main'}">HD</button></div>
     </div>
     <p class="pane-note">Connects with the values above — even before saving — reads a few seconds of video, and says what it found.</p></section>`;
@@ -261,7 +261,7 @@ export class SettingsView {
       <p class="pane-note">HD streams are usually H.265. Converting to H.264 here plays smoothly everywhere; playing H.265 directly saves CPU but can stutter on some cameras, and doesn't work in Firefox.</p>
       <div class="opts">${opt('main_codec', 'h264', 'Convert to H.264', 'Recommended — smooth everywhere, some CPU while HD is open')}${opt('main_codec', 'passthrough', 'Play directly', 'No extra CPU — may stutter or fail in some browsers')}</div></section>
     <section class="sgroup"><h2>Interaction</h2><div class="form">
-      ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Hide controls after', min: 1, max: 10, step: 0.1, unit: 's', hint: 'Focus, replay and immersive Playback hide after inactivity. Tap the picture to show or hide controls. Pausing keeps them visible unless you hide them yourself.' })}
+      ${this.rangeField('display.controls_autohide_sec', d.controls_autohide_sec, { id: 'f-autohide', label: 'Hide controls after', min: 1, max: 10, step: 0.1, unit: 's', hint: 'Focus, replay and immersive Playback hide after inactivity. Touch screens allow at least 8 seconds; tap the picture to show or hide controls. Desktop playback stays visible while paused.' })}
       ${this.rangeField('display.snapshot_quality', d.snapshot_quality, { id: 'f-snapq', label: 'Snapshot quality', min: 0.5, max: 1, step: 0.01, hint: 'JPEG quality for snapshots. Higher is sharper, and a larger file.' })}
     </div></section>
     <section class="sgroup"><div class="srows">${this.srow('Keyboard shortcuts', 'Every shortcut, on every screen. Press ? anywhere.', '<button class="btn glass-btn" data-a="keys">Show</button>')}</div></section>`;

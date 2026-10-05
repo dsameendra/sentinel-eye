@@ -1,5 +1,5 @@
 {
-  "revision": "adaptive-v23",
+  "revision": "adaptive-v25",
   "date": "2026-10-05",
   "source": "Synthetic preview; browser dimensions and injected PWA insets, not native hardware",
   "checks": [
@@ -9827,19 +9827,43 @@
     }
   ],
   "followUp": {
-    "revision": "adaptive-v23",
+    "revision": "adaptive-v25",
     "date": "2026-10-05",
     "source": "Fresh synthetic preview browser session; no physical iOS or TV hardware",
     "routeChecks": {
       "passed": 442,
-      "profiles": ["17 device profiles; includes 390x844, 844x390, 667x375, iPad portrait/landscape, desktop and TV"],
-      "themesPerProfile": ["dark", "light"],
+      "profiles": [
+        "17 device profiles; includes 390x844, 844x390, 667x375, iPad portrait/landscape, desktop and TV"
+      ],
+      "themesPerProfile": [
+        "dark",
+        "light"
+      ],
       "routesPerTheme": 13,
-      "overflowOrClippingFailures": 0
+      "overflowOrClippingFailures": 0,
+      "sourceRevision": "adaptive-v23 historical sweep"
     },
-    "entryChecks": {"passed": 68, "scope": "login and pair, 17 phone/tablet/desktop/TV profiles, both themes"},
-    "cameraMenuChecks": {"passed": 34, "scope": "bounded menu geometry and actions, 17 profiles, both themes"},
-    "shortLandscapePlayback": {"profiles": ["844x390", "667x375"], "selectedCameras": 4, "layout": "2x2", "stageHeights": [161, 146], "overflow": false},
+    "entryChecks": {
+      "passed": 68,
+      "scope": "login and pair, 17 phone/tablet/desktop/TV profiles, both themes"
+    },
+    "cameraMenuChecks": {
+      "passed": 34,
+      "scope": "bounded menu geometry and actions, 17 profiles, both themes"
+    },
+    "shortLandscapePlayback": {
+      "profiles": [
+        "844x390",
+        "667x375"
+      ],
+      "selectedCameras": 4,
+      "layout": "2x2",
+      "stageHeights": [
+        161,
+        146
+      ],
+      "overflow": false
+    },
     "interactiveChecks": [
       "Desktop Live Focus and Playback fullscreen enter/exit with dynamic labels and icons; duplicate corner Exit remains hidden",
       "TV Focus and Playback suppress the top-corner duplicate while retaining the lower-bar fullscreen toggle",
@@ -9847,6 +9871,72 @@
       "iPad Events range selection remains available in portrait Filters sheet and inline in landscape",
       "TV viewer sees Live/Settings; TV operator sees Live/Playback/Events/Settings"
     ],
-    "unitSuites": {"viewer": "59/59", "pwaBootstrap": "8/8", "shellUpdate": "65/65"}
+    "unitSuites": {
+      "viewer": "60/60",
+      "pwaBootstrap": "8/8",
+      "shellUpdate": "71/71"
+    },
+    "latestTargetedChecks": {
+      "revision": "adaptive-v25",
+      "source": "Synthetic PWA preview with iPhone/iPad user-agent, touch input and injected safe-area insets",
+      "profiles": [
+        {
+          "device": "iPhone portrait",
+          "viewport": "390x844",
+          "pwa": true,
+          "findings": [
+            "compact icon bottom navigation with accessible names",
+            "40px Settings channel selector with centered arrow",
+            "Playback fullscreen header and dock auto-hide after 8.25 seconds",
+            "video tap wakes both bars",
+            "one-action fullscreen exit",
+            "zero horizontal overflow"
+          ]
+        },
+        {
+          "device": "iPad portrait",
+          "viewport": "820x1180",
+          "pwa": true,
+          "findings": [
+            "44px icon-only app-bar destinations with accessible names",
+            "40px Settings channel selector with centered arrow",
+            "Playback fullscreen edge-to-edge dock",
+            "header and dock auto-hide after 8.25 seconds",
+            "video tap wakes both bars",
+            "one-action fullscreen exit",
+            "zero horizontal overflow"
+          ]
+        }
+      ],
+      "limitation": "Synthetic browser layout/input checks; native iOS/iPadOS rendering and live recorder media are not covered.",
+      "routeThemeSweep": {
+        "passed": 78,
+        "profiles": [
+          "iPhone portrait 390x844",
+          "iPad portrait 820x1180",
+          "desktop 1440x900"
+        ],
+        "themes": [
+          "dark",
+          "light"
+        ],
+        "routes": [
+          "account",
+          "events",
+          "live",
+          "playback",
+          "settings",
+          "settings/account",
+          "settings/channels",
+          "settings/connection",
+          "settings/display",
+          "settings/enhancement",
+          "settings/overview",
+          "settings/security",
+          "settings/status"
+        ],
+        "overflowOrPreviewErrorFailures": 0
+      }
+    }
   }
 }

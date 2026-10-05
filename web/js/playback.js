@@ -1,7 +1,7 @@
 // Playback view: DVR review, 1-4 cameras at once (the DVR's hard playback-session limit — spec 2.2/7.2).
 // Left panel = camera picker (checkboxes once >1 pane), center = video pane(s) + shared transport,
 // right panel = calendar/time jump, bottom = timeline for the primary (first-picked) camera.
-import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay } from './viewer.js';
+import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay, viewerIsTouchDevice } from './viewer.js';
 import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
@@ -222,7 +222,7 @@ export class PlaybackView {
     this.viewerControls?.destroy();
     this.viewerControls = new ViewerControls(el, {
       chrome: '.topbar,.pb-controls,.pb-inspect,.pb-pane-label,.pb-pane-time,.zhud', background: '.pb-stage',
-      enabled: () => immersive(el), paused: () => !this.playing,
+      enabled: () => immersive(el), paused: () => !this.playing && !viewerIsTouchDevice(),
       delay: () => viewerAutoHideDelay(this.ctx.settings().display.controls_autohide_sec),
       held: () => this._roiSelectMode || this.timeline?.selectMode || el.classList.contains('details-open'),
       exited: () => this.resetInspection(),

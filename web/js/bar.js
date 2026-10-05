@@ -22,7 +22,7 @@ const destinations = [['live','grid4','Live'],['playback','calendar','Playback']
 export function destinationHTML(ctx, className = 'app-destinations') {
   const selected = location.hash.split('/')[1] || 'live';
   const visible = destinations.filter(([id]) => !ctx.tvMode?.() || ctx.can('operator') || id === 'live' || id === 'settings');
-  return `<nav class="${className}" aria-label="Main">${visible.map(([id,ic,label]) => `<a class="app-dest" href="#/${id}" data-tab="${id}" ${id === selected || id === 'events' && selected === 'search' ? 'aria-current="page"' : ''} ${['playback','events'].includes(id) && !ctx.can('operator') ? 'data-locked="true"' : ''}>${icon(ic)}<span>${label}</span></a>`).join('')}</nav>`;
+  return `<nav class="${className}" aria-label="Main">${visible.map(([id,ic,label]) => `<a class="app-dest" href="#/${id}" data-tab="${id}" aria-label="${label}" ${id === selected || id === 'events' && selected === 'search' ? 'aria-current="page"' : ''} ${['playback','events'].includes(id) && !ctx.can('operator') ? 'data-locked="true"' : ''}>${icon(ic)}<span>${label}</span></a>`).join('')}</nav>`;
 }
 
 export function barHTML(o) {
@@ -174,6 +174,6 @@ function openMe(btn, ctx) {
 // every view, so it survives view swaps; main.js's route() keeps aria-current in sync.
 export function tabBarHTML(ctx) {
   const op = ctx.can('operator');
-  const tab = (n, ic, label, lockedTab) => `<a class="tab${lockedTab ? ' locked' : ''}" data-tab="${n}" href="#/${n}">${icon(ic)}<span>${label}</span></a>`;
+  const tab = (n, ic, label, lockedTab) => `<a class="tab${lockedTab ? ' locked' : ''}" data-tab="${n}" href="#/${n}" aria-label="${label}">${icon(ic)}<span>${label}</span></a>`;
   return `<nav class="tabbar" aria-label="Main">${tab('live', 'grid4', 'Live')}${tab('playback', 'calendar', 'Playback', !op)}${tab('events', 'walk', 'Events', !op)}${tab('settings', 'gear', 'Settings')}</nav>`;
 }
