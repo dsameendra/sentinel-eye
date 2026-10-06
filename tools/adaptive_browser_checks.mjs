@@ -19,7 +19,7 @@ const headings = {'settings/connection':'Recorder connection','settings/channels
 async function navigate(tab,url) { if (await tab.url()===url) await tab.reload(); else await tab.goto(url); }
 export function query(profile, theme) {
   const q = new URLSearchParams({theme,capture:'1'});
-  if (profile.pwa) { q.set('pwa','1'); q.set('top',profile.width>profile.height ? '0':profile.width<=640?'59':'24'); q.set('bottom','86'); }
+  if (profile.pwa) { q.set('pwa','1'); q.set('apple','1'); q.set('top',profile.width>profile.height ? '0':profile.width<=640?'59':'24'); q.set('bottom','86'); }
   if (profile.tv) { q.set('tv','1'); q.set('device','1'); }
   return q;
 }
@@ -44,12 +44,18 @@ export async function runRoutes(tab, viewport, profile, origin='http://127.0.0.1
         }
         return {width:innerWidth,height:innerHeight,theme:document.documentElement.dataset.theme,
           hash:location.hash,barHeight:bar.getBoundingClientRect().height,
+          appleTouch:document.documentElement.classList.contains('apple-touch-device'),
+          contentGap:profilePwaGap(bar),
           overflow:Math.max(0,document.documentElement.scrollWidth-innerWidth),clipped,
           errors:[...document.querySelectorAll('#preview-error')].map(e=>e.textContent)};
+        function profilePwaGap(header) {
+          const surface=document.querySelector('.liveview > .wall,.pb-body,.events-view,.settings,.acct:not(.acct-embed)');
+          return surface ? Math.round((surface.getBoundingClientRect().top-header.getBoundingClientRect().bottom)*100)/100 : null;
+        }
       });
       results.push({profile,expectedTheme:theme,route,...check});
       const routeMatches=check.hash===`#/${route}` || route==='playback' && check.hash.startsWith('#/playback/');
-      if (check.width!==profile.width || check.height!==profile.height || check.theme!==theme || !routeMatches || check.overflow>.5 || check.clipped.length || check.errors.length) throw new Error(JSON.stringify(results.at(-1)));
+      if (check.width!==profile.width || check.height!==profile.height || check.theme!==theme || !routeMatches || check.overflow>.5 || check.clipped.length || check.errors.length || (profile.pwa && (!check.appleTouch || Math.abs(check.contentGap||0)>1.5))) throw new Error(JSON.stringify(results.at(-1)));
     }
   }
   return results;

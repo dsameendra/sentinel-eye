@@ -12,9 +12,9 @@ LAN and, when the recorder's proprietary "Stream Encryption" is turned on, decry
 was reverse-engineered from scratch — see `tools/NOTES.md`). Nothing about how you watch or review your
 cameras ever leaves your network.
 
-![Live camera grid with page tools on the left and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
+![Live camera grid with four synthetic test-pattern streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
 
-*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. Playback images show the review interface without a connected recorder; the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
+*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. The refreshed Focus, Playback, Events, Enhancer and Settings captures use synthetic footage; playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
 
 ## Why
 
@@ -53,7 +53,7 @@ involved.
 - **TV mode** (Settings → Display & layout): a remote-friendly layout for leaving the cameras on a TV — see
   [TV mode](#tv-mode) below.
 
-![One synthetic camera in Focus with grouped viewing controls](docs/screenshots/focus.jpg)
+![Synthetic camera in Focus with a compact title bar, stream controls and playback actions](docs/screenshots/focus.jpg)
 
 ### Playback and review
 - Review up to four cameras at once, frame-locked. Speeds run from 1/8× to 16×, within the recorder's own
@@ -65,14 +65,14 @@ involved.
   of ranges from several points in the timeline, then export them all as one batch.
 - Bookmarks and incident notes on a moment, on one camera or several, searchable later.
 
-![Desktop Playback workspace with date and camera tools, transport and timeline; recorder unavailable in this fixture](docs/screenshots/playback.jpg)
+![Desktop Playback workspace with two selected synthetic cameras, date and speed controls, transport and timeline; recorder unavailable in this fixture](docs/screenshots/playback.jpg)
 
 ### Event search
 - Motion, line-crossing, intrusion, tamper and video-loss events (and your own bookmarks) across cameras and
   date ranges, as thumbnails or a list, with a quick in-page preview before opening it in Playback or
   exporting. Your last search comes back instantly when you return to it.
 
-![Event search with synthetic events, camera filters and consistent desktop navigation](docs/screenshots/events.jpg)
+![Event search with synthetic event cards, camera and type filters, and date-range controls](docs/screenshots/events.jpg)
 
 ### Export
 - Every export is a stream copy of the original footage — no re-encoding, no quality loss.
@@ -107,7 +107,7 @@ calls out to the cloud, and every enhanced picture carries an **ENHANCED** label
 always kept alongside it: the distinction between "what the sensor recorded" and "the AI's best
 reconstruction of it" is never blurred.
 
-![Enhancer comparison interface with a synthetic source/result fixture and explicit provenance](docs/screenshots/enhancer.jpg)
+![Enhancer comparison interface with a synthetic source/result fixture, plate-reading panel and provenance warning](docs/screenshots/enhancer.jpg)
 
 ### Settings
 Recorder address and login, the encryption toggle and verification code, per-channel names/order/frame-rate
@@ -117,7 +117,7 @@ on, Security holds accounts, paired TVs, sessions, network access and an activit
 you change your password, two-factor, username and picture (your initial on a colour, a designed avatar, or
 a photo).
 
-![Display and layout settings with consistent navigation and appearance controls](docs/screenshots/settings.jpg)
+![Display and layout settings with theme, picture, TV mode, layout and streaming controls](docs/screenshots/settings.jpg)
 
 ### Keyboard shortcuts
 

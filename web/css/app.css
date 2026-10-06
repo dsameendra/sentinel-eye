@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v27;
+  --shell-revision: adaptive-v33;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -155,13 +155,6 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 /* ---------- shell ---------- */
 #app { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
 #view { background: var(--bg); }
-@supports (view-transition-name: app-route) {
-  html.ios-pwa #view { view-transition-name: app-route; }
-  ::view-transition-group(app-route) { animation-duration: 160ms; }
-  ::view-transition-old(app-route) { animation: route-view-out 160ms ease-out both; }
-  ::view-transition-new(app-route) { animation: none; }
-  @keyframes route-view-out { to { opacity: 0; } }
-}
 /* ---------- the bar (bar.js) ----------
    One bar per screen (redesign v2), matching the design boards: Live leads with the brand mark and carries
    the global cluster on the right; every other screen leads with a back chevron. Glass — see the guardrail
@@ -1369,8 +1362,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .evp-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; font-weight: 600; }
 .evp-title .ev-badge { position: static; flex: none; }
 .evp-etitle { color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.evp-stage { position: relative; flex: none; aspect-ratio: 16/9; background: #000; display: grid; place-items: center; overflow: hidden; }
-.evp-stage canvas { max-width: 100%; max-height: 100%; display: block; }
+.evp-stage { position: relative; flex: none; width: 100%; aspect-ratio: 16/9; background: #000; display: grid; place-items: center; overflow: hidden; }
+.evp-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .evp-veil { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; text-align: center; padding: 16px; }
 .evp-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
 .evp-bottom .btn, .evp-bottom .hint { flex: none; }
@@ -2112,6 +2105,14 @@ html.ios-pwa .topbar,html.ios-pwa .focus-bar { background: var(--chrome-bg); bac
   .pb > .topbar.appbar .speed-seg { display: inline-flex; }
   .pb > .topbar.appbar [data-a=export] .lbl { display: inline; }
 }
+/* iPad landscape: separate Playback's two intentional control rows without making the whole page feel
+   lower. The tighter outer padding offsets the larger row gap, so the stage retains its usable height. */
+@media (min-width: 641px) and (max-width: 1350px) and (orientation: landscape) {
+  html.apple-touch-device:not(.tv-mode) .pb > .topbar.appbar {
+    row-gap: 12px;
+    padding-block: calc(3px + var(--header-inset-top)) 1px;
+  }
+}
 /* Short landscape phones retain the selected speed and its full options menu on Playback's second row.
    The saved width keeps all selected camera chips readable instead of clipping the last colored name. */
 @media (max-width: 1000px) and (orientation: landscape) {
@@ -2218,9 +2219,18 @@ html.ios-pwa:not(.tv-mode) :is(.focus.immersive .stage,.liveview.immersive .wall
   box-sizing: border-box; padding-block: var(--header-inset-top) var(--safe-bottom);
 }
 html.ios-pwa:not(.tv-mode) :is(.pb.immersive .pb-panes:not(.stacked):not(.inspecting) > .pb-pane:only-child,.pb.immersive .pb-panes.inspecting > .pb-pane.inspected) {
-  box-sizing: border-box; padding-block: var(--header-inset-top) var(--safe-bottom);
+  /* Fullscreen media owns the whole viewport; safe-area spacing belongs to the controls layered over it.
+     Padding this pane made the footage fit an inset rectangle and left large black bands around it. */
+  box-sizing: border-box; padding-block: 0;
 }
 html.ios-pwa:not(.tv-mode) :is(.liveview.immersive,.liveview:fullscreen) .overview-cap.top { top: max(30px,calc(var(--safe-top) + 12px)); }
+/* Give the Overview/Channel zero caption more room from the top edge on iPad landscape fullscreen.
+   The width floor excludes iPhone landscape, whose CSS viewport can also be wider than 640px. */
+@media (min-width: 1000px) and (orientation: landscape) {
+  html.ios-pwa.apple-touch-device:not(.tv-mode) :is(.liveview.immersive,.liveview:fullscreen) .overview-cap.top {
+    top: max(46px,calc(var(--safe-top) + 28px));
+  }
+}
 html.ios-pwa:not(.tv-mode) .evp-scrim { padding-block: max(16px,calc(var(--header-inset-top) + 8px)); }
 /* Landscape phone and short desktop: one shallow transport, precision tools remain on demand. */
 html.short-ui:not(.tv-mode) .topbar.appbar { min-height: 48px; padding-block: calc(2px + var(--header-inset-top)) 2px; row-gap: 0; flex-wrap: nowrap; }
@@ -2233,7 +2243,7 @@ html.short-ui:not(.tv-mode) .topbar .bar-actions { gap: 4px; }
    two-row grid after the general short-header rule so its date/camera and speed/export controls cannot
    collapse into or clip a single 48px row. */
 @media (min-width: 641px) and (max-width: 1000px) and (orientation: landscape) {
-  html.short-ui:not(.tv-mode) .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 6px; height: auto; min-height: 0; padding: 7px max(12px,var(--safe-right)) 7px max(12px,var(--safe-left)); }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 10px; height: auto; min-height: 0; padding: calc(2px + var(--header-inset-top)) max(12px,var(--safe-right)) 2px max(12px,var(--safe-left)); }
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg { display: inline-flex; }
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip { width: clamp(80px,calc((100vw - 347px)/4),110px); max-width: clamp(80px,calc((100vw - 347px)/4),110px); min-width: 80px; gap: 4px; padding-inline: 4px; font-size: 11.5px; }
   html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip .av { width: 18px; height: 18px; }
@@ -2350,6 +2360,7 @@ html.keyboard-open .auth-page { height: var(--visual-height); }
   .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; grid-row: 1; flex: none; }
   .topbar.appbar.ev-bar .app-destinations { grid-column: 5; grid-row: 1; }
   .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; grid-row: 1; }
+  .topbar.appbar.ev-bar :is(.app-destinations,.bar-global-actions) { justify-self: end; }
   .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
   /* Keep all destinations compact while preserving room for the far-right Account target on iPad. */
   .topbar.appbar.ev-bar .app-destinations { gap: 1px; padding-inline: 2px; }
@@ -2364,6 +2375,7 @@ html.keyboard-open .auth-page { height: var(--visual-height); }
   .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; gap: 3px; }
   .topbar.appbar.ev-bar .app-destinations { grid-column: 5; }
   .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; }
+  .topbar.appbar.ev-bar :is(.app-destinations,.bar-global-actions) { justify-self: end; }
   .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
   .topbar.appbar.ev-bar .ev-range { display: flex; }
 }
@@ -2422,7 +2434,9 @@ html.compact-ui:not(.tv-mode) :is(.pb.immersive,.pb:fullscreen) .pb-ctrl-right [
 @media (orientation: landscape) and (max-height: 540px) {
   html.compact-ui:not(.tv-mode) .tabbar { display: none !important; }
   html.compact-ui:not(.tv-mode) .topbar.appbar { flex-wrap: nowrap; min-width: 0; }
-  html.compact-ui:not(.tv-mode) .topbar.appbar .app-destinations { display: flex; flex: none; align-items: center; gap: 2px; height: 38px; padding: 2px; margin: 0; }
+  /* Some iOS standalone builds do not receive the apple-touch-device class. Keep the shared
+     destinations and account controls anchored to the trailing edge through the compact fallback too. */
+  html.compact-ui:not(.tv-mode) .topbar.appbar .app-destinations { display: flex; flex: none; align-items: center; gap: 2px; height: 38px; padding: 2px; margin: 0 0 0 auto; }
   html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest { position: relative; flex: none; width: 36px; min-width: 36px; height: 32px; min-height: 32px; padding: 0; gap: 0; font-size: 0; }
   html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest .i { display: block; width: 18px; height: 18px; }
   html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest span { font-size: 0; }
@@ -2459,7 +2473,7 @@ html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest[data-locked]::aft
    iPhone landscape and iPad. Page headers have different context rows (Playback has two), so letting
    these controls participate in each page's flex/grid layout makes them jump between rows and columns. */
 @media (min-width: 641px), (orientation: landscape) {
-  html.apple-touch-device:not(.tv-mode) .topbar.appbar { position: relative; min-height: calc(var(--header-inset-top) + 58px); }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar { min-height: calc(var(--header-inset-top) + 58px); }
   html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-destinations {
     position: absolute; z-index: 8; top: calc(var(--header-inset-top) + 8px);
     right: calc(max(12px,var(--safe-right)) + 106px); margin: 0; grid-area: auto;
@@ -2472,6 +2486,8 @@ html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest[data-locked]::aft
   html.apple-touch-device:not(.tv-mode) .topbar.appbar:not(:has(.bar-global-actions .gbtn[data-g="bell"])) .app-destinations {
     right: calc(max(12px,var(--safe-right)) + 52px);
   }
+  /* Keep Account's page-level Sign out action to the left of the overlaid destination/avatar cluster. */
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.acct-page-bar .bar-page-actions { margin-right: 300px; }
 }
 @media (min-width: 641px) {
   html.apple-touch-device:not(.tv-mode) .topbar.appbar.live .bar-page-actions { margin-right: 300px; }

@@ -183,15 +183,9 @@ async function route() {
     }
     state.view.route(arg || null);
   };
-  // Preserve the current frame while iOS standalone WebKit replaces page-level view trees. The route
-  // callback stays synchronous (players, permissions and settings keep their existing ownership); on
-  // browsers without View Transitions it falls straight back to the ordinary SPA update.
-  const transition = document.documentElement.classList.contains('ios-pwa')
-    && state.view && state.kind !== section && typeof document.startViewTransition === 'function';
-  if (transition) {
-    try { document.startViewTransition(commitRoute).finished.catch(() => {}); }
-    catch { commitRoute(); }
-  } else commitRoute();
+  // Replace route-owned DOM synchronously. A fading View Transition can expose the PWA's black shell
+  // between surveillance views, and overlapping transitions reject when users switch pages quickly.
+  commitRoute();
 }
 
 async function boot() {

@@ -1,5 +1,5 @@
 {
-  "revision": "adaptive-v26",
+  "revision": "adaptive-v33",
   "date": "2026-10-05",
   "source": "Synthetic preview; browser dimensions and injected PWA insets, not native hardware",
   "checks": [
@@ -9827,8 +9827,8 @@
     }
   ],
   "followUp": {
-    "revision": "adaptive-v26",
-    "date": "2026-10-05",
+    "revision": "adaptive-v33",
+    "date": "2026-10-06",
     "source": "Fresh synthetic preview browser session; no physical iOS or TV hardware",
     "routeChecks": {
       "passed": 442,
@@ -9874,10 +9874,11 @@
     "unitSuites": {
       "viewer": "60/60",
       "pwaBootstrap": "8/8",
-      "shellUpdate": "73/73"
+      "shellUpdate": "84/84",
+      "enhanceModels": "21/21"
     },
     "latestTargetedChecks": {
-      "revision": "adaptive-v26",
+      "revision": "adaptive-v33",
       "source": "Synthetic PWA preview with iPhone/iPad user-agent, touch input and injected safe-area insets",
       "profiles": [
         {
@@ -9972,6 +9973,50 @@
           "modeSwitch": "186x48",
           "horizontalOverflow": 0
         }
+      },
+      "landscapeRegressionSweep": {
+        "passed": 104,
+        "profiles": [
+          "iPhone landscape 932x430",
+          "iPad landscape 1024x768",
+          "phone landscape 844x390",
+          "iPad portrait 820x1180"
+        ],
+        "themes": [
+          "dark",
+          "light"
+        ],
+        "scope": "13 route checks per theme/profile; no clipped header controls, horizontal overflow or preview errors"
+      },
+      "fullscreenPlaybackMedia": {
+        "profile": "iPhone landscape 932x430",
+        "stage": "932x430",
+        "pane": "908x422",
+        "fittedPicture": "750x422, centered 16:9",
+        "overflow": 0,
+        "source": "Synthetic PWA preview; no decoded recorder stream"
+      },
+      "routeTransitions": {
+        "behavior": "synchronous route replacement; outgoing black fade removed",
+        "reason": "avoid PWA black flashes and aborted overlapping transitions",
+        "verification": "104 route/theme checks after the fix; zero preview errors"
+      },
+      "accountToolbar": {
+        "signedInAudit": ["iPad portrait 820x1180", "iPad landscape 1024x768", "iPhone landscape 844x390", "desktop 1440x900"],
+        "result": "Sign out no longer overlaps navigation or account controls on Apple touch layouts; desktop unchanged",
+        "otherRoutes": "No page-action overlap found on Live, Playback, Events or Settings"
+      },
+      "eventPreviewGeometry": {
+        "viewport": "iPad landscape 1024x768",
+        "dialog": "820x503, centered",
+        "stage": "818x399",
+        "canvas": "818x399 box, object-fit contain, centered on stage",
+        "centerOffset": 0,
+        "responsiveChecks": [
+          "iPhone portrait 390x844: center offset 0px",
+          "desktop 1440x900: center offset 0px"
+        ],
+        "source": "Synthetic UI preview; no decoded recorder stream"
       }
     }
   }

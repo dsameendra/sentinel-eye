@@ -737,6 +737,14 @@ def _free_gpu():
         pass
 
 
+def _release_upsampler():
+    """Drop every cached reference to the active upscaler before loading another one."""
+    global _up
+    if _face:
+        _face[1].bg_upsampler = None
+    _up = None
+
+
 def _load_upsampler(uid, progress=None):
     """Loads upscaler `uid` (downloading its weights once if needed), replacing whichever was loaded."""
     global _up, _device
@@ -753,7 +761,8 @@ def _load_upsampler(uid, progress=None):
         if progress:
             progress(f"Loading {e['label']}…")
         path = EM.ensure("upscaler", uid, progress)
-        _up = None
+        # GFPGANer retains its background upsampler; release that reference before allocating the replacement.
+        _release_upsampler()
         _free_gpu()
         if e["engine"] == "spandrel":
             up = _SpandrelUpsampler(path, _device)

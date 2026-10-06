@@ -222,7 +222,7 @@ export class AccountView {
       this.root.innerHTML = `<header class="pane-head"><h1>Account</h1><p>Your profile, password and sign-in, and where you're signed in.</p></header>
         <div class="acct acct-embed">${this.body(me)}${signOut ? `<section class="card acct-row"><div><b>Sign out</b><small>Of this browser. Your other devices stay signed in.</small></div>${signOut}</section>` : ''}</div>`;
     } else {
-      this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
+      this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', cls: 'acct-page-bar', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
       wireBar(this.root, this.ctx, { back: 'history' });
     }
     this.wire();

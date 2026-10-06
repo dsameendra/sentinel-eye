@@ -9,7 +9,7 @@
 // always be live), the playback/live WebSocket and WebRTC/MSE streams (the browser never routes these
 // through a service worker's fetch event in the first place — no special-casing needed), and anything
 // cross-origin.
-const CACHE_NAME = 'sentinel-eye-shell-v27'; // stable touch navigation and fullscreen Playback chrome
+const CACHE_NAME = 'sentinel-eye-shell-v33'; // keep Account actions clear of the fixed tablet navigation cluster
 const STATIC_RE = /\.(?:js|css|png|svg|json|ico|webmanifest)$/;
 
 self.addEventListener('install', () => {

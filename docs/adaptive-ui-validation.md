@@ -1,14 +1,24 @@
-# Adaptive UI validation — adaptive-v27
+# Adaptive UI validation — adaptive-v33
 
-## Follow-up navigation and Playback chrome — adaptive-v27
+## Follow-up navigation and Playback chrome — adaptive-v33
+
+Installed Apple PWA headers now stay fixed while their measured spacer reserves the same height in the page flow. The Apple-touch layout had reset those headers to in-flow positioning, causing the header height to be counted a second time and pushing every page body down. The preview now emulates Apple touch detection, and the browser route matrix checks the gap between each header and its page content.
 
 The shared destination switcher and notification/account controls now stay at fixed coordinates for each viewport on iPhone landscape and both iPad orientations. They no longer inherit the per-page grid placement that moved Playback and Events to a different row. Live’s fullscreen action reserves space before that cluster; Events moves its filters to a second line at narrow widths; short landscape Playback keeps speed/export on its lower row. iPhone portrait keeps its existing labeled bottom dock.
 
 Desktop Playback fullscreen now uses a full-width bottom chrome panel with the same opaque surface and edge treatment as the top bar. Touch-device and TV fullscreen styles remain separately scoped.
 
+The landscape-device follow-up includes iPhone-sized 932×430 as well as iPad landscape. Playback's two control rows keep a 10px separation in short landscape while the header's outer vertical padding is reduced, so the toolbar stays legible without pushing the stage farther down. In installed-PWA fullscreen, the selected Playback pane no longer reserves the status-bar and home-indicator insets inside the media rectangle; the video can use the full pane while the controls retain their own safe-area placement. A synthetic iPhone-landscape fullscreen measurement showed a 932×430 stage and a centered 750×422 16:9 picture, with no page overflow. The Apple-touch-aware 442-case light/dark route sweep across 17 device profiles reported no clipped header controls or preview errors; all 286 PWA page checks measured a zero-pixel gap from header to content. Native iPhone/iPad rendering and live camera footage still need device confirmation.
+
+The iPad landscape Live Overview caption now sits 16px lower in installed-PWA fullscreen, giving the Overview and Channel zero labels more room from the top edge. The rule is limited to landscape Apple PWA viewports at least 1000 CSS pixels wide, so iPhone landscape, non-fullscreen Live, TV and desktop placement remain unchanged.
+
+Event preview now anchors its canvas to the full stage bounds and uses `object-fit: contain`, keeping the decoded picture centered even when camera-frame dimensions differ from the stage. This removes the intrinsic-canvas left alignment seen in iPad landscape while preserving the full frame on narrower devices.
+
+The signed-in Account page's top-bar Sign out action now sits before the fixed navigation/avatar cluster on iPhone landscape and both iPad orientations. A signed-in route audit found no corresponding action overlap on Live, Playback, Events or Settings; desktop positioning is unchanged.
+
 Local verification included 80 light/dark combinations across Live, Playback, Events, Settings and Account for eight phone/tablet profiles. Shared controls had identical coordinates across routes within each profile, with no interactive-control overlap or horizontal page overflow. A desktop fullscreen browser measurement confirmed the Playback panel spans the viewport bottom edge. `node tools/test_shell_update.mjs` checks cache revision rollover and fullscreen/header style contracts; `node tools/test_viewer.mjs` passed 60 behavior checks; `node tools/test_pwa_bootstrap.mjs` passed eight platform-detection cases. Native iPhone/iPad compositor and real-recorder acceptance still require on-device checks.
 
-Implementation and local validation completed on 2026-10-05 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
+Implementation and local validation continued on 2026-10-06 on `fix/ios-status-bar`. The user previously confirmed that the installed iPhone/iPad top blur is gone; that accepted header treatment is preserved. Native iOS/iPadOS 27, physical TV, connected-recorder and Docker runtime acceptance remains pending. Browser dimensions and injected PWA signals cannot establish native compositor, keyboard or hardware-decoder behavior.
 
 ## Follow-up device-layout audit — adaptive-v26
 
@@ -24,7 +34,7 @@ The v25 follow-up makes navigation icon-only across Apple touch layouts: iPhone 
 
 The v26 navigation refinement restores visible destination names in the iPhone portrait bottom pill; the 64px dock still fits 22px icons, 11px labels and 44px targets. Short landscape stays icon-only. On iPad, Playback and Events now use the same natural-width top-bar mode switch: four 44px icon targets in a 186×48px container, followed by notification and account actions. Browser measurements confirm identical switcher dimensions on both pages and zero horizontal overflow at iPhone portrait/landscape and iPad portrait/landscape widths. The final 156-case route/theme sweep across six phone, tablet, desktop and TV profiles reported no clipping or preview errors.
 
-The iPad landscape event-preview dialog uses balanced safe-area padding to center the entire dialog and its video stage. Route changes use the Safari View Transitions API when available and opaque app/view backgrounds in every browser, including browsers whose engine does not expose that API. This local preview engine did not expose `document.startViewTransition`, and its recorder/video feeds are synthetic/unavailable; the installed iOS PWA black-flash report and decoded event-video centering still need confirmation on the user's iPhone and iPad.
+The iPad landscape event-preview dialog uses balanced safe-area padding to center the entire dialog and its video stage. PWA route changes now replace the view synchronously; the outgoing-page fade was removed because it exposed the black shell between views and overlapping transitions could abort during rapid navigation. The landscape route sweep now passes without transition errors. Actual installed iOS rendering and decoded event-video centering still need confirmation on the user's iPhone and iPad.
 
 ## Fixes verified locally
 
@@ -76,12 +86,12 @@ The additional browser sweep passed 260 route/theme checks across nine phone, ta
 | Camera menu matrix | 34 passed | Bounded menu geometry, complete action access, unavailable snapshot state and background interaction scope in both themes on all profiles |
 | Additional browser workflows | 59 passed | Fullscreen/inspection return, menus, calendar, keyboard focus, role filtering, drafts/discard, two-factor/recovery, clip-list UI, enhancer result/Details, event-to-Playback, Account cancel/password visibility, actual synthetic streams, TV entry, filter outside-dismissal and stacked/global keyboard guide |
 | `node tools/test_viewer.mjs` | 60 passed | Real viewer/gesture implementation with deterministic input/timers: idle, holds, touch recognition, cancellation, legacy inert fallback, remote wake, native rejection/exit/races and teardown |
-| `node tools/test_shell_update.mjs` | 73 passed | Worker cache/update behavior, redirect exclusion, missing offline assets, slow network, install identity, shipped imports, named ESM export linking for all entries, and single TV viewer exit |
+| `node tools/test_shell_update.mjs` | 84 passed | Worker cache/update behavior, redirect exclusion, missing offline assets, slow network, install identity, shipped imports, named ESM export linking for all entries, no-fade PWA route swaps, fullscreen media sizing, short-landscape toolbar spacing and trailing-edge navigation/account anchoring, tablet-width Events alignment, single TV viewer exit, fixed PWA header/spacer geometry, iPad landscape Overview caption placement, centered Event preview video, and Account action placement |
 | `node tools/test_pwa_bootstrap.mjs` | 8 passed | Installed iPhone/iPad detection, desktop-UA iPad, browser-tab exclusions and other platforms |
 | `.venv/bin/python tools/test_auth_core.py` | 96 passed | Real account/session, 2FA/recovery, pairing, trusted-network and CLI logic in temporary data |
 | `.venv/bin/python tools/test_auth_http.py` | 97 passed | Anonymous entry import graph, route/WebSocket access by role, login flows and network bypass rules in the isolated test app |
 | `.venv/bin/python tools/test_playback_service.py` | 9 passed | Coverage/backfill failures retain recoverable state and clear running flags |
-| `.venv/bin/python tools/test_enhance_models.py` | 19 passed | Model catalog, verified-download and settings logic in temporary data. A separate fallback check skipped because the scratch directory has no Real-ESRGAN weights; this is not real inference validation. |
+| `.venv/bin/python tools/test_enhance_models.py` | 21 passed | Model catalog, SHA-256-verified downloads, same-size corrupt-cache replacement, upscaler reference release and settings logic in temporary data. A separate fallback check skipped because the scratch directory has no Real-ESRGAN weights; this is not real inference validation. |
 | JavaScript syntax, Python compilation, `git diff --check` | Passed | Shipping JS modules and changed Python test/preview files parse; no whitespace errors |
 
 These are bounded checks with synthetic fixtures, not a claim to have exercised every possible hardware/recorder combination. Expected unavailable-media errors are excluded in the no-recorder preview; unexpected script/resource failures remain visible. See [adaptive-ui-matrix.json](adaptive-ui-matrix.json) for the executed browser measurements and workflow inventory.
@@ -116,7 +126,7 @@ No real recorder settings or accounts were changed by these tests. The video rig
 
 ## Screenshots and reproducibility
 
-The eight former README PNG screenshots are replaced by JPEG captures of the final interface. Six additional captures document important adaptive views. Captures are direct browser screenshots, without post-capture image editing. All footage shown is from the disposable test-pattern rig; fixture thumbnails and the enhancer's source/result are explicitly synthetic. The enhancer image demonstrates the interface, not improved image quality.
+The README gallery uses optimized JPEG captures. For this UI refresh, Focus, Playback, Events, Enhancer and Settings were replaced with current-branch captures; the Live grid keeps its four-stream synthetic test-pattern capture. Additional captures document important adaptive views. The images are interface evidence, not production camera footage: all scenes and event thumbnails are synthetic, and the enhancer image demonstrates the interface rather than image quality.
 
 | Capture | Dimensions | Source |
 | --- | --- | --- |
@@ -135,13 +145,13 @@ The eight former README PNG screenshots are replaced by JPEG captures of the fin
 | [Landscape Export](screenshots/export-landscape.jpg) | 844×390 | Export UI fixture; no job executed |
 | [Repaired phone login](screenshots/login-phone.jpg) | 390×844 | Anonymous form with injected installed signals/insets |
 
-Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixture. Its URL flags select `theme`, `pwa`, `top`, `bottom`, `tv`, `role`, `signed`, `overview`, `demo`, `unsupported` and a capture overlay (`screen=enhancer` or `screen=export`). `capture=1` hides fixture instrumentation. Injected device flags are fixture-only, not production detection logic.
+Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixture. Its URL flags select `theme`, `pwa`, `top`, `bottom`, `apple=1` (simulate Apple touch-device detection), `tv`, `role`, `signed`, `overview`, `demo`, `unsupported` and a capture overlay (`screen=enhancer` or `screen=export`). `capture=1` hides fixture instrumentation. Injected device flags are fixture-only, not production detection logic.
 
 `tools/adaptive_browser_checks.mjs` exports the profile list and `runRoutes`, `runEntries`, `runCameraTools` for the documented Browser skill runtime's tab/viewport APIs. Run profiles in small batches and save results between batches. This module is a runtime helper, not a standalone CLI test. `tools/test_rig.sh start` prepares the fake camera rig; `serve` keeps it under a foreground session owner when detached children would be reaped. UI settings tests belong only in this rig or the preview.
 
 ## Native and deployment acceptance
 
-1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v27`. It reports geometry/version only, without recorder/account/video data.
+1. On the user's installed iPhone and iPad running iOS/iPadOS 27, completely close and reopen online. Check `window.SentinelPWA.diagnostics()` locally if needed: HTML, CSS and JS revisions should all read `adaptive-v33`. It reports geometry/version only, without recorder/account/video data.
 2. Check all routes, both orientations/themes, the status-area sharpness, home-indicator/nav spacing and keyboard/AutoFill. Exercise Focus, channel-zero wall and one/two-camera Playback expansion; return in one action after chrome hides and after rotation. Verify tap, double tap, pinch, pan and menus separately.
 3. Verify a physical TV with viewer/operator accounts, directional remote, OK, Back, play/pause, page changes and idle/reveal. Confirm controls hide without blacking out the hardware-decoded video and that return remains usable if native fullscreen is absent.
 4. With a connected recorder, complete the Playback/export/enhancement acceptance items above, including session cleanup, time alignment, produced evidence files and background jobs.

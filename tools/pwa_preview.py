@@ -113,6 +113,8 @@ window.addEventListener('unhandledrejection', e => { const p=document.createElem
             if "pwa" in q:
                 enabled = q["pwa"][0] == "1"
                 setup += f'<script>Object.defineProperty(navigator,"standalone",{{value:{str(enabled).lower()},configurable:true}});</script>'
+            if q.get("apple") == ["1"]:
+                setup += '<script>Object.defineProperty(navigator,"userAgent",{value:"iPad",configurable:true});Object.defineProperty(navigator,"maxTouchPoints",{value:5,configurable:true});</script>'
             if "tv" in q:
                 setup += '<script>document.documentElement.classList.add("tv-mode"); localStorage.setItem("sentinel-eye-tv-mode","1");</script>'
             else:
