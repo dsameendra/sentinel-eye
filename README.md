@@ -12,9 +12,9 @@ LAN and, when the recorder's proprietary "Stream Encryption" is turned on, decry
 was reverse-engineered from scratch — see `tools/NOTES.md`). Nothing about how you watch or review your
 cameras ever leaves your network.
 
-![Live camera grid with four synthetic test-pattern streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
+![Live camera grid with four synthetic residential camera streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
 
-*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. The refreshed Focus, Playback, Events, Enhancer and Settings captures use synthetic footage; playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
+*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. All scenes use vector-rendered synthetic residential feeds (Driveway, Front Door, Backyard, Side Gate); playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
 
 ## Why
 
@@ -65,7 +65,7 @@ involved.
   of ranges from several points in the timeline, then export them all as one batch.
 - Bookmarks and incident notes on a moment, on one camera or several, searchable later.
 
-![Desktop Playback workspace with two selected synthetic cameras, date and speed controls, transport and timeline; recorder unavailable in this fixture](docs/screenshots/playback.jpg)
+![Desktop Playback workspace with selected synthetic Driveway camera, timeline coverage span, transport controls and events](docs/screenshots/playback.jpg)
 
 ### Event search
 - Motion, line-crossing, intrusion, tamper and video-loss events (and your own bookmarks) across cameras and
@@ -80,6 +80,8 @@ involved.
   the exact camera and DVR/NVR time range, and an Ed25519 signature over that manifest, plus an offline
   `verify.html` that checks it all in a browser with nothing installed and no server involved.
 - **Plain MP4/MKV**: just the clip, for a quick look.
+
+![Export clip dialog with signed evidence package option and interactive trimming](docs/screenshots/export-landscape.jpg)
 
 ### Real-time enhancement ("the wand")
 A WebGL filter chain that runs live, on the playing picture, at zero cost when switched off:
@@ -107,7 +109,7 @@ calls out to the cloud, and every enhanced picture carries an **ENHANCED** label
 always kept alongside it: the distinction between "what the sensor recorded" and "the AI's best
 reconstruction of it" is never blurred.
 
-![Enhancer comparison interface with a synthetic source/result fixture, plate-reading panel and provenance warning](docs/screenshots/enhancer.jpg)
+![Enhancer comparison interface with vehicle license plate, OCR plate-reading panel and provenance warning](docs/screenshots/enhancer.jpg)
 
 ### Settings
 Recorder address and login, the encryption toggle and verification code, per-channel names/order/frame-rate
@@ -419,7 +421,10 @@ spacing across pages and overlays. If an installed app still shows an older head
 it completely and relaunch online. The [iOS PWA header audit](docs/ios-pwa-header-plan.md) documents the
 shell-version check, the user-confirmed blur fix, and remaining native-device acceptance for the adaptive layout.
 
-<p align="center"><img src="docs/screenshots/mobile-live.jpg" width="320" alt="Sentinel Eye on a phone: the live view as a two-column grid with a tab bar for Live, Playback, Events and Settings"></p>
+<p align="center">
+  <img src="docs/screenshots/mobile-live.jpg" width="300" alt="Sentinel Eye on phone: live view 2-column grid with bottom navigation capsule">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-settings.jpg" width="300" alt="Sentinel Eye on phone: compact grouped settings list">
+</p>
 
 ### Adaptive navigation and viewing
 
@@ -437,7 +442,7 @@ Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and pi
 
 ![Event review in the light theme](docs/screenshots/light-events.jpg)
 
-Online updates use a network-first static shell (`adaptive-v27`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
+Online updates use a network-first static shell (`adaptive-v33`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 
@@ -471,7 +476,7 @@ tested against a Samsung TV's Tizen browser, and meant to work on any TV browser
 
 It's a per-browser setting: turning it on for the TV changes nothing on your phone or laptop.
 
-![TV browser profile showing a decoded synthetic test stream; physical TV acceptance remains separate](docs/screenshots/tv-mode.jpg)
+![TV browser profile in fullscreen showing Channel-zero 4-camera composite overview and top navigation bar; physical TV acceptance remains separate](docs/screenshots/tv-mode.jpg)
 
 Results on an actual TV browser vary with its hardware and how current the browser is — treat any given
 smart TV as something to test, not a guaranteed target.

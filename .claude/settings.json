@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(.env*)",
+      "Read(data/**)",
+      "Write(.env*)",
+      "Write(data/**)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)"
+    ]
+  }
+}
