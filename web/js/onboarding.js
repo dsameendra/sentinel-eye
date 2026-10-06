@@ -3,19 +3,21 @@
 // Testing genuinely probes the recorder and Done genuinely lists what it found, saved only once the user
 // confirms "Go to Live".
 import { api } from './api.js';
-import { esc, icon } from './ui.js';
+import { esc, icon, modalRoot } from './ui.js';
 
 const STEPS = ['welcome', 'connect', 'testing', 'done'];
 
 /** @param ctx { settings(), saveAll(draft), go(hash) } — the same ctx every view gets from main.js. */
 export function onboardingDialog(ctx) {
-  const root = document.getElementById('modal-root');
+  const root = modalRoot();
   const s = { step: 'welcome', host: '', username: 'admin', port: '80', password: '', found: null, error: '', saving: false };
 
-  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
+  const close = () => { root._dispose = null; root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
+  root._dispose = close;
   const onKey = (e) => { if (e.key === 'Escape' && s.step !== 'testing') { e.stopPropagation(); close(); } };
 
   function render() {
+    if (root._dispose !== close) return;
     const idx = STEPS.indexOf(s.step);
     root.innerHTML = `<div class="scrim"><div class="dialog onboard-dialog" role="dialog" aria-modal="true" aria-label="First-run setup">
       <div class="onboard-dots">${STEPS.map((_, i) => `<span class="onboard-dot${i === idx ? ' on' : ''}"></span>`).join('')}</div>
@@ -107,6 +109,7 @@ export function onboardingDialog(ctx) {
         used.add(f.channel);
       }
       await ctx.saveAll(draft);
+      if (root._dispose !== close) return;
       close();
       ctx.go('#/live');
     } catch (e) {

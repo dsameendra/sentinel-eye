@@ -1,3 +1,4 @@
+import { ViewerControls, immersive, leaveViewer, bindViewerToggle } from './viewer.js';
 // AI Frame Enhancer (docs/SPEC.md section 7.8; Enhance board) — a full screen in two steps:
 //   1. Pick frames: a large preview of the reference frame (the middle of the ones selected — what the
 //      server aligns the others to), cropped to the region when one is set, over a strip of the up-to-11
@@ -8,7 +9,7 @@
 //      detected, OCR on demand, and Discard / Save.
 // Forensic-integrity rules are built in, not described: the source (pre-AI) frame is always fetched
 // alongside the enhanced one, and the "ENHANCED" label is on screen whenever any enhanced pixels are.
-import { esc, icon, toast, openPopover } from './ui.js';
+import { esc, icon, toast, openPopover, modalRoot } from './ui.js';
 import { ZoomPan } from './zoom.js';
 import { api } from './api.js';
 import { Enhancer, PRESETS as FILTER_PRESETS } from './enhance.js';
@@ -25,7 +26,7 @@ const pad2 = (n) => String(n).padStart(2, '0');
  *  enhancer closes), pausedIndex (which one is on screen), camName, channel (DVR channel number), atUtc
  *  (ISO), tzOffsetMin, defaultMode, defaultFidelity } */
 export function openEnhancePopup(opts) {
-  const root = document.getElementById('modal-root');
+  const root = modalRoot();
   const burst = opts.frames;
   const size = (f) => [f.displayWidth || f.naturalWidth || f.width, f.displayHeight || f.naturalHeight || f.height];
   const [FW, FH] = size(burst[0]);
@@ -141,6 +142,15 @@ export function openEnhancePopup(opts) {
 
   const $ = (s) => root.querySelector(s);
   const viewer = $('.enh2');
+  const exit = document.createElement('button');
+  exit.className = 'viewer-exit'; exit.setAttribute('aria-label', 'Exit expanded view');
+  exit.innerHTML = `${icon('collapse')}<span>Exit view</span>`;
+  exit.addEventListener('click', () => leaveViewer(viewer)); viewer.append(exit);
+  const viewerControls = new ViewerControls(viewer, {
+    chrome: '.enh2-bar,.enh2-under,.enh2-side', background: '.enh2-stage',
+    enabled: () => immersive(viewer) && step === 'result',
+    held: () => running || !!viewer.querySelector('.ocr-mode') || viewer.classList.contains('inspector-open'),
+  });
   const stage = $('.enh2-stage'), pic = $('.enh2-pic');
   const imgSrc = $('.enh2-src'), imgRes = $('.enh2-res'), after = $('.enh2-after');
   const filterCanvas = $('.enh2-filter');
@@ -276,6 +286,8 @@ export function openEnhancePopup(opts) {
     $('.enh2-crop').hidden = s !== 'crop';
     $('.enh2-result').hidden = s !== 'result';
     $('[data-x=back]').setAttribute('aria-label', s === 'pick' ? 'Close' : 'Back to frames');
+    if (s !== 'result') leaveViewer(viewer);
+    viewerControls.show();
     if (s === 'pick') paintPick();
   };
 
@@ -368,10 +380,13 @@ export function openEnhancePopup(opts) {
   });
   stage.addEventListener('mouseleave', () => { if (filterFlashlight) liveFilter?.setFlashlight(null); });
 
-  $('[data-x=fullscreen]').addEventListener('click', () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else viewer.requestFullscreen().catch(() => toast('Full screen was blocked by the browser.', 'bad'));
+  bindViewerToggle($('[data-x=fullscreen]'), viewer);
+  const details = document.createElement('button');
+  details.className = 'btn ghost enhancer-details'; details.textContent = 'Details'; details.setAttribute('aria-expanded', 'false');
+  details.addEventListener('click', () => {
+    const on = viewer.classList.toggle('inspector-open'); details.setAttribute('aria-expanded', String(on)); viewerControls.show();
   });
+  $('.enh2-under').append(details);
 
   // ---------------------------------------------------------------- side panel
   const STEP_ORDER = ['decode', 'fuse', 'restore', 'done'];
@@ -616,12 +631,15 @@ export function openEnhancePopup(opts) {
 
   // ---------------------------------------------------------------- close / back
   const close = () => {
+    root._dispose = null;
+    viewerControls.destroy();
     zoom?.destroy(); ro.disconnect(); liveFilter?.destroy();
     burst.forEach((f) => { try { f.close?.(); } catch { /* already closed */ } });
     document.removeEventListener('keydown', onKey, true);
     if (document.fullscreenElement === viewer) document.exitFullscreen();
     root.innerHTML = '';
   };
+  root._dispose = close;
   // Back from the result goes to the frames (a run still in flight finishes behind it); back from the
   // frames closes.
   const back = () => (step === 'pick' ? close() : showStep('pick'));

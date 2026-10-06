@@ -1,9 +1,10 @@
 // Live view: layouts, pages, drag-to-reorder, quality selection and the large "focus" view.
+import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle, viewerAutoHideDelay } from './viewer.js';
 import { LAYOUTS, layoutIds, layoutIcon, slotsOf } from './layouts.js';
 import { Tile } from './tile.js';
 import { ZoomHud } from './zoomhud.js';
 import { bookmarkDialog, closePopover, esc, icon, notify, toast, openPopover, shortcutsDialog } from './ui.js';
-import { barHTML, globalActionsHTML, markBell, wireGlobal } from './bar.js';
+import { barHTML, markBell, wireGlobal } from './bar.js';
 import { onboardingDialog } from './onboarding.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api, getJSON } from './api.js';
@@ -23,6 +24,9 @@ const CHAN0_ID = 'chan0';
 // entirely, the same escape hatch a real camera's own Aspect setting (Channels tab) already offers.
 const CHAN0_CAM = { id: CHAN0_ID, channel: 0, name: 'Channel 0', enabled: true, aspect: '16:9' };
 const isChan0 = (cam) => cam?.id === CHAN0_ID;
+const desktopFullscreenDock = () => matchMedia('(hover: hover) and (pointer: fine)').matches
+  && !document.documentElement.classList.contains('ios-pwa')
+  && !document.documentElement.classList.contains('apple-touch-device');
 
 export class LiveView {
   /** @param ctx { settings(): current settings, saveDisplay(display): Promise, go(hash) } */
@@ -122,19 +126,20 @@ export class LiveView {
       return;
     }
     this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="wall"></div><div class="pager-row" hidden></div>
-      <p class="live-hint">Long-press any tile for quick actions</p>
+      <button class="viewer-exit" data-a="leavewall" aria-label="Exit expanded view">${icon('collapse')}<span>Exit view</span></button>
       <div class="tv-fs-controls">
         <button class="tv-fs-btn" data-a="pgprev" title="Previous page" aria-label="Previous page">${icon('left')}</button>
         <span class="tv-fs-page"></span>
         <button class="tv-fs-btn" data-a="pgnext" title="Next page" aria-label="Next page">${icon('right')}</button>
-        <button class="tv-fs-btn" data-a="wallfs" title="Exit full screen (F)" aria-label="Exit full screen">${icon('fullscreen')}</button>
+        <button class="tv-fs-btn wall-fs-exit" data-a="wallexit" title="Exit full screen" aria-label="Exit full screen">${icon('collapse')}<span>Exit</span></button>
       </div>${this.tvMode ? `<button class="tv-page prev" data-a="tvprev" aria-label="Previous page">${icon('left')}</button><button class="tv-page next" data-a="tvnext" aria-label="Next page">${icon('right')}</button><div class="tv-ambient" aria-hidden="true"><span class="dot live"></span><span class="t"></span></div>` : ''}</main>`;
     this.live = this.root.querySelector('.liveview');
     this.bar = this.root.querySelector('.live-bar');
     this.wall = this.root.querySelector('.wall');
     this.pager = this.root.querySelector('.pager-row');
     this.wall.addEventListener('focusin', (e) => this._tvFocusIn(e));
-    this.live.querySelector('.tv-fs-controls [data-a=wallfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    this.live.querySelector('[data-a=leavewall]').addEventListener('click', () => leaveViewer(this.live));
+    this.live.querySelector('[data-a=wallexit]').addEventListener('click', () => leaveViewer(this.live));
     this.live.querySelector('[data-a=pgprev]').addEventListener('click', () => this.goPage(this.page - 1));
     this.live.querySelector('[data-a=pgnext]').addEventListener('click', () => this.goPage(this.page + 1));
     this._bindWallFsAutoHide();
@@ -151,6 +156,9 @@ export class LiveView {
     this.renderWall();
     if (this.tvMode) this._tvDefaultFocus();
     if (this.pendingFocusId) this.route(this.pendingFocusId);
+    // The confirmed TV entry expands both the overview and the camera grid (including viewer accounts
+    // whose recorder has no channel-zero stream). Native denial retains the app-level presentation.
+    if (this._autoFs) { this._autoFs = false; toggleViewer(this.live); }
   }
 
   // TV mode + full screen on the grid itself (not a single camera's own focus view, which already has
@@ -164,23 +172,36 @@ export class LiveView {
   // living there; .liveview's own className is set once in build() and never touched again), which the CSS
   // uses to hide every tile's name/SD-HD tag/tile-actions menu too — true full screen, not just no subbar.
   _bindWallFsAutoHide() {
-    const el = this.live.querySelector('.tv-fs-controls');
-    let hideTimer;
-    const hide = () => { el.classList.remove('show'); this.live.classList.remove('show'); };
-    // Exposed on the instance (not just closed over) so syncFullscreen() can call it directly the moment
-    // fullscreen actually starts — see that method's own comment for why that matters, not just this bind
-    // call's own initial show() a few lines down.
-    this._fsShow = () => {
-      el.classList.add('show');
-      this.live.classList.add('show');
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(hide, 2600);
+    this.wallControls?.destroy();
+    this.exitObserver?.disconnect();
+    if (this.layoutExit) document.removeEventListener('viewerchange', this.layoutExit);
+    // On touch/TV layouts, reserve the corner return control and measured TV header. The desktop Exit
+    // lives in the bottom dock instead, so it should not push camera actions away from a free corner.
+    this.layoutExit = () => {
+      const desktopDockExit = !this.tvMode && desktopFullscreenDock();
+      const exit = this.live.querySelector('.viewer-exit').getBoundingClientRect();
+      const tvHeader = this.tvMode && !immersive(this.live) ? this.bar.getBoundingClientRect().height : 0;
+      this.live.style.setProperty('--tv-header-height', `${tvHeader}px`);
+      for (const tile of this.wall.querySelectorAll('.tile')) {
+        const box = tile.getBoundingClientRect();
+        const overlaps = !desktopDockExit && immersive(this.live) && exit.width && box.right > exit.left && box.left < exit.right
+          && box.top < exit.bottom && box.bottom > exit.top;
+        const clearance = Math.max(10, overlaps ? exit.bottom - box.top + 8 : 0, tvHeader ? tvHeader - box.top + 10 : 0);
+        tile.style.setProperty('--exit-clearance', `${clearance}px`);
+        tile.style.setProperty('--overview-cap-top', `${tvHeader ? tvHeader - box.top + 18 : 18}px`);
+      }
     };
-    const show = this._fsShow;
-    this.live.addEventListener('mousemove', show);
-    this.live.addEventListener('mouseenter', show);
-    this.live.addEventListener('touchstart', show, { passive: true });
-    show();
+    this.exitObserver = new ResizeObserver(this.layoutExit);
+    this.exitObserver.observe(this.wall);
+    this.exitObserver.observe(this.bar);
+    this.exitObserver.observe(this.live.querySelector('.viewer-exit'));
+    document.addEventListener('viewerchange', this.layoutExit);
+    this.wallControls = new ViewerControls(this.live, {
+      chrome: '.tv-fs-controls,.overview-cap,.tile .ov,.tile-actions,.zhud', background: '.wall',
+      enabled: () => immersive(this.live), delay: () => this.tvMode ? 6000 : viewerAutoHideDelay(this.d.controls_autohide_sec),
+      held: () => this.edit,
+    });
+    this._fsShow = () => this.wallControls.show();
   }
 
   /** Keeps the floating fullscreen page controls in sync with the real pager — called from renderBar(),
@@ -190,6 +211,9 @@ export class LiveView {
     if (!el) return;
     const single = this.chan0Displayed;
     const pages = this.pages(), multi = !single && pages > 1;
+    const desktopExit = !this.tvMode && desktopFullscreenDock();
+    el.classList.toggle('has-exit', desktopExit);
+    el.classList.toggle('no-pages', !multi && !desktopExit);
     el.querySelector('[data-a=pgprev]').hidden = !multi;
     el.querySelector('[data-a=pgnext]').hidden = !multi;
     // hidden, not just emptied — a single-page view (or channel-zero's own single view) has nothing here,
@@ -209,10 +233,10 @@ export class LiveView {
     // button only exists in grid mode.
     const single = this.chan0Displayed;
     const context = `
-      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
-      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
+      ${this.channelZeroOn ? `<button class="btn ghost view-toggle" data-a="overview" aria-label="${single ? 'Show all cameras' : 'Show overview'}" aria-pressed="${single}" title="${single ? 'Switch back to the camera grid' : "Show the recorder's own Channel 0 overview, full screen"}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Grid · all cameras' : 'Overview'}</span></button>` : ''}
+      ${single || !this.wall ? '' : `<button class="btn ghost lay-btn" data-a="layout" aria-label="Camera layout: ${LAYOUTS[layout].label}" aria-haspopup="true" title="Layout and view options">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span>${icon('down')}</button>`}
       ${this.edit ? '<button class="btn primary sm" data-a="edit-done" title="Finish arranging (E or Esc)">Done</button>' : ''}`;
-    const actions = `${this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('fullscreen')}</button><span class="bar-sep"></span>` : ''}${globalActionsHTML(this.ctx)}`;
+    const actions = this.wall ? `<button class="btn icon ghost" data-a="wallfs" title="Full screen (F)" aria-label="Full screen">${icon('expand')}</button>` : '';
     this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', after: this.wall ? this._healthHTML() : '', context, actions, cls: 'live' });
     wireGlobal(this.bar, this.ctx);
     this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
@@ -223,7 +247,7 @@ export class LiveView {
       if (!this.wall) { this.build(); return; }
       this.renderBar(); this.renderWall();
     });
-    this.bar.querySelector('[data-a=wallfs]')?.addEventListener('click', () => this.toggleFullscreen(this.live));
+    bindViewerToggle(this.bar.querySelector('[data-a=wallfs]'), this.live);
     if (this._lastEventRows) markBell(this.bar, this._lastEventRows);
     this._renderPager();
     this._syncFsControls();
@@ -234,16 +258,16 @@ export class LiveView {
   _renderTvBar() {
     const single = this.chan0Displayed;
     const layout = this.effLayout();
-    const fs = !!document.fullscreenElement;
-    const actions = `<span class="tv-clock"></span>
+    const fs = immersive(this.live);
+    const context = `<span class="tv-clock"></span>
       ${this.channelZeroOn ? `<button class="btn ghost tv-btn view-toggle" data-a="overview" aria-pressed="${single}">${icon(single ? 'grid4' : 'overview')}<span>${single ? 'Camera grid' : 'Overview'}</span></button>` : ''}
-      ${single || !this.wall ? '' : `<button class="btn ghost tv-btn lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}
-      <button class="btn ghost tv-btn" data-a="tvfs">${icon(fs ? 'collapse' : 'expand')}<span>${fs ? 'Exit full screen' : 'Full screen'}</span></button>
-      <a class="btn icon ghost tv-btn" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>`;
-    this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Sentinel Eye', actions, cls: 'live tv' });
+      ${single || !this.wall ? '' : `<button class="btn ghost tv-btn lay-btn" data-a="layout" aria-haspopup="true">${layoutIcon(layout, 18)}<span>${LAYOUTS[layout].label}</span></button>`}`;
+    const actions = `<button class="btn ghost tv-btn" data-a="tvfs" aria-label="${fs ? 'Exit full screen' : 'Full screen'}">${icon(fs ? 'collapse' : 'expand')}<span>${fs ? 'Exit full screen' : 'Full screen'}</span></button>`;
+    this.bar.innerHTML = barHTML({ lead: 'brand', title: 'Live', context, actions, cls: 'live tv' });
+    wireGlobal(this.bar, this.ctx);
     this.bar.querySelector('[data-a=layout]')?.addEventListener('click', (e) => this._openViewMenu(e.currentTarget));
     this.bar.querySelector('[data-a=overview]')?.addEventListener('click', () => this._setOverview(!this.chan0Displayed));
-    this.bar.querySelector('[data-a=tvfs]').addEventListener('click', () => this.toggleFullscreen(this.live));
+    bindViewerToggle(this.bar.querySelector('[data-a=tvfs]'), this.live);
     const clock = this.bar.querySelector('.tv-clock');
     const tick = () => {
       const d = new Date();
@@ -389,6 +413,7 @@ export class LiveView {
       w.append(el);
     });
     warm?.forEach((t) => t.dispose());   // started but not needed after all
+    this.layoutExit?.();
     this.liveCount = 0; this.wallSince = Date.now();
     if (this.tvMode) {
       this.tvIndex = Math.max(0, Math.min(this.tiles.length - 1, this.tvIndex));
@@ -520,19 +545,16 @@ export class LiveView {
     // The Live board's Overview: full-bleed, an OVERVIEW pill + what it is, and the one action that means
     // something different here (bookmark = every real camera at this moment).
     t.el.classList.add('overview-tile');
-    t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>Channel zero</span></div>
-      ${this.ctx.can('operator') && !this.tvMode ? `<div class="overview-cap bottom"><span class="spacer"></span><button class="btn glass-btn" data-a="bookmark-all">${icon('bookmark')}Bookmark all cameras</button></div>` : ''}`);
-    t.el.querySelector('[data-a=bookmark-all]')?.addEventListener('click', (e) => { e.stopPropagation(); this.bookmarkAllCams(); });
+    t.el.insertAdjacentHTML('beforeend', `<div class="overview-cap top"><span class="ov-pill"><span class="dot live"></span>Overview</span><span>Channel zero</span></div>`);
+    // The tile's named bookmark action is the sole all-camera bookmark control.
+    // A large-view action is meaningless here: the recorder overview already occupies the wall.
+    t.el.querySelector('[data-a=focus]')?.remove();
+    // Overview already is the large view: its picture is a zoom/tap surface, not a dead remote button.
+    for (const attr of ['tabindex', 'role', 'aria-label']) t.el.querySelector('.hit')?.removeAttribute(attr);
+    if (!this.ctx.can('operator')) t.el.querySelector('[data-a=bookmark]')?.remove();
     w.append(t.el);
+    this.layoutExit?.();
     this.liveCount = 0; this.wallSince = Date.now();
-    if (this._autoFs) {
-      this._autoFs = false;
-      // Only ever fires once, right after the confirm-dialog flow in settings.js (ctx.armTvFullscreen) —
-      // that click is real user activation, but the settings save it waited on eats into how long the
-      // browser considers that activation still "fresh"; if it's expired by the time we get here,
-      // requestFullscreen rejects quietly and the floating fullscreen button (subbar) still works normally.
-      this.live.requestFullscreen?.().catch(() => {});
-    }
   }
 
   countLive() {
@@ -577,6 +599,9 @@ export class LiveView {
 
   rotate() {
     const sec = this.d.rotate_seconds;
+    if (document.body._openPopover || document.querySelector('#modal-root > *')) {
+      this.rotSince = Date.now(); this._dropPrewarm(); return;
+    }
     if (!sec || !this.rotating || this.edit || this.focus || this.pages() < 2 || document.hidden) { this._dropPrewarm(); return; }
     const left = sec * 1000 - (Date.now() - this.rotSince);
     if (left <= 0) { this.goPage(this.page + 1); return; }
@@ -626,6 +651,7 @@ export class LiveView {
     // (standard behaviour, not something this code controls), so without re-requesting it on the new
     // element below, every camera swap silently dropped out of fullscreen (found directly, not assumed).
     const wasFullscreen = this.focus && document.fullscreenElement === this.focus.el;
+    const wasImmersive = this.focus?.el.classList.contains('immersive');
     this._closing?.finishNow();
     // How it arrives: switching cameras slides the new picture in over a still of the old one; opening
     // from the grid flies the tile up to fill the screen (see _focusIn).
@@ -674,7 +700,7 @@ export class LiveView {
     // Focus board: glass bars over the picture (fading on idle), a zoom navigator once you're zoomed in,
     // and the actions that matter one tap away. Everything the old control strip had is still here — the
     // rarer ones (fit/fill, zoom buttons, shortcuts) live under ⋯.
-    f.innerHTML = `<div class="focus-bar">
+    f.innerHTML = `<button class="viewer-exit" data-a="leavefocus" aria-label="Exit full screen">${icon('collapse')}<span>Exit full screen</span></button><div class="focus-bar">
         <button class="btn icon ghost bar-back" data-a="close" title="Back to all cameras (Esc)" aria-label="Back to all cameras">${icon('left')}</button>
         <div class="bar-title"><h2>${esc(cam.name || 'Camera ' + cam.channel)}</h2>
           <div class="bar-sub"><span class="dot live"></span><span class="stat"></span><span class="tag fx" ${summarizeEnhParams(tile.enhParams).active ? '' : 'hidden'} title="Live filters active">${icon('wand')}</span></div></div>
@@ -705,8 +731,10 @@ export class LiveView {
     this.focus = { tile, id: cam.id, el: f, idx, fromGrid: !!fromGrid, keepWall: this.tvMode && !!this.wall, slot, hud: new ZoomHud(f, () => tile.zoom, { className: 'focus-zoom' }) };
     // Carry fullscreen across the swap (see the wasFullscreen comment above) — the old element's removal
     // above already dropped the browser out of fullscreen, so this is a fresh request, not a toggle.
+    if (wasImmersive || wasFullscreen) f.classList.add('immersive');
     if (wasFullscreen) f.requestFullscreen?.().catch(() => {});
     f.querySelector('[data-a=close]').addEventListener('click', () => this.ctx.go('#/live'));
+    f.querySelector('[data-a=leavefocus]').addEventListener('click', () => leaveViewer(f));
     f.querySelector('[data-a=snap]').addEventListener('click', () => { if (!tile.snapshot()) toast('No picture to save yet.', 'bad'); });
     f.querySelector('[data-a=replay]')?.addEventListener('click', () => this.openReplay(cam));
     f.querySelector('[data-a=playback]')?.addEventListener('click', () => {
@@ -714,7 +742,7 @@ export class LiveView {
       this.ctx.go(`#/playback/${cam.id}/${Math.round(Date.now() / 1000 - 60)}`);
     });
     f.querySelector('[data-a=bookmark]').addEventListener('click', () => (c0 ? this.bookmarkAllCams() : this.bookmarkNow(cam)));
-    f.querySelector('[data-a=fs]').addEventListener('click', () => this.toggleFullscreen(f));
+    bindViewerToggle(f.querySelector('[data-a=fs]'), f);
     f.querySelector('[data-a=enhance]').addEventListener('click', () => this._toggleFocusEnhanceMenu(tile));
     f.querySelector('[data-a=more]').addEventListener('click', (e) => this._openFocusMore(e.currentTarget, tile));
     f.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => tile.setKind(b.dataset.k)));
@@ -777,31 +805,18 @@ export class LiveView {
     f.querySelector('.stage-host').animate([{ transform: `translateX(${d}%)`, opacity: 0 }, { transform: 'none', opacity: 1 }], opt);
   }
 
-  // Same show-on-activity/hide-while-idle cycle Playback's topline/controls use, not a :hover reveal — see
-  // .focus:fullscreen's own CSS comment for why. A harmless no-op in windowed mode (nothing there reads the
-  // .show class the CSS only applies under .focus:fullscreen). Listeners live on `f` itself, so they're
-  // discarded along with it on close/swap — no separate teardown needed.
+  // Shared input policy: touch taps toggle, gestures hold, keyboard focus stays visible.
   _bindFocusAutoHide(f, stayUp = () => false) {
-    const chrome = f.querySelectorAll('.focus-bar, .focus-bottom, .nav-arrow, .focus-zoom');
-    let hideTimer;
-    // Stays up while the pointer is over the bars or the zoom HUD, or a remote has focus in them (and, for
-    // Instant replay, while it's paused — like any player).
-    const hide = () => {
-      if (stayUp() || f.querySelector('.focus-bar:hover, .focus-bottom:hover, .focus-zoom:hover, .focus-bar :focus-visible, .focus-bottom :focus-visible, .focus-zoom :focus-visible')) { hideTimer = setTimeout(hide, 2600); return; }
-      chrome.forEach((a) => a.classList.remove('show'));
-    };
-    const show = () => {
-      chrome.forEach((a) => a.classList.add('show'));
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(hide, 2600);
-    };
-    f.addEventListener('mousemove', show);
-    f.addEventListener('mouseenter', show);
-    f.addEventListener('touchstart', show, { passive: true });
-    f.addEventListener('focusin', show);
+    const controls = new ViewerControls(f, {
+      chrome: '.focus-bar,.focus-bottom,.nav-arrow,.focus-zoom',
+      background: '.stage-host,.replay-stage,.focus,.replay-overlay',
+      paused: stayUp, delay: () => viewerAutoHideDelay(this.d.controls_autohide_sec),
+      held: () => !!f.querySelector('.editing') || !!this.replay && this.replay.el !== f,
+    });
+    f._viewerControls = controls;
+    const show = () => controls.show();
     if (f.classList.contains('focus')) this._focusShowFocus = show;
     this._focusShow = show;
-    show();
   }
 
   paintFocus(tile) {
@@ -854,6 +869,7 @@ export class LiveView {
     // silent: this is openFocus() swapping to a different camera, not a genuine close — the caller decides
     // whether to carry fullscreen over to the new element (see openFocus's wasFullscreen), not this exit.
     const fo = this.focus;
+    fo.el._viewerControls?.destroy();
     const wasFs = document.fullscreenElement === fo.el;
     if (!silent && wasFs) document.exitFullscreen?.();
     this.focus = null;
@@ -1003,7 +1019,7 @@ export class LiveView {
     const r = document.createElement('div');
     r.className = 'replay-overlay' + (this.fitMode() === 'cover' ? ' fill' : '');
     r.dataset.tvScope = '';
-    r.innerHTML = `<div class="focus-bar">
+    r.innerHTML = `<button class="viewer-exit" data-a="returnlive" aria-label="Close instant replay">${icon('left')}<span>Back to live</span></button><div class="focus-bar">
         <button class="btn icon ghost bar-back" data-a="x" title="Close (Esc)" aria-label="Close instant replay">${icon('left')}</button>
         <div class="bar-title"><h2>Instant replay</h2><div class="bar-sub"><span class="dot wait"></span><span class="stat">Starting…</span><span>· ${esc(cam.name || 'Camera ' + cam.channel)}</span></div></div>
         <span class="spacer"></span>
@@ -1045,6 +1061,7 @@ export class LiveView {
     this.replay = rp;
     rp.tick = setInterval(() => this._replayPaint(), 250);   // "now" keeps moving even while paused
     const on = (a, fn) => r.querySelector(`[data-a=${a}]`).addEventListener('click', fn);
+    on('returnlive', () => this.closeReplay());
     on('live', () => this.closeReplay());
     on('x', () => this.closeReplay());
     on('play', () => this.replayToggle());
@@ -1108,6 +1125,7 @@ export class LiveView {
   closeReplay() {
     if (!this.replay) return;
     clearInterval(this.replay.tick);
+    this.replay.el._viewerControls?.destroy();
     this.replay.player.destroy();
     this.replay.el.remove();
     this.replay = null;
@@ -1123,10 +1141,7 @@ export class LiveView {
   }
 
   // ---------------------------------------------------------------- fullscreen & keys
-  toggleFullscreen(el) {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else el?.requestFullscreen?.().catch(() => toast('Full screen is not available here.', 'bad'));
-  }
+  toggleFullscreen(el) { toggleViewer(el); }
   // Restarts the fullscreen chrome's idle timer the moment fullscreen actually begins, not whenever
   // _bindWallFsAutoHide happened to run (build() time — which, via the Settings "go to TV mode" confirm
   // flow, can be seconds earlier: a settings save, a navigation, then the fullscreen request itself all
@@ -1150,7 +1165,6 @@ export class LiveView {
     if (tvPlay && this.replay) { e.preventDefault(); this.replayToggle(); return; }
     if (tvPlay) { e.preventDefault(); this._tvPlayPause(); return; }
     if (tvBack && document.body._openPopover) { e.preventDefault(); closePopover(); return; }
-    if (k === '?') { shortcutsDialog(); return; }
     if (this.replay) {
       // Space plays/pauses (unless a remote is on one of the replay's own buttons); Home starts over.
       const onBtn = document.activeElement?.closest?.('.replay-overlay button');
@@ -1262,9 +1276,13 @@ export class LiveView {
   }
 
   destroy() {
+    this.exitObserver?.disconnect();
+    if (this.layoutExit) document.removeEventListener('viewerchange', this.layoutExit);
     this._closing?.finishNow();   // a camera still flying back to the grid lands now, before the grid goes
     this._dropPrewarm();
     this.disposeTiles();
+    this.wallControls?.destroy();
+    this.focus?.el._viewerControls?.destroy();
     this.focus?.tile.dispose();
     this.focus?.hud?.destroy();
     this.focus = null;

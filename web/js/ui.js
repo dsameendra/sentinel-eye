@@ -1,4 +1,112 @@
 // Small UI helpers: escaping, icons, toasts, dialogs.
+// Kept in this existing public entry module so anonymous clients work with older running servers.
+// Preserve focusability for browsers without native inert (older TV engines).
+export function disableInteraction(node) {
+  const had = node.hasAttribute('inert');
+  const aria = node.getAttribute('aria-hidden');
+  const saved = [];
+  if (!('inert' in node)) {
+    node.querySelectorAll('a[href],button,input,select,textarea,[tabindex]').forEach(el => {
+      saved.push([el, el.getAttribute('tabindex')]); el.tabIndex = -1;
+    });
+  }
+  node.setAttribute('inert', '');
+  node.setAttribute('aria-hidden', 'true');
+  return () => {
+    if (!had) node.removeAttribute('inert');
+    aria === null ? node.removeAttribute('aria-hidden') : node.setAttribute('aria-hidden', aria);
+    for (const [el, value] of saved) value === null ? el.removeAttribute('tabindex') : el.setAttribute('tabindex', value);
+  };
+}
+
+// Shared viewport geometry. Rendering and streams remain owned by the current view.
+const root = document.documentElement;
+let frame = 0;
+const bars = new Set();
+const observer = new ResizeObserver(queue);
+const inactive = new Map();
+let currentLayer = null, restoreFocus = null;
+export function compactLayout() {
+  const touch = navigator.maxTouchPoints > 0 || matchMedia('(any-pointer: coarse)').matches || navigator.standalone === true;
+  return innerWidth <= 640 || touch && innerHeight <= 540 && innerWidth > innerHeight && innerWidth <= 1100;
+}
+export function scopeLayers() {
+  const layer = document.body._openPopover || document.querySelector('#modal-root > *') || document.querySelector('.ev-side.open')
+    || [...document.querySelectorAll('.replay-overlay,.focus,.immersive')].at(-1);
+  const next = new Set();
+  if (layer) for (let node = layer; node?.parentElement && node !== document.body; node = node.parentElement) {
+    for (const sibling of node.parentElement.children) {
+      // The filter sheet's backdrop remains clickable; a dialog over the sheet owns it instead.
+      const backdrop = layer.matches('.ev-side.open') && sibling.matches('.ev-scrim');
+      if (sibling !== node && !backdrop && !sibling.matches('#statusbar,#toasts,#notifs,script,style,link')) next.add(sibling);
+    }
+  }
+  for (const [node, restore] of inactive) if (!next.has(node)) { restore(); inactive.delete(node); }
+  if (layer !== currentLayer) {
+    if (!currentLayer) restoreFocus = document.activeElement;
+    currentLayer = layer;
+    if (layer && !layer.contains(document.activeElement)) layer.querySelector('button:not([disabled]),input:not([disabled]),[tabindex="0"],a[href]')?.focus({ preventScroll: true });
+    if (!layer && restoreFocus?.isConnected && !restoreFocus.closest('[inert]')) restoreFocus.focus({ preventScroll: true });
+  }
+  for (const node of next) if (!inactive.has(node)) inactive.set(node, disableInteraction(node));
+}
+function queue() { if (!frame) frame = requestAnimationFrame(update); }
+function update() {
+  frame = 0;
+  const vv = window.visualViewport;
+  const width = innerWidth, height = innerHeight;
+  const compact = compactLayout();
+  root.classList.toggle('compact-ui', compact);
+  root.classList.toggle('short-ui', height <= 540);
+  const keyboard = !!document.activeElement?.matches('input:not([type=range]):not([type=checkbox]):not([type=radio]),textarea,[contenteditable]')
+    && !!vv && height - vv.height > 140;
+  root.classList.toggle('keyboard-open', keyboard);
+  root.style.setProperty('--visual-height', `${vv?.height || height}px`);
+  root.style.setProperty('--visual-top', `${vv?.offsetTop || 0}px`);
+  const layers = [...document.querySelectorAll('.focus,.replay-overlay,.enh2,.xp,.immersive')];
+  root.classList.toggle('viewer-open', !!layers.length || !!document.fullscreenElement);
+  root.classList.toggle('cover-open', !!document.querySelector('.enh2,.xp,#modal-root > *'));
+  const nav = document.querySelector('.tabbar');
+  const shellBottom = document.getElementById('app')?.getBoundingClientRect().bottom ?? height;
+  const footprint = nav && getComputedStyle(nav).display !== 'none' ? Math.max(0, shellBottom - nav.getBoundingClientRect().top + 8) : 0;
+  root.style.setProperty('--nav-footprint', `${footprint}px`);
+  scopeLayers();
+  // Label existing table cells for compact cards without cloning inputs or replacing their bindings.
+  document.querySelectorAll('table.tbl').forEach(table => {
+    const headings = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    table.querySelectorAll('tbody tr:not(.adv)').forEach(row => [...row.children].forEach((cell, i) => {
+      cell.dataset.label = headings[i] || cell.querySelector('input')?.getAttribute('aria-label') || 'Actions';
+    }));
+  });
+  document.querySelectorAll('.topbar,.tabbar,.savebar').forEach(el => {
+    if (!bars.has(el)) { bars.add(el); observer.observe(el); }
+  });
+  for (const el of bars) if (!el.isConnected) { observer.unobserve(el); bars.delete(el); }
+  document.dispatchEvent(new Event('layoutchange'));
+}
+addEventListener('resize', queue);
+matchMedia('(any-pointer: coarse)').addEventListener('change', queue);
+window.visualViewport?.addEventListener('resize', queue);
+window.visualViewport?.addEventListener('scroll', queue);
+document.addEventListener('focusin', queue); document.addEventListener('focusout', queue);
+document.addEventListener('viewerchange', queue);
+new MutationObserver(records => {
+  if (records.some(r => r.type === 'childList' && [...r.addedNodes, ...r.removedNodes].some(n =>
+    n.nodeType === 1 && (n.matches('.topbar,.tabbar,.savebar,.focus,.replay-overlay,.enh2,.xp,.scrim')
+      || n.querySelector('.topbar,.tabbar,.savebar,.focus,.replay-overlay,.enh2,.xp,.scrim')))
+    || r.type === 'attributes' && r.target.matches('.ev-side,.immersive,.focus,.replay-overlay,.menu')) ) queue();
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+new MutationObserver(queue).observe(root, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+queue();
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || !currentLayer) return;
+  const list = [...currentLayer.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea,[tabindex="0"]')]
+    .filter(el => el.getClientRects().length && !el.closest('[inert],[hidden]'));
+  if (!list.length) return;
+  if (e.shiftKey && document.activeElement === list[0]) { e.preventDefault(); list.at(-1).focus(); }
+  else if (!e.shiftKey && document.activeElement === list.at(-1)) { e.preventDefault(); list[0].focus(); }
+}, true);
+
 
 // The Fullscreen API paints only the fullscreened element's own subtree (plus the "top layer") — #modal-
 // root and #toasts are both direct children of <body> (web/index.html), siblings of #app, so the moment
@@ -154,13 +262,22 @@ function trapTab(e, container) {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
+export function closeModal() {
+  const root = document.getElementById('modal-root');
+  root?._dispose?.();
+}
+export function modalRoot() {
+  closePopover(); closeModal();
+  return document.getElementById('modal-root');
+}
 export function confirmDialog({ title, body, ok = 'Confirm', danger = false }) {
   return new Promise((resolve) => {
-    const root = document.getElementById('modal-root');
+    const root = modalRoot();
     root.innerHTML = `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <h3>${esc(title)}</h3><p>${esc(body)}</p>
       <div class="row"><button class="btn" data-x="0">Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" data-x="1">${esc(ok)}</button></div></div></div>`;
-    const done = (v) => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const done = (v) => { root._dispose = null; root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
+    root._dispose = () => { root._dispose = null; done(false); };
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } else trapTab(e, root.querySelector('.dialog')); };
     document.addEventListener('keydown', onKey, true);
     root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(false); });
@@ -172,7 +289,7 @@ export function confirmDialog({ title, body, ok = 'Confirm', danger = false }) {
 /** Small "bookmark this moment" dialog: title, note, severity. Resolves {title, note, severity} or null on cancel. */
 export function bookmarkDialog({ subtitle = '' } = {}) {
   return new Promise((resolve) => {
-    const root = document.getElementById('modal-root');
+    const root = modalRoot();
     root.innerHTML = `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="Add bookmark">
       <h3>${icon('flag')} Add bookmark</h3>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}
       <div class="form" style="grid-template-columns:1fr">
@@ -184,7 +301,8 @@ export function bookmarkDialog({ subtitle = '' } = {}) {
         </div></div>
       </div>
       <div class="row dialog-actions"><button class="btn" data-x="0">Cancel</button><button class="btn primary" data-x="1">${icon('flag')} Save bookmark</button></div></div></div>`;
-    const done = (v) => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const done = (v) => { root._dispose = null; root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
+    root._dispose = () => { root._dispose = null; done(null); };
     const submit = () => done({
       title: root.querySelector('#bm-title').value.trim(),
       note: root.querySelector('#bm-note').value.trim(),
@@ -242,10 +360,10 @@ const SHORTCUT_GROUPS = [
   ] },
 ];
 
-/** The "?" overlay (Live and Playback) — a read-only keyboard-shortcuts reference. No return value; just
+/** The "?" overlay — a read-only reference for Live and Playback shortcuts. No return value; just
  * shows until Escape, an outside click, or the close button. */
 export function shortcutsDialog() {
-  const root = document.getElementById('modal-root');
+  const root = modalRoot();
   const group = (g) => `<div class="card shortcuts-card"><h3>${esc(g.title)}</h3>${g.rows.map(([keys, label]) =>
     `<div class="shortcuts-row">${keys.map((k) => `<kbd class="key">${esc(k)}</kbd>`).join('')}<span class="shortcuts-label">${esc(label)}</span></div>`).join('')}</div>`;
   root.innerHTML = `<div class="scrim"><div class="dialog shortcuts-dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
@@ -254,7 +372,8 @@ export function shortcutsDialog() {
     <div class="shortcuts-grid">${SHORTCUT_GROUPS.map(group).join('')}</div>
     <p class="hint" style="margin:10px 0 0">On the Overview (Channel-zero), B bookmarks every camera at once.</p>
   </div></div>`;
-  const done = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
+  const done = () => { root._dispose = null; root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); };
+  root._dispose = () => { root._dispose = null; done(); };
   const onKey = (e) => { if (e.key === 'Escape' || e.key === '?') { e.stopPropagation(); done(); } else trapTab(e, root.querySelector('.dialog')); };
   document.addEventListener('keydown', onKey, true);
   root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) done(); });
@@ -288,18 +407,30 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   // panel scrolls inside itself instead of running off the screen.
   let side = null;
   const place = () => {
+    const edge = className.includes('cal-popover') && innerWidth <= 360 ? 0 : 12;
+    menu.style.maxWidth = `calc(100vw - var(--safe-left,0px) - var(--safe-right,0px) - ${edge * 2}px)`;
     const r = anchorEl.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - 14, above = r.top - 14;
+    const pwa = document.documentElement.classList.contains('ios-pwa');
+    const header = anchorEl.closest('.topbar, .focus-bar') || document.fullscreenElement?.querySelector('.topbar, .focus-bar');
+    const topEdge = pwa ? Math.max(8, document.getElementById('statusbar')?.getBoundingClientRect().height || 0,
+      header ? parseFloat(getComputedStyle(header).paddingTop) || 0 : 0) : 8;
+    const view = window.visualViewport;
+    const bottomEdge = view ? Math.min(innerHeight, view.offsetTop + view.height) : innerHeight;
+    const below = bottomEdge - r.bottom - 14, above = r.top - topEdge - 6;
     menu.style.maxHeight = '';
     const natural = menu.scrollHeight;
-    side ||= natural <= below || below >= above ? 'below' : 'above';
-    const room = Math.max(120, side === 'below' ? below : above);
+    if (pwa || !side) side = natural <= below || below >= above ? 'below' : 'above';
+    const room = Math.max(0, side === 'below' ? below : above);
     menu.style.maxHeight = `${room}px`;
     const mw = menu.offsetWidth, mh = Math.min(natural, room);
     let left = align === 'left' ? r.left : r.right - mw;
-    left = Math.min(Math.max(left, 8), window.innerWidth - mw - 8);
+    const safeStyle = getComputedStyle(document.documentElement);
+    const leftEdge = Math.max(edge, parseFloat(safeStyle.getPropertyValue('--safe-left')) || 0);
+    const rightEdge = Math.max(edge, parseFloat(safeStyle.getPropertyValue('--safe-right')) || 0);
+    left = Math.min(Math.max(left, leftEdge), window.innerWidth - mw - rightEdge);
     menu.style.left = `${left}px`;
-    menu.style.top = `${side === 'below' ? r.bottom + 6 : r.top - mh - 6}px`;
+    const top = side === 'below' ? r.bottom + 6 : r.top - mh - 6;
+    menu.style.top = `${Math.max(topEdge, Math.min(top, bottomEdge - mh - 8))}px`;
   };
   place();
   let raf = 0;
@@ -308,13 +439,17 @@ export function openPopover(anchorEl, innerHTML, { className = '', align = 'righ
   ro.observe(menu);
   const onResize = () => place();
   window.addEventListener('resize', onResize);
-  const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== anchorEl) closePopover(); };
-  const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
-  setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
-  menu._cleanup = () => { ro.disconnect(); window.removeEventListener('resize', onResize); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
+  const viewport = window.visualViewport;
+  viewport?.addEventListener('resize', onResize);
+  viewport?.addEventListener('scroll', onResize);
+  const onDoc = (e) => { if (!menu.contains(e.target) && !anchorEl.contains(e.target)) { e.preventDefault(); e.stopPropagation(); closePopover(); } };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closePopover(); anchorEl.focus({ preventScroll: true }); } else if (e.key === 'Tab') trapTab(e, menu); };
+  const install = setTimeout(() => { if (!menu.isConnected) return; document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey, true); }, 0);
+  menu._cleanup = () => { clearTimeout(install); cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener('resize', onResize); viewport?.removeEventListener('resize', onResize); viewport?.removeEventListener('scroll', onResize); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey, true); };
   menu._anchor = anchorEl;
   menu._onClose = onClose;
   document.body._openPopover = menu;
+  scopeLayers();
   return menu;
 }
 
@@ -326,6 +461,7 @@ export function closePopover() {
   menu.remove();
   document.body._openPopover = null;
   menu._onClose?.();
+  scopeLayers();
 }
 
 /** Debounce helper. */

@@ -63,7 +63,9 @@ function passwordStep() {
     });
   });
   card.querySelector('[data-a=pair]').addEventListener('click', pairStep);
-  card.querySelector('#u').focus();
+  // Leave touch users at the complete form; initial focus can open the keyboard and obscure it.
+  card.closest('.auth-page')?.scrollTo(0, 0);
+  if (!matchMedia('(any-pointer: coarse)').matches && navigator.standalone !== true) card.querySelector('#u').focus({ preventScroll: true });
 }
 
 function codeStep(challenge, recovery = false) {
@@ -94,7 +96,8 @@ function codeStep(challenge, recovery = false) {
   });
   card.querySelector('[data-a=swap]').addEventListener('click', () => codeStep(challenge, !recovery));
   card.querySelector('[data-a=back]').addEventListener('click', passwordStep);
-  card.querySelector('#c').focus();
+  card.closest('.auth-page')?.scrollTo(0, 0);
+  card.querySelector('#c').focus({ preventScroll: true });
 }
 
 let pollTimer = 0, tickTimer = 0;
@@ -144,7 +147,7 @@ function expired() {
     <div class="auth-alt"><button class="btn primary" data-a="again">Get a new code</button><button class="btn ghost" data-a="back">Sign in with a password</button></div>`;
   card.querySelector('[data-a=again]').addEventListener('click', pairStep);
   card.querySelector('[data-a=back]').addEventListener('click', passwordStep);
-  card.querySelector('[data-a=again]').focus();
+  card.querySelector('[data-a=again]').focus({ preventScroll: true });
 }
 
 async function boot() {

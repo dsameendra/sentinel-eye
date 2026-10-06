@@ -1,7 +1,7 @@
 // Quick event preview (Events page): plays the clip in a small, centered popup without navigating away to
 // Playback — for "what actually happened here", not full review (scrubbing, export, enhancement all still
 // go through Playback). Reuses the same WebCodecs player Playback and Live's instant replay already use.
-import { esc, icon, toast } from './ui.js';
+import { esc, icon, toast, modalRoot } from './ui.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api } from './api.js';
 
@@ -12,7 +12,7 @@ const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', vid
 /** @param opts { ev (event row), cam (channel settings object, or null if not enabled), onOpenPlayback() } */
 export function openEventPreview(opts) {
   const { ev, cam } = opts;
-  const root = document.getElementById('modal-root');
+  const root = modalRoot();
 
   // A motion/line/tamper span has a real start/end (already stitched — see events.js's header comment);
   // pad both ends by 2s so the lead-in/lead-out isn't cut off mid-action. A bookmark (or anything else
@@ -48,10 +48,12 @@ export function openEventPreview(opts) {
   const statusEl = root.querySelector('.evp-status');
 
   const close = () => {
+    root._dispose = null;
     player?.destroy();
     document.removeEventListener('keydown', onKey);
     root.innerHTML = '';
   };
+  root._dispose = close;
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   root.querySelector('.scrim').addEventListener('click', (e) => { if (e.target.classList.contains('scrim')) close(); });

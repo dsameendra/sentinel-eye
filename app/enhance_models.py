@@ -152,8 +152,35 @@ def _files(kind: str, mid: str):
     return [(_kind_dir(kind) / e["file"], e["url"], e["size"], e["sha256"])]
 
 
-def is_ready(kind: str, mid: str) -> bool:
-    return all(d.is_file() and d.stat().st_size == size for d, _, size, _ in _files(kind, mid))
+_verified_lock = threading.Lock()
+_verified: dict[Path, tuple[tuple[int, int, int], bool]] = {}
+
+
+def _verified_file(path: Path, size: int, sha256: str, *, force: bool = False) -> bool:
+    """Validate one cached model file against its pinned digest.
+
+    Settings polls model status during downloads. Reuse a digest result while the file's stat signature is
+    unchanged there; inference calls force a fresh hash before trusting the weights.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+    if not path.is_file() or stat.st_size != size:
+        return False
+    stamp = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    with _verified_lock:
+        cached = _verified.get(path)
+        if not force and cached and cached[0] == stamp:
+            return cached[1]
+    valid = _sha256(path) == sha256
+    with _verified_lock:
+        _verified[path] = (stamp, valid)
+    return valid
+
+
+def is_ready(kind: str, mid: str, *, verify: bool = False) -> bool:
+    return all(_verified_file(d, size, sha, force=verify) for d, _, size, sha in _files(kind, mid))
 
 
 def path_for(kind: str, mid: str) -> Path:
@@ -214,7 +241,8 @@ def ensure(kind: str, mid: str, progress=None) -> Path:
     e = _entry(kind, mid)
     files = _files(kind, mid)
     result = files[0][0].parent if kind == "plate" else files[0][0]
-    if is_ready(kind, mid) or _legacy_copy(kind, mid):
+    # Always re-hash before trusting weights for inference; status() can reuse the cached stat signature.
+    if is_ready(kind, mid, verify=True) or _legacy_copy(kind, mid):
         return result
     key = (kind, mid)
     with _dl_lock:
@@ -224,7 +252,7 @@ def ensure(kind: str, mid: str, progress=None) -> Path:
     try:
         mb = max(1, e["size"] // 1_000_000)
         for dst, url, size, sha in files:
-            if dst.is_file() and dst.stat().st_size == size:
+            if _verified_file(dst, size, sha, force=True):
                 _downloading[key]["done"] += size
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)

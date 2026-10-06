@@ -16,7 +16,18 @@ import { closePopover, esc, icon, openPopover, toast } from './ui.js';
  * @param o.actions  HTML for the right-hand controls
  * @param o.size     'headline' (default, 16px) or 'title' (24px — Settings/Events/Account per the boards)
  */
+let navigationContext;
+export function configureNavigation(ctx) { navigationContext = ctx; }
+const destinations = [['live','grid4','Live'],['playback','calendar','Playback'],['events','walk','Events'],['settings','gear','Settings']];
+export function destinationHTML(ctx, className = 'app-destinations') {
+  const selected = location.hash.split('/')[1] || 'live';
+  const visible = destinations.filter(([id]) => !ctx.tvMode?.() || ctx.can('operator') || id === 'live' || id === 'settings');
+  return `<nav class="${className}" aria-label="Main">${visible.map(([id,ic,label]) => `<a class="app-dest" href="#/${id}" data-tab="${id}" aria-label="${label}" ${id === selected || id === 'events' && selected === 'search' ? 'aria-current="page"' : ''} ${['playback','events'].includes(id) && !ctx.can('operator') ? 'data-locked="true"' : ''}>${icon(ic)}<span>${label}</span></a>`).join('')}</nav>`;
+}
+
 export function barHTML(o) {
+  const global = navigationContext && o.title !== 'Export clip';
+  const actions = o.actions || '';
   const lead = o.lead === 'back'
     ? `<button class="btn icon ghost bar-back" data-bar="back" title="Back to Live" aria-label="Back to Live">${icon('left')}</button>`
     : '<a class="bar-brand" href="#/live" aria-label="Sentinel Eye — Live"><span class="brand-mark"></span></a>';
@@ -26,17 +37,23 @@ export function barHTML(o) {
     ${o.after || ''}
     ${o.context ? `<div class="bar-ctx">${o.context}</div>` : ''}
     <span class="spacer"></span>
-    ${o.actions ? `<div class="bar-actions">${o.actions}</div>` : ''}
+    ${actions ? `<div class="bar-actions bar-page-actions">${actions}</div>` : ''}
+    ${global ? destinationHTML(navigationContext) : ''}
+    ${global ? `<div class="bar-actions bar-global-actions">${globalActionsHTML(navigationContext)}</div>` : ''}
   </header>`;
 }
 
 /** Back chevron goes home (Live). Global cluster buttons are wired by wireGlobal(). */
 export function wireBar(root, ctx, { back = '#/live' } = {}) {
+  wireGlobal(root, ctx);
+  const backButton = root.querySelector('[data-bar=back]');
+  const backLabel = back === 'history' ? 'Back' : back === '#/settings' ? 'Back to Settings' : 'Back to Live';
+  if (backButton) { backButton.title = backLabel; backButton.setAttribute('aria-label', backLabel); }
   // back: a hash, or 'history' — return to wherever the user came from (Account is reached from several
   // places), falling back to Live on a fresh tab with nothing behind it.
   root.querySelector('[data-bar=back]')?.addEventListener('click', () => {
     const prev = ctx.prevHash?.();
-    ctx.go(back !== 'history' ? back : prev && prev !== location.hash ? prev : '#/live');
+    ctx.go(typeof back === 'function' ? back() : back !== 'history' ? back : prev && prev !== location.hash ? prev : '#/live');
   });
 }
 
@@ -50,13 +67,7 @@ const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion
 const KIND_DOT = { motion: 'var(--ev-motion)', line: 'var(--ev-line)', intrusion: 'var(--ev-line)', tamper: 'var(--tamper)', videoloss: 'var(--ev-videoloss)', bookmark: 'var(--ev-bookmark)' };
 
 export function globalActionsHTML(ctx) {
-  const op = ctx.can('operator');
-  const lock = op ? '' : '<span class="lock-badge" aria-hidden="true"></span>';
-  return `
-    <button class="btn icon ghost gbtn" data-g="playback" title="${op ? 'Playback' : 'Playback — needs an Operator or Admin account'}" aria-label="Playback">${icon('calendar')}${lock}</button>
-    <button class="btn icon ghost gbtn" data-g="events" title="${op ? 'Events' : 'Events — needs an Operator or Admin account'}" aria-label="Events">${icon('walk')}${lock}</button>
-    ${op ? `<button class="btn icon ghost gbtn" data-g="bell" title="Notifications" aria-label="Notifications" aria-haspopup="true">${icon('bell')}<span class="bell-dot" hidden></span></button>` : ''}
-    <a class="btn icon ghost gbtn" data-g="settings" href="#/settings" title="Settings" aria-label="Settings">${icon('gear')}</a>
+  return `${ctx.can('operator') ? `<button class="btn icon ghost gbtn" data-g="bell" title="Notifications" aria-label="Notifications" aria-haspopup="true">${icon('bell')}<span class="bell-dot" hidden></span></button>` : ''}
     <button class="avatar" data-g="me" aria-haspopup="menu" aria-label="Account">${avatarInner(ctx)}</button>`;
 }
 
@@ -71,6 +82,8 @@ function avatarInner(ctx) {
 }
 
 export function wireGlobal(root, ctx) {
+  if (root._globalWired === root.querySelector('[data-g=me]')) return;
+  root._globalWired = root.querySelector('[data-g=me]');
   const locked = (what) => toast(`${what} needs an Operator or Admin account — ask an admin to change your role.`, 'bad', 5000);
   root.querySelector('[data-g=playback]')?.addEventListener('click', () => (ctx.can('operator') ? ctx.go('#/playback') : locked('Playback')));
   root.querySelector('[data-g=events]')?.addEventListener('click', () => (ctx.can('operator') ? ctx.go('#/events') : locked('Events')));
@@ -161,6 +174,6 @@ function openMe(btn, ctx) {
 // every view, so it survives view swaps; main.js's route() keeps aria-current in sync.
 export function tabBarHTML(ctx) {
   const op = ctx.can('operator');
-  const tab = (n, ic, label, lockedTab) => `<a class="tab${lockedTab ? ' locked' : ''}" data-tab="${n}" href="#/${n}">${icon(ic)}<span>${label}</span></a>`;
+  const tab = (n, ic, label, lockedTab) => `<a class="tab${lockedTab ? ' locked' : ''}" data-tab="${n}" href="#/${n}" aria-label="${label}">${icon(ic)}<span>${label}</span></a>`;
   return `<nav class="tabbar" aria-label="Main">${tab('live', 'grid4', 'Live')}${tab('playback', 'calendar', 'Playback', !op)}${tab('events', 'walk', 'Events', !op)}${tab('settings', 'gear', 'Settings')}</nav>`;
 }

@@ -51,6 +51,12 @@ try:
     p = EM.ensure("upscaler", "_test")
     check("download lands in data/models/upscalers, verified", p.read_bytes() == blob and p.parent.name == "upscalers")
     p.unlink()
+    # An existing damaged file with the expected length must not pass the cache readiness check.
+    damaged = bytes([blob[0] ^ 0xFF]) + blob[1:]
+    p.write_bytes(damaged)
+    p = EM.ensure("upscaler", "_test")
+    check("same-size corrupted cache is replaced with verified weights", p.read_bytes() == blob)
+    p.unlink()
     EM.UPSCALERS["_test"]["sha256"] = "0" * 64
     try:
         EM.ensure("upscaler", "_test")
@@ -83,6 +89,15 @@ try:
     import numpy as np
     import torch
     import enhance_ai as E
+
+    class CachedFace:
+        bg_upsampler = object()
+    E._up = ("old", object())
+    E._face = ("face", CachedFace())
+    E._release_upsampler()
+    check("upscaler replacement releases the face restorer's old GPU reference",
+          E._up is None and E._face[1].bg_upsampler is None)
+    E._face = None
 
     class FakeX4:   # nearest-neighbour x4, so any seam or offset in the stitching shows as a mismatch
         scale = 4

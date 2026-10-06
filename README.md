@@ -12,10 +12,9 @@ LAN and, when the recorder's proprietary "Stream Encryption" is turned on, decry
 was reverse-engineered from scratch — see `tools/NOTES.md`). Nothing about how you watch or review your
 cameras ever leaves your network.
 
-![Sentinel Eye's live view — eight cameras in a 1+7 layout, dark themed](docs/screenshots/live-grid.png)
+![Live camera grid with four synthetic test-pattern streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
 
-*(Every screenshot here shows synthetic scenes and invented camera names streamed from a local test
-instance — no real footage, places or people.)*
+*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. The refreshed Focus, Playback, Events, Enhancer and Settings captures use synthetic footage; playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
 
 ## Why
 
@@ -54,7 +53,7 @@ involved.
 - **TV mode** (Settings → Display & layout): a remote-friendly layout for leaving the cameras on a TV — see
   [TV mode](#tv-mode) below.
 
-![The focus view: one camera filling the screen, with instant replay, playback, filters, snapshot and full screen along the bottom](docs/screenshots/focus.png)
+![Synthetic camera in Focus with a compact title bar, stream controls and playback actions](docs/screenshots/focus.jpg)
 
 ### Playback and review
 - Review up to four cameras at once, frame-locked. Speeds run from 1/8× to 16×, within the recorder's own
@@ -66,14 +65,14 @@ involved.
   of ranges from several points in the timeline, then export them all as one batch.
 - Bookmarks and incident notes on a moment, on one camera or several, searchable later.
 
-![Playback with two cameras side by side, the transport controls, and a timeline of motion, line-crossing and bookmark events](docs/screenshots/playback.png)
+![Desktop Playback workspace with two selected synthetic cameras, date and speed controls, transport and timeline; recorder unavailable in this fixture](docs/screenshots/playback.jpg)
 
 ### Event search
 - Motion, line-crossing, intrusion, tamper and video-loss events (and your own bookmarks) across cameras and
   date ranges, as thumbnails or a list, with a quick in-page preview before opening it in Playback or
   exporting. Your last search comes back instantly when you return to it.
 
-![Event search: camera and event-type filters on the left, a grid of event thumbnails with their camera and time](docs/screenshots/events.png)
+![Event search with synthetic event cards, camera and type filters, and date-range controls](docs/screenshots/events.jpg)
 
 ### Export
 - Every export is a stream copy of the original footage — no re-encoding, no quality loss.
@@ -108,7 +107,7 @@ calls out to the cloud, and every enhanced picture carries an **ENHANCED** label
 always kept alongside it: the distinction between "what the sensor recorded" and "the AI's best
 reconstruction of it" is never blurred.
 
-![The AI frame enhancer: a before/after wipe of a car, the ENHANCED label under the picture, and the plate read as CAB 4821 by the plate reader](docs/screenshots/enhancer.png)
+![Enhancer comparison interface with a synthetic source/result fixture, plate-reading panel and provenance warning](docs/screenshots/enhancer.jpg)
 
 ### Settings
 Recorder address and login, the encryption toggle and verification code, per-channel names/order/frame-rate
@@ -118,7 +117,7 @@ on, Security holds accounts, paired TVs, sessions, network access and an activit
 you change your password, two-factor, username and picture (your initial on a colour, a designed avatar, or
 a photo).
 
-![Settings: the Display & layout section, with theme, picture fit, TV mode, layouts and streaming choices](docs/screenshots/settings.png)
+![Display and layout settings with theme, picture, TV mode, layout and streaming controls](docs/screenshots/settings.jpg)
 
 ### Keyboard shortcuts
 
@@ -415,7 +414,30 @@ install mechanism:
 It opens full-screen with its own icon and no address bar, and still talks directly to your own Mac over
 your network — installing it changes nothing about how or where data moves.
 
-<p align="center"><img src="docs/screenshots/mobile-live.png" width="320" alt="Sentinel Eye on a phone: the live view as a two-column grid with a tab bar for Live, Playback, Events and Settings"></p>
+Installed iPhone/iPad navigation uses a solid surface matching the selected theme, with shared safe-area
+spacing across pages and overlays. If an installed app still shows an older header after an update, close
+it completely and relaunch online. The [iOS PWA header audit](docs/ios-pwa-header-plan.md) documents the
+shell-version check, the user-confirmed blur fix, and remaining native-device acceptance for the adaptive layout.
+
+<p align="center"><img src="docs/screenshots/mobile-live.jpg" width="320" alt="Sentinel Eye on a phone: the live view as a two-column grid with a tab bar for Live, Playback, Events and Settings"></p>
+
+### Adaptive navigation and viewing
+
+Desktop and iPad keep Live, Playback, Events and Settings together immediately left of notifications and Account. Phones use a floating bottom capsule in portrait and landscape. Settings opens as a grouped section list on compact screens; forms, save controls and event filters adapt to the available space in either theme.
+
+Short landscape Playback keeps the picture large: **Timeline** opens precision review tools, and **More** exposes frame steps, speeds and secondary actions. A camera's expand control opens an immersive selected-camera view without creating another player; exit restores the selected panes. Installed iPhone/iPad apps use this app-level view without relying on native element fullscreen. Desktop/TV also request browser fullscreen where supported. The same expand button or **Exit view** restores the normal layout in one action.
+
+In Focus, replay and immersive review, a single tap/click on the picture toggles controls. Playing footage hides them after the configured interval; paused playback keeps them visible by default. Pinch, pan, double-tap zoom and editing gestures keep their own behavior. Mouse movement reveals controls; menus and keyboard focus hold them. A return control stays reachable while chrome is hidden. TV arrows/OK reveal controls before activating them.
+
+Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and picture adjustments. Channel-zero has one all-camera bookmark icon; TV viewer accounts see Live and Settings, while operator/admin accounts also see Playback and Events.
+
+![Phone landscape Playback with a shallow transport and on-demand Timeline](docs/screenshots/phone-landscape-playback.jpg)
+
+![iPad landscape review workspace](docs/screenshots/ipad-playback.jpg)
+
+![Event review in the light theme](docs/screenshots/light-events.jpg)
+
+Online updates use a network-first static shell (`adaptive-v27`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 
@@ -449,7 +471,7 @@ tested against a Samsung TV's Tizen browser, and meant to work on any TV browser
 
 It's a per-browser setting: turning it on for the TV changes nothing on your phone or laptop.
 
-![Sentinel Eye in TV mode: the recorder's own overview of all eight cameras, full screen, with the header's Camera grid, Full screen and Settings buttons](docs/screenshots/tv-mode.png)
+![TV browser profile showing a decoded synthetic test stream; physical TV acceptance remains separate](docs/screenshots/tv-mode.jpg)
 
 Results on an actual TV browser vary with its hardware and how current the browser is — treat any given
 smart TV as something to test, not a guaranteed target.
@@ -461,7 +483,10 @@ approve it from your phone and the TV stays signed in on its own.
 
 ```sh
 tools/test_rig.sh start                              # isolated instance against a fake unencrypted camera
-python tools/e2e_ui.py http://127.0.0.1:8081 <shotdir>   # ~40 browser checks via headless Chrome (CDP)
+node tools/test_viewer.mjs                         # real viewer and gesture logic, deterministic input
+node tools/test_shell_update.mjs                    # shell imports, cache/update and install identity
+node tools/test_pwa_bootstrap.mjs                   # installed Apple detection
+.venv/bin/python tools/pwa_preview.py               # synthetic UI; no recorder or production writes
 ```
 
 `tools/e2e_live.py` and `tools/e2e_real_settings.py` check against your real recorder without changing

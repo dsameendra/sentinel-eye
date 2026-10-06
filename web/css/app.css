@@ -70,6 +70,11 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
+  --shell-revision: adaptive-v33;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --header-inset-top: var(--safe-top);
+  --pwa-blur-gap: 0px;
+  --chrome-bg: var(--bg);
   --glass-border: rgba(255, 255, 255, .1); --glass-highlight: rgba(255, 255, 255, .06);
   /* Timeline (timeline.js): event-kind and per-camera-lane colours. Qualitative/categorical, not semantic
    * state, so they intentionally don't get separate light-theme values (their job is telling lanes/kinds
@@ -148,13 +153,14 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 [hidden] { display: none !important; }
 
 /* ---------- shell ---------- */
-#app { height: 100%; display: flex; flex-direction: column; }
+#app { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+#view { background: var(--bg); }
 /* ---------- the bar (bar.js) ----------
    One bar per screen (redesign v2), matching the design boards: Live leads with the brand mark and carries
    the global cluster on the right; every other screen leads with a back chevron. Glass — see the guardrail
    rules near TV mode for the no-blur/reduced-transparency fallbacks. */
 .topbar { height: var(--bar); flex: none; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); position: relative; z-index: 10; }
-.topbar.big { height: auto; min-height: 72px; padding-top: 14px; padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
+.topbar.big { height: auto; min-height: calc(72px + var(--header-inset-top)); padding-top: calc(14px + var(--header-inset-top)); padding-bottom: 14px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom-color: var(--line); }
 .bar-back { margin-left: -8px; }
 .bar-brand { display: grid; place-items: center; }
 .bar-title { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
@@ -215,7 +221,6 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .acct-pop { min-width: 240px; }
 /* Phone tab bar (Mobile board): glass, bottom, four tabs. Only ≤640px — desktop/iPad navigate from Live's bar. */
 .tabbar { display: none; }
-.live-hint { display: none; }
 .pill.health .all-note { display: none; }
 .pill.health.down { color: var(--danger); }
 
@@ -352,7 +357,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 :root[data-theme="light"] .liveview { background: var(--bg); }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .liveview { background: var(--bg); } }
 .live-bar { flex: none; }
-.liveview:fullscreen .live-bar .topbar { padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); }
+.liveview:fullscreen .live-bar .topbar { padding-top: var(--header-inset-top); height: calc(var(--bar) + var(--header-inset-top)); }
 /* Pager under the wall (Live board 1×1: ‹ 1 / 8 ›) */
 .pager-row { flex: none; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 0 0 16px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .pager-row[hidden] { display: none; }
@@ -398,7 +403,8 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .tile.is-wait .veil .msg { font-size: 12px; color: var(--muted); max-width: 30ch; }
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 /* Overview (Live board): full-bleed, its own caption chrome instead of a camera tile's. */
-.wall.chan0-single { padding: 0; gap: 0; }
+.wall.chan0-single { grid-template-columns: minmax(0,1fr) !important; grid-template-rows: minmax(0,1fr) !important; padding: 0; gap: 0; }
+.wall.chan0-single > .tile { grid-area: 1 / 1; width: 100%; height: 100%; min-height: 0; aspect-ratio: auto; }
 .tile.overview-tile { border: 0; border-radius: 0; }
 .tile.overview-tile:hover { transform: none; box-shadow: none; }
 .tile.overview-tile .ov { display: none; }
@@ -454,6 +460,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
    already be the action). Applies to every hover-reveal control below, not just this one. */
 /* On a touch screen grid tiles are small, so the detail line shows in Focus only. */
 @media (hover: none) { .focus .ov.bottom .stat { opacity: 1; } .tile .ov.bottom .stat { display: none; } }
+.compact-ui .tile .ov.bottom .stat { display: none; }
 .ov .name { font-weight: 600; text-shadow: 0 1px 2px #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ov .grow { flex: 1; }
 /* Top-left status pill (redesign v2 — was a bare dot inline with the name, which has since moved to the
@@ -547,7 +554,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .tile-slot { visibility: hidden; min-width: 0; min-height: 0; border-radius: var(--r-md); }
 .focus-ghost { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .focus.fill .focus-ghost { object-fit: cover; }
-.focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; padding-top: env(safe-area-inset-top); box-sizing: content-box; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
+.focus-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 8; height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; padding-top: var(--header-inset-top); box-sizing: content-box; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-bottom: 1px solid var(--glass-border); }
 .focus-bar h2 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
 .focus-bar .bar-sub { display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, .62); }
 .focus-bar .bar-sub .dot { width: 6px; height: 6px; box-shadow: none; }
@@ -579,13 +586,12 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .zhud.compact .zmap { width: 104px; border-radius: 8px; }
 .zhud.compact .zctl button { height: 26px; min-width: 26px; font-size: 11.5px; }
 .zhud.compact .zctl .pct { min-width: 46px; }
-.focus .zhud { top: calc(84px + env(safe-area-inset-top)); bottom: auto; right: 18px; }
+.focus .zhud { top: calc(84px + var(--header-inset-top)); bottom: auto; right: 18px; }
 .pb-pane .zhud { top: 12px; right: 12px; bottom: auto; }
 html.tv-mode .zctl button:focus-visible { outline: none; background: #fff; color: #000; }
 .focus-bar, .focus-bottom, .focus .nav-arrow, .focus-zoom { transition: opacity var(--dur-chrome-in) var(--ease-out-expo); }
 .focus .focus-bar:not(.show), .focus .focus-bottom:not(.show), .focus .nav-arrow:not(.show), .focus .focus-zoom:not(.show),
 .replay-overlay .focus-bar:not(.show), .replay-overlay .focus-bottom:not(.show) { opacity: 0; pointer-events: none; transition-duration: var(--dur-chrome-out); }
-@media (hover: none) { .focus .focus-bar, .focus .focus-bottom, .focus .nav-arrow, .replay-overlay .focus-bar, .replay-overlay .focus-bottom { opacity: 1 !important; pointer-events: auto !important; } }
 .focus .nav-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 6; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass-fill); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; display: grid; place-items: center; }
 .focus .nav-arrow:hover { background: rgba(255, 255, 255, .18); }
 .focus .nav-arrow.prev { left: 18px; } .focus .nav-arrow.next { right: 18px; }
@@ -774,7 +780,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 /* ---------- toasts & modal ---------- */
 /* Toasts (redesign v2): system messages — saved, failed, copied. One glass pill dropping in at the top
    centre, clear of every screen's primary actions. Newest on top; at most three; tap to dismiss. */
-#toasts { position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 50%; z-index: 210; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
+#toasts { position: fixed; top: calc(14px + var(--header-inset-top)); left: 50%; z-index: 210; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: min(520px, calc(100vw - 32px)); min-height: 44px; padding: 10px 20px 10px 12px; border-radius: var(--r-full); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8); border: 1px solid var(--glass-border); box-shadow: 0 12px 40px -8px rgba(0, 0, 0, .45), inset 0 1px 0 var(--glass-highlight); font-size: 14px; font-weight: 500; line-height: 1.35; cursor: default; animation: toast-in var(--dur-slow, .42s) var(--ease-out-expo, ease-out); }
 .toast > .i { width: 24px; height: 24px; flex: none; padding: 4px; border-radius: 50%; }
 .toast.ok > .i { color: #fff; background: var(--armed); stroke-width: 3; }
@@ -786,7 +792,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 @keyframes toast-out { to { opacity: 0; transform: translateY(-10px) scale(.96); } }
 /* Event notifications (notify()): banners under the bar's right end, like a Mac's — a kind-coloured
    glyph, what and where, a thumbnail of the moment; hover holds them, a tap opens the camera. */
-#notifs { position: fixed; top: calc(70px + env(safe-area-inset-top)); right: 16px; z-index: 205; display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+#notifs { position: fixed; top: calc(70px + var(--header-inset-top)); right: 16px; z-index: 205; display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
 .notif-banner { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 20px; background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8); border: 1px solid var(--glass-border); box-shadow: 0 18px 50px -10px rgba(0, 0, 0, .5), inset 0 1px 0 var(--glass-highlight); animation: nb-in var(--dur-slow, .42s) var(--ease-out-expo, ease-out); }
 .notif-banner.tappable { cursor: pointer; }
 .notif-banner.tappable:hover { background: color-mix(in srgb, var(--glass-fill-heavy) 88%, var(--text) 4%); }
@@ -804,7 +810,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
 @keyframes nb-in { from { opacity: 0; transform: translateX(40px) scale(.97); } }
 @keyframes nb-out { to { opacity: 0; transform: translateX(40px); } }
 @media (max-width: 640px) {
-  #notifs { left: 50%; right: auto; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); }
+  #notifs { left: 50%; right: auto; transform: translateX(-50%); top: calc(10px + var(--header-inset-top)); }
   @keyframes nb-in { from { opacity: 0; transform: translateY(-20px) scale(.97); } }
   @keyframes nb-out { to { opacity: 0; transform: translateY(-14px); } }
 }
@@ -814,7 +820,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
    edges with no way to scroll to it, permanently hiding whatever was below the fold, including the actual
    submit button. Confirmed directly: the Export dialog's own "Export" button sat ~450px past the viewport,
    unreachable, on a 375x667 screen. */
-.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.scrim { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: grid; place-items: center; padding: max(16px, calc(var(--header-inset-top) + 8px)) max(16px, env(safe-area-inset-right)) max(16px, calc(env(safe-area-inset-bottom) + 8px)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
 .dialog { width: min(440px, 100%); padding: 24px; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); }
 .dialog h3 { margin: 0 0 6px; } .dialog p { margin: 0 0 20px; color: var(--muted); }
 .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
@@ -963,7 +969,7 @@ kbd { padding: 1px 6px; border-radius: var(--r-xs); border: 1px solid var(--line
   .enh2-strip { justify-content: flex-start; }
   .enh2-strip .enh2-frame { flex: 0 0 84px; }
   .enh2-pick-bar .enh2-go { flex: 1 0 100%; }
-  .enh2-bar .bar-actions { display: none; }
+  .enh2-bar .bar-actions { display: flex; flex-wrap: wrap; }
 }
 @media (max-width: 640px) { .enh2-bar .bar-actions { display: flex; order: 10; flex: 1 0 100%; overflow-x: auto; } }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
@@ -1004,8 +1010,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb-panes { position: absolute; inset: 16px 18px 10px; display: grid; gap: 12px; place-items: stretch; }
 .pb-panes > .pb-pane { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .pb-pane { position: relative; background: #060608; overflow: hidden; display: grid; place-items: center; container-type: size; border-radius: var(--r-md); border: 1px solid var(--line); }
-.pb-pane-label { position: absolute; top: 10px; left: 12px; z-index: 5; display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
-.pb-pane-label b { font-weight: 600; }
+.pb-pane-label { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 5; display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; font-size: 12.5px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
+.pb-pane-label b { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pb-pane-label .tag.kind { border-radius: var(--r-full); padding: 2px 7px; font-size: 10px; background: rgba(255, 255, 255, .12); color: #e5e5ea; text-shadow: none; }
 .pb-pane-time { position: absolute; right: 12px; bottom: 10px; z-index: 5; font-size: 12.5px; color: rgba(255, 255, 255, .7); font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
 .pb-panes.stacked { gap: 8px; }
@@ -1043,6 +1049,8 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .date-step button:hover { background: rgba(127, 127, 127, .16); color: var(--text); }
 .cam-chips { display: flex; align-items: center; gap: 6px; margin-left: 8px; min-width: 0; overflow: hidden; }
 .cam-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px 0 5px; border-radius: var(--r-full); border: 0; background: rgba(127, 127, 127, .14); color: var(--text); font-size: 12.5px; white-space: nowrap; }
+.cam-chip { flex: none; max-width: min(260px,68vw); }
+.cam-chip .cam-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cam-chip.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .cam-chip .av { width: 20px; height: 20px; border-radius: 50%; background: rgba(127, 127, 127, .3); flex: none; }
 .cam-more { height: 30px; border: 0; padding: 0 11px; font-weight: 600; cursor: pointer; font-variant-numeric: tabular-nums; }
@@ -1093,7 +1101,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .pb:fullscreen .pb-stage { padding: 0; }
 .pb:fullscreen .pb-panes { inset: 0; gap: 2px; }
 .pb:fullscreen .pb-pane { border-radius: 0; border: 0; }
-.pb:fullscreen > .topbar { display: flex; position: absolute; top: 0; left: 0; right: 0; z-index: 9; padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); }
+.pb:fullscreen > .topbar { display: flex; position: absolute; top: 0; left: 0; right: 0; z-index: 9; padding-top: var(--header-inset-top); height: calc(var(--bar) + var(--header-inset-top)); }
 .pb:fullscreen .pb-controls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; background: var(--glass-fill); backdrop-filter: blur(26px) saturate(1.6); -webkit-backdrop-filter: blur(26px) saturate(1.6); border-top: 1px solid var(--glass-border); padding-top: 10px; padding-bottom: env(safe-area-inset-bottom); }
 .pb:fullscreen .pb-timeline-panel { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .pb:fullscreen > .topbar, .pb:fullscreen .pb-controls { transition: opacity var(--dur-chrome-in) var(--ease-out-expo); }
@@ -1263,6 +1271,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .events-view { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--bg); }
 .ev-bar .bar-ctx { flex: 1; max-width: 340px; margin-left: 18px; }
 .ev-search { flex: 1; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: var(--r-full); background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.ev-search { width: 100%; min-width: 0; box-sizing: border-box; }
 .ev-search:focus-within { border-color: var(--accent); }
 .ev-search .i { width: 15px; height: 15px; flex: none; }
 .ev-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; outline: none; }
@@ -1330,7 +1339,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
 .ev-custom { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .ev-custom-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ev-custom-foot .hint { color: var(--danger); font-size: 12.5px; }
-@media (max-width: 1100px) { .ev-bar .ev-range { display: none; } .ev-sec-range { display: block; } }
+@media (max-width: 900px) { .ev-bar .ev-range { display: none; } .ev-sec-range { display: block; } }
 @media (max-width: 900px) {
   .ev-filters-btn { display: inline-flex; }
   .ev-side { position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; width: min(320px, 86vw); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border-right: 1px solid var(--glass-border); box-shadow: var(--shadow-3); transform: translateX(-102%); transition: transform var(--dur-base, .25s) var(--ease-out-expo, ease-out); }
@@ -1347,23 +1356,28 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .ev-row { flex-wrap: wrap; row-gap: 4px; }
   .ev-row b { min-width: 0; }
 }
-.evp-scrim { padding: 16px; }
+.evp-scrim { padding: max(16px, calc(var(--header-inset-top) + 8px)) 16px max(16px, calc(env(safe-area-inset-bottom) + 8px)); }
 .evp-dialog { width: min(820px, 100%); max-height: 90vh; display: flex; flex-direction: column; border-radius: var(--r-xl); background: var(--glass-fill-heavy); backdrop-filter: blur(40px) saturate(1.7); -webkit-backdrop-filter: blur(40px) saturate(1.7); border: 1px solid var(--glass-border); box-shadow: var(--shadow-3), inset 0 1px 0 var(--glass-highlight); overflow: hidden; }
 .evp-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .evp-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; font-weight: 600; }
 .evp-title .ev-badge { position: static; flex: none; }
 .evp-etitle { color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.evp-stage { position: relative; flex: none; aspect-ratio: 16/9; background: #000; display: grid; place-items: center; overflow: hidden; }
-.evp-stage canvas { max-width: 100%; max-height: 100%; display: block; }
+.evp-stage { position: relative; flex: none; width: 100%; aspect-ratio: 16/9; background: #000; display: grid; place-items: center; overflow: hidden; }
+.evp-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .evp-veil { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: rgba(5, 7, 10, .82); color: #cbd5e1; text-align: center; padding: 16px; }
 .evp-bottom { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
 .evp-bottom .btn, .evp-bottom .hint { flex: none; }
 
 /* ---------- mobile & touch ---------- */
+/* A background-only fallback for loading/auth states. Route and overlay headers paint their own
+   matching surface; ordinary Safari does not get a PWA status strip. Scrims dim it naturally. */
+#statusbar { display: none; position: fixed; top: 0; left: 0; right: 0; height: var(--header-inset-top); z-index: 70; background: var(--chrome-bg); pointer-events: none; }
+html.ios-pwa #statusbar { display: block; }
+html .auth-page { padding-top: max(24px, calc(var(--header-inset-top) + 12px)); padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px)); }
 /* Safe-area insets: matters once this is added to a phone's home screen (standalone display), or on a
    notched phone in landscape — harmless everywhere else since the env() vars are 0 on unsupported/normal
    browser-chrome contexts. Layered onto the existing fixed sizes, not replacing them. */
-.topbar { padding-top: env(safe-area-inset-top); height: calc(var(--bar) + env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+.topbar { padding-top: var(--header-inset-top); height: calc(var(--bar) + var(--header-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
 .savebar { padding-bottom: env(safe-area-inset-bottom); }
 .pb-controls { padding-bottom: env(safe-area-inset-bottom); }
 
@@ -1407,7 +1421,7 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
    stage takes the video's own shape instead of a tall black box, the transport sits on its own line, and
    the timeline panel drops the legend and hint (the colours stay; the hint is a desktop mouse affordance). */
 @media (max-width: 640px) {
-  .topbar.appbar { flex-wrap: wrap; height: auto; min-height: var(--bar); row-gap: 8px; padding-top: calc(8px + env(safe-area-inset-top)); padding-bottom: 8px; }
+  .topbar.appbar { flex-wrap: wrap; height: auto; min-height: var(--bar); row-gap: 8px; padding-top: calc(8px + var(--header-inset-top)); padding-bottom: 8px; }
   .topbar.appbar .bar-ctx { order: 10; flex: 1 0 100%; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .topbar.appbar .bar-ctx::-webkit-scrollbar { display: none; }
   .pb .speed-seg { display: none; }
@@ -1578,25 +1592,9 @@ html.tv-mode .tile:has(.hit:focus-visible) .tile-actions { opacity: 0 !important
 html.tv-mode :is(button, a, [tabindex], input, select):focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
 html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
 
-/* Full screen on the live grid, on any device (not TV mode specifically — see the .tv- prefixes' own note
-   below): hide the bar entirely — every stream tile is the point of this screen, not the toolbar above
-   it — and leave a single floating cluster in its place (page prev/next, when there's more than one page,
-   plus an indicator, plus exit), positioned over the video and hidden until the cursor/finger/remote moves
-   (live.js's _bindWallFsAutoHide, same idle-hide cycle .focus-bar/.nav-arrow already use in the
-   single-camera focus view). Escape (or the two-finger-pinch-out gesture on iPad/iPhone) always still works
-   too — that's the browser's own Fullscreen API, not this cluster.
-   Vertically centered on the right edge, not the top-right corner — every tile's own controls anchor to
-   ONE of its corners (.tile-actions to its top, the zoom HUD to its bottom when zoomed), and whichever tile
-   ends up in the wall's own top-right or bottom-right corner sits exactly there too, so either corner could
-   float this cluster directly over that tile's real controls and block them outright (found directly: the
-   top-right tile's own expand toggle, unreachable underneath it). The vertical middle of the right edge has
-   nothing else living there in the grid — same reasoning the single-camera focus view's own nav-arrows
-   already use for exactly this edge.
-   Named .tv-fs-* / built for TV mode first (page-switching + exit while full screen, on a screen with no
-   normal way back to the bar), but nothing about full-bleed full screen is actually TV-specific — a
-   laptop, iPad, or iPhone wants exactly the same "maximum space for the cameras" once it's full screen too,
-   so these rules apply generically rather than staying gated to html.tv-mode. The class names stayed as-is;
-   renaming them touches nothing behavioral. */
+/* Full-screen Live uses a transient bottom-center dock for page navigation and (on desktop pointer
+   layouts) Exit. This keeps the return action near familiar media controls and away from camera actions
+   at the corners. Touch devices retain the larger corner exit; TV uses remote-friendly UI. */
 .liveview:fullscreen .live-bar { display: none; }
 .tv-fs-controls { display: none; }
 .liveview:fullscreen .tv-fs-controls {
@@ -1614,6 +1612,11 @@ html.tv-mode .menu :is(button, a):focus-visible { outline-offset: -3px; }
 .tv-fs-btn:active { background: rgba(255, 255, 255, .24); }
 .tv-fs-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 .tv-fs-page { padding: 2px 0; color: rgba(255, 255, 255, .8); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wall-fs-exit { display: none; width: auto; gap: 8px; padding: 0 14px; border-radius: var(--r-full); font-size: 13px; font-weight: 600; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv-mode):not(.ios-pwa):not(.apple-touch-device) :is(.liveview.immersive,.liveview:fullscreen) > .viewer-exit { display: none; }
+  html:not(.tv-mode):not(.ios-pwa):not(.apple-touch-device) :is(.liveview.immersive,.liveview:fullscreen) .wall-fs-exit { display: inline-flex; align-items: center; }
+}
 
 /* Same idle cycle, extended to every tile's own identifying chrome — name, live dot, SD/HD tag, the
    tile-actions menu, the zoom-reset pill — not just the bar and the floating exit/page cluster above.
@@ -1821,33 +1824,23 @@ button.acct-av:active { transform: scale(.97); }
    ≤640px: the glass tab bar replaces the bar's global cluster; Live leads with a large title and its
    health line under it; tiles keep their quick actions behind a long press. */
 @media (max-width: 640px) {
-  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: grid; grid-template-columns: repeat(4, 1fr); height: calc(62px + env(safe-area-inset-bottom)); padding: 6px 8px env(safe-area-inset-bottom); background: var(--glass-fill-heavy); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); border-top: 1px solid var(--glass-border); border-radius: 22px 22px 0 0; }
-  .tabbar .tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); text-decoration: none; font-size: 10.5px; font-weight: 500; }
-  .tabbar .tab .i { width: 22px; height: 22px; }
-  .tabbar .tab[aria-current="page"] { color: var(--accent-text); }
-  .tabbar .tab.locked { opacity: .45; }
-  #view { padding-bottom: calc(62px + env(safe-area-inset-bottom)); }
-  html.tv-mode .tabbar, body:has(.focus) .tabbar, body:has(.replay-overlay) .tabbar, body:has(:fullscreen) .tabbar { display: none; }
-  html.tv-mode #view, body:has(.focus) #view, body:has(.replay-overlay) #view { padding-bottom: 0; }
-
   /* Live header: big "Live", the health line beneath it, Overview and the bell on the right. */
-  .topbar.live { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: "title ctx actions" "health ctx actions"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + env(safe-area-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
+  .topbar.live { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; grid-template-areas: "title ctx page global" "health health health global"; align-items: center; column-gap: 4px; row-gap: 0; height: auto; padding: calc(10px + var(--header-inset-top)) 12px 10px 18px; background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
   .topbar.live .bar-brand, .topbar.live > .spacer { display: none; }
   .topbar.live .bar-title { grid-area: title; }
   .topbar.live .bar-title h1 { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
   .topbar.live .pill.health .all-note { display: inline; }
   .topbar.live .pill.health { grid-area: health; justify-self: start; height: auto; padding: 0; background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 400; }
   .topbar.live .bar-ctx { grid-area: ctx; }
-  .topbar.live .bar-actions { grid-area: actions; }
-  .topbar.live .lay-btn, .topbar.live .view-toggle span, .topbar.live [data-a=wallfs], .topbar.live .bar-sep,
-  .topbar.live .gbtn[data-g=playback], .topbar.live .gbtn[data-g=events], .topbar.live .gbtn[data-g=settings], .topbar.live .avatar { display: none; }
+  .topbar.live .bar-page-actions { grid-area: page; }
+  .topbar.live .bar-global-actions { grid-area: global; }
+  .topbar.live .view-toggle span, .topbar.live [data-a=wallfs], .topbar.live .bar-sep,
+  .topbar.live .gbtn[data-g=playback], .topbar.live .gbtn[data-g=events], .topbar.live .gbtn[data-g=settings] { display: none; }
   .topbar.live .view-toggle { width: 40px; padding: 0; justify-content: center; }
   .topbar.live.tv { display: flex; }
   .wall { padding: 4px 14px 12px; gap: 12px; }
   .wall .tile, .wall .tile.empty, .wall .tile-slot { aspect-ratio: 4 / 3; }
-  .live-hint { display: block; margin: 4px 0 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
   .tile .loadhd { display: none; }
-  .liveview:has(.overview-tile) .live-hint { display: none; }
 }
 @media (max-width: 640px) {
   .topbar.tabroot .bar-back { display: none; }
@@ -1872,14 +1865,693 @@ button.acct-av:active { transform: scale(.97); }
 @media (hover: none) {
   .tile-actions { opacity: 0; pointer-events: none; }
   .tile.show-actions .tile-actions { opacity: 1; transform: none; pointer-events: auto; }
-  .live-hint { display: block; margin: 2px 0 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
-  .liveview:has(.overview-tile) .live-hint, html.tv-mode .live-hint { display: none; }
 }
 /* Narrow windows and iPad portrait: a bar's context controls take a second, swipeable line rather than
    squeezing the title (Playback's date stepper and camera chips, Events' search). */
 @media (min-width: 641px) and (max-width: 900px) {
-  .topbar.appbar:not(.live) { flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+  .topbar.appbar:not(.live) { flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: calc(10px + var(--header-inset-top)); padding-bottom: 10px; }
   .topbar.appbar:not(.live) .bar-ctx { order: 10; flex: 1 0 100%; overflow-x: auto; scrollbar-width: none; }
   .topbar.appbar:not(.live) .bar-ctx::-webkit-scrollbar { display: none; }
 }
 .date-step .date-label { white-space: nowrap; }
+
+
+/* ---------- Installed iPhone/iPad chrome ----------
+   The iOS 27 status effect can extend below the reported safe area. Reserve an additional 20 px when
+   there is a top inset; keep this single tunable value pending native-device verification. Landscape or
+   true fullscreen with no top inset adds no gap. All browser tabs retain their existing geometry. */
+html.ios-pwa {
+  --pwa-blur-gap: min(20px, calc(var(--safe-top) * 1000));
+  --header-inset-top: calc(var(--safe-top) + var(--pwa-blur-gap));
+  background: var(--chrome-bg);
+}
+html.ios-pwa :is(.topbar, .focus-bar) {
+  background: var(--chrome-bg);
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+  padding-left: max(18px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+}
+/* Fix the whole header, not only a narrow strip. pwa.js reserves its measured height for wrapped bars.
+   Overlay roots remain their own stacking contexts, including when they enter the fullscreen top layer. */
+html.ios-pwa :is(.topbar, .focus-bar).pwa-header { position: fixed; top: 0; left: 0; right: 0; }
+.pwa-header-space { flex: none; pointer-events: none; }
+:fullscreen .pwa-header-space { display: none; }
+/* A transformed entrance would make a fixed header relative to the animated overlay instead of the
+   viewport. Keep the protected surface stationary in the installed app. */
+html.ios-pwa :is(.enh2, .xp) { animation: none; }
+html.ios-pwa .focus-bar {
+  padding-left: max(18px, env(safe-area-inset-left, 0px));
+  padding-right: max(18px, env(safe-area-inset-right, 0px));
+}
+html.ios-pwa .focus-bar h2, html.ios-pwa .focus-bar .btn.ghost { color: var(--text); }
+html.ios-pwa .focus-bar .bar-sub, html.ios-pwa .focus-bar .seg button { color: var(--muted); }
+html.ios-pwa .focus-bar .seg { background: var(--panel-2); }
+html.ios-pwa .focus-bar .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); }
+html.ios-pwa .focus-bar .btn.ghost:hover { background: var(--panel-2); }
+/* Modal containers belong to the fullscreen top layer if their owning view is fullscreened. Topbar
+   backgrounds stay with the header; the fallback sibling strip is never used to cover native fullscreen. */
+html.ios-pwa:has(:fullscreen) #statusbar { display: none; }
+
+/* Shared adaptive contract; kept in the existing public stylesheet for update compatibility. */
+/* Approved adaptive contract: shared geometry and presentation across component styles above. */
+:root { --nav-footprint: 0px; --media-plate: #18181b; --media-text: #f5f5f7; --safe-left: env(safe-area-inset-left, 0px); --safe-right: env(safe-area-inset-right, 0px); --safe-bottom-raw: env(safe-area-inset-bottom, 0px); --safe-bottom: var(--safe-bottom-raw); --nav-bottom: max(6px, calc(var(--safe-bottom) - 12px)); }
+html, body { height: 100%; }
+body { height: 100dvh; }
+#app { position: relative; }
+/* Installed WebKit can report space for absent Safari controls. Keep the physical home-indicator
+   allowance bounded and anchor the capsule to the full app shell, not a drifting fixed bottom layer.
+   Browser tabs retain their dynamic browser-toolbar inset. See docs/adaptive-ui-validation.md. */
+html.ios-pwa { --safe-bottom: min(var(--safe-bottom-raw),34px); }
+html.ios-pwa body { height: 100vh; height: 100lvh; }
+html.ios-pwa.compact-ui:not(.tv-mode) .tabbar { position: absolute; }
+@media (orientation: landscape) {
+  html.ios-pwa { --safe-bottom: min(var(--safe-bottom-raw),21px); --nav-bottom: max(6px,calc(var(--safe-bottom) - 9px)); }
+}
+html.keyboard-open #app { height: var(--visual-height); }
+#view { padding-bottom: var(--nav-footprint); min-width: 0; }
+:is(.topbar,.focus-bottom,.pb-controls,.pb-timeline-panel) { background: var(--chrome-bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+:is(.savebar > div,.dialog,.menu,.auth-card,.ev-side) { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.topbar { gap: 12px; min-width: 0; }
+.topbar .bar-title { min-width: 0; }
+.topbar h1 { overflow: hidden; text-overflow: ellipsis; }
+.topbar .bar-actions { flex-shrink: 0; }
+.topbar .bar-ctx { min-width: 0; }
+/* App bars share a compact control rhythm on desktop/tablet; row layout still adapts per screen. */
+@media (min-width: 641px) {
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { min-height: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn.icon:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { width: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-back { width: 40px; min-width: 40px; min-height: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-ctx > .btn:not(.sm) { min-height: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-global-actions > .avatar { width: 40px; height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg { min-height: 40px; height: 40px; padding: 3px; align-items: center; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg button { min-height: 34px; height: 34px; }
+  html:not(.tv-mode) .topbar.appbar .ev-search { height: 40px; }
+  html:not(.tv-mode) .topbar.appbar .app-destinations { height: 40px; padding: 3px; }
+  html:not(.tv-mode) .topbar.appbar .app-dest { min-height: 32px; }
+}
+@media (min-width: 641px) and (max-width: 1350px) {
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions > .btn.icon:not(.sm), html:not(.tv-mode) .topbar.appbar .bar-global-actions > .btn.icon { width: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-back { width: 44px; min-width: 44px; min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-ctx > .btn:not(.sm) { min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg { min-height: 44px; height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .bar-page-actions .seg button { min-height: 38px; height: 38px; }
+  html:not(.tv-mode) .topbar.appbar .ev-search { height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .app-destinations { height: 44px; }
+  html:not(.tv-mode) .topbar.appbar .app-dest { min-height: 36px; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .topbar.appbar.live .bar-title { flex: 0 0 auto; min-width: max-content; }
+  .topbar.appbar.live .pill.health { flex: 0 1 112px; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .topbar.appbar.live .pill.health .livecount { display: block; overflow: hidden; text-overflow: ellipsis; }
+}
+.focus-bar { background: var(--media-plate); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.topbar.appbar.big { height: calc(var(--bar) + var(--header-inset-top)); min-height: calc(var(--bar) + var(--header-inset-top)); padding-block: var(--header-inset-top) 0; }
+.topbar.appbar.big .bar-title h1 { font-size: 16px; }
+.app-destinations { display: flex; align-items: center; gap: 3px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-full); background: var(--panel); }
+.app-dest { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; min-height: 36px; border-radius: var(--r-full); color: var(--muted); text-decoration: none; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.app-dest .i { width: 17px; height: 17px; }
+.app-dest[aria-current=page] { background: var(--panel-2); color: var(--text); }
+.app-dest[data-locked]::after { content: '·'; color: var(--faint); }
+@media (hover: hover) { .app-dest:hover,.tabbar .tab:hover { background: var(--panel-2); color: var(--text); } }
+.app-dest:active,.tabbar .tab:active { transform: scale(.97); }
+.app-dest:focus-visible,.tabbar .tab:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.tabbar { display: none; }
+.savebar { bottom: var(--nav-footprint); }
+:is(.pane,.acct,.events-main,.side,.dialog,.menu,.xp-body,.enh2-result) { scroll-padding-block: 20px 100px; overscroll-behavior: contain; }
+.pane-inner { width: 100%; }
+.form { min-width: 0; }
+:is(.field,.srow,.acct-dev,.sec-row) { min-width: 0; }
+:is(.field input,.field select,.field textarea) { min-width: 0; max-width: 100%; }
+:is(.hint,.pane-note,.acct-note,.sec-note) { overflow-wrap: anywhere; }
+.scrim { top: var(--visual-top,0px); height: var(--visual-height,100dvh); padding: max(12px,var(--header-inset-top)) max(12px,var(--safe-right)) max(12px,var(--safe-bottom)) max(12px,var(--safe-left)); }
+.dialog { max-height: 100%; overflow: auto; }
+.popover-portal { max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.popover-portal .pop-row { flex-wrap: wrap; }
+.popover-portal .pop-row .seg { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.popover-portal .seg button { flex-shrink: 0; }
+.auth-shell { overflow-y: auto; }
+.auth-card { margin-block: auto; }
+.auth-page { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: max(24px,calc(var(--header-inset-top) + 12px)) max(16px,var(--safe-right)) max(24px,calc(var(--safe-bottom) + 12px)) max(16px,var(--safe-left)); }
+.auth-page .auth-card { flex-shrink: 0; }
+.enh2:not(.immersive) .enhancer-details { display: none; }
+.enh2-bar .bar-actions { display: flex; }
+.enh2-pick-bar,.enh2-under,.enh2-crop-actions,.xp-exact,.dialog-actions,.acct-actions { flex-wrap: wrap; }
+.enh2-pv { min-height: 100px; }
+.xp-go { position: sticky; bottom: 0; flex-shrink: 0; }
+.evp-dialog { max-height: 100%; overflow: auto; }
+.evp-stage { max-height: 52dvh; }
+.evp-bottom { flex-wrap: wrap; }
+.pb-inspect { position: absolute; right: 8px; top: 8px; z-index: 6; width: 36px; height: 36px; background: var(--media-plate); color: var(--media-text); border-radius: var(--r-full); }
+.pb-panes.inspecting > .pb-pane:not(.inspected) { display: none; }
+.pb-panes.inspecting > .inspected { grid-area: 1 / 1 / -1 / -1; }
+.pb-ctrl-right [data-a=timeline] { display: none; }
+.focus-bottom { width: max-content; max-width: calc(100% - 24px - var(--safe-left) - var(--safe-right)); left: 50%; right: auto; transform: translateX(-50%); bottom: max(12px,var(--safe-bottom)); border: 1px solid rgba(255,255,255,.12); border-radius: var(--r-xl); padding: 8px 12px; flex-wrap: wrap; justify-content: center; background: var(--media-plate); color: var(--media-text); }
+.focus-bottom.rp-bottom { width: min(680px,calc(100% - 24px - var(--safe-left) - var(--safe-right))); }
+.focus-zoom { bottom: calc(88px + var(--safe-bottom)); }
+[data-chrome-hidden] { pointer-events: none !important; }
+.immersive { position: fixed !important; inset: 0 !important; z-index: 75; padding: 0 !important; background: #000; }
+.viewer-exit { display: none; position: absolute; z-index: 20; top: max(12px,var(--header-inset-top)); right: max(12px,var(--safe-right)); align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 0 14px; border: 1px solid rgba(255,255,255,.12); border-radius: var(--r-full); background: var(--media-plate); color: var(--media-text); font: inherit; font-size: 13px; cursor: pointer; }
+:is(.immersive,:fullscreen) > .viewer-exit,.replay-overlay > .viewer-exit { display: flex; }
+.exit-hidden > .viewer-exit { opacity: 0; pointer-events: none; }
+html.tv-mode .viewer-exit { min-height: 56px; font-size: 19px; }
+html.tv-mode .liveview > .viewer-exit { display: none !important; } /* the TV title bar owns the single fullscreen toggle */
+.viewer-exit:hover { background: #2c2c31; border-color: rgba(255,255,255,.25); }
+.viewer-exit:active { background: #35353b; transform: scale(.96); }
+.viewer-exit:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
+.focus.immersive > .viewer-exit,.pb.immersive > .viewer-exit { top: max(12px,calc(var(--viewer-header-height,var(--bar,60px)) + 8px)); }
+/* Focus, Replay and Playback already have a labeled return/fullscreen action in their control bars.
+   Keep that single action across touch, desktop and TV; the corner chip duplicates it on every profile. */
+:is(.focus.immersive,.pb.immersive,.focus:fullscreen,.pb:fullscreen,.replay-overlay.immersive,.replay-overlay:fullscreen) > .viewer-exit { display: none !important; }
+.focus.immersive .focus-zoom,.pb.immersive .pb-pane .zhud { top: max(76px,calc(var(--viewer-header-height,var(--bar,60px)) + 64px)); bottom: auto; }
+.pb.immersive .app-destinations,.pb.immersive .bar-global-actions { display: none; }
+.pb.immersive .pb-stage { padding: 0; }
+.pb.immersive .pb-panes { inset: 0; gap: 2px; }
+.pb.immersive .pb-pane { border: 0; border-radius: 0; }
+.pb.immersive > .topbar { display: flex; position: absolute; inset: 0 0 auto; z-index: 9; height: auto; min-height: 60px; padding-top: var(--header-inset-top); }
+.immersive .pwa-header-space { display: none; }
+.pb.immersive .pb-controls { position: absolute; bottom: max(12px,var(--safe-bottom)); left: max(12px,var(--safe-left)); right: max(12px,var(--safe-right)); z-index: 9; border-radius: var(--r-lg); border: 1px solid rgba(255,255,255,.12); padding: 6px; background: var(--media-plate); --text: var(--media-text); --muted: #a1a1a6; }
+.pb.immersive .pb-timeline-panel { background: var(--media-plate); padding: 10px; }
+.pb.immersive .pb-timeline-panel { display: none; }
+.pb.immersive.details-open .pb-timeline-panel { display: flex; max-height: 40dvh; overflow: auto; }
+.pb.immersive .pb-ctrl-right [data-a=timeline] { display: inline-flex; }
+.pb.immersive:not(.show) :is(.pb-inspect,.pb-pane-label,.pb-pane-time,.zhud) { opacity: 0; pointer-events: none; }
+.pb.immersive > .topbar,.pb.immersive .pb-controls { transition: opacity var(--dur-chrome-out); }
+.pb.immersive > .topbar:not(.show),.pb.immersive .pb-controls:not(.show) { opacity: 0; pointer-events: none; }
+.liveview.immersive .live-bar { display: none; }
+html.tv-mode .liveview.immersive .live-bar { display: block; } /* app-level TV fullscreen keeps its title-bar return toggle */
+.liveview.immersive .wall { height: 100%; }
+:is(.liveview.immersive,.liveview:fullscreen) .tile-actions { top: var(--exit-clearance,10px); }
+/* A single overview has room for its actions. Keep its sole bookmark discoverable on touch/remote. */
+.overview-tile .tile-actions { opacity: 1; transform: none; pointer-events: auto; }
+.overview-tile .tile-actions button { min-width: 44px; min-height: 44px; }
+.tile-actions-group[hidden] { display: none; }
+html.compact-ui:not(.tv-mode) .tile-actions button { min-width: 44px; min-height: 44px; }
+.overview-tile:has(.tile-actions.expanded) .overview-cap { opacity: 0; }
+html.tv-mode .overview-tile .tile-actions { display: flex !important; }
+html.tv-mode .overview-tile .tile-actions { top: var(--exit-clearance,112px); right: var(--tv-pad); }
+html.tv-mode .overview-cap.top { top: var(--overview-cap-top,112px); }
+html.tv-mode .liveview:not(.tv-awake):not(.immersive):not(:fullscreen) .overview-tile .tile-actions { visibility: hidden; }
+html.tv-mode .overview-tile .tile-actions button { min-width: 56px; min-height: 56px; }
+html.tv-mode .overview-tile .tile-actions .i { width: 24px; height: 24px; }
+.tile-actions button:active { transform: scale(.94); }
+.tile-actions button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.liveview.immersive .tv-fs-controls,.liveview:fullscreen .tv-fs-controls { display: flex; flex-direction: row; position: absolute; top: auto; right: auto; bottom: max(12px,var(--safe-bottom)); left: 50%; width: max-content; height: auto; max-width: calc(100% - 24px); transform: translateX(-50%); z-index: 8; gap: 4px; padding: 6px; border: 1px solid rgba(255,255,255,.12); border-radius: var(--r-full); background: var(--media-plate); opacity: 1; pointer-events: auto; }
+.liveview :is(.tv-fs-controls.show) { opacity: 1; pointer-events: auto; }
+.liveview.immersive .tv-fs-controls:not(.show),.liveview:fullscreen .tv-fs-controls:not(.show) { opacity: 0; pointer-events: none; }
+html.tv-mode .liveview.immersive .tv-fs-controls,html.tv-mode .liveview:fullscreen .tv-fs-controls { display: flex !important; }
+html :is(.liveview.immersive,.liveview:fullscreen) .tv-fs-controls.no-pages:not(.has-exit) { display: none !important; }
+.tv-fs-btn[data-a=wallfs] { display: flex; width: auto; gap: 8px; padding-inline: 14px; font-size: 13px; }
+.liveview.immersive:not(.show) :is(.tile .ov,.tile-actions,.overview-cap,.tv-fs-controls) { opacity: 0; pointer-events: none; }
+@media (orientation: portrait) {
+  html.compact-ui:not(.tv-mode) :is(.liveview.immersive,.liveview:fullscreen) .wall:not(.chan0-single) { padding-top: calc(56px + var(--header-inset-top)); }
+}
+html.viewer-open .tabbar,html.cover-open .tabbar,html.keyboard-open .tabbar { display: none; }
+html.viewer-open #view,html.cover-open #view,html.keyboard-open #view { padding-bottom: 0; }
+/* Retain opaque, viewport-anchored PWA headers; decoration never touches status protection. */
+html.ios-pwa .topbar,html.ios-pwa .focus-bar { background: var(--chrome-bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* Tablet and desktop: the destinations remain stable; context wraps separately. */
+@media (min-width: 641px) and (max-width: 1350px) {
+  .topbar.appbar,.topbar.appbar.big { height: auto; min-height: var(--bar); flex-wrap: wrap; padding-block: calc(8px + var(--header-inset-top)) 8px; row-gap: 6px; }
+  .topbar.appbar .bar-ctx { order: 10; flex: 1 0 100%; margin-left: 0; overflow-x: auto; scrollbar-width: thin; }
+  .app-dest { padding-inline: 9px; }
+  .app-dest .i { display: none; }
+  .topbar.big { padding-bottom: 8px; }
+}
+/* Live's iPad toolbar has only a few high-frequency choices: keep mode + layout together on row one.
+   Playback has more controls, so group its date/camera context with speed/export on a clear second row. */
+@media (min-width: 641px) and (max-width: 1350px) {
+  .topbar.appbar.live { flex-wrap: nowrap; }
+  .topbar.appbar.live .bar-ctx { order: 0; flex: 0 1 auto; width: auto; max-width: none; margin: 0; overflow: visible; }
+  .topbar.appbar.live .bar-page-actions { order: 0; }
+  .topbar.appbar.live .bar-ctx > .btn:not(.sm) { min-height: 44px; height: 44px; }
+  .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 6px; height: auto; min-height: 0; padding-block: calc(7px + var(--header-inset-top)) 7px; }
+  .pb > .topbar.appbar .bar-back { grid-column: 1; grid-row: 1; display: flex; }
+  .pb > .topbar.appbar .bar-title { grid-column: 2; grid-row: 1; max-width: 145px; }
+  .pb > .topbar.appbar > .spacer { grid-column: 3; grid-row: 1; }
+  .pb > .topbar.appbar .app-destinations { grid-column: 4; grid-row: 1; }
+  .pb > .topbar.appbar .bar-global-actions { grid-column: 5; grid-row: 1; }
+  .pb > .topbar.appbar .bar-ctx { grid-column: 1 / 4; grid-row: 2; order: 0; flex: 1 1 auto; width: auto; min-width: 0; margin: 0; overflow: hidden; }
+  .pb > .topbar.appbar .bar-page-actions { grid-column: 4 / 6; grid-row: 2; order: 0; justify-self: end; }
+  .pb > .topbar.appbar .cam-chips { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .pb > .topbar.appbar .date-step { height: 44px; flex: none; }
+  .pb > .topbar.appbar .date-step button { width: 40px; min-height: 40px; height: 40px; }
+  .pb > .topbar.appbar .cam-chip { min-height: 38px; height: 38px; }
+  .pb > .topbar.appbar .speed-seg { display: inline-flex; }
+  .pb > .topbar.appbar [data-a=export] .lbl { display: inline; }
+}
+/* iPad landscape: separate Playback's two intentional control rows without making the whole page feel
+   lower. The tighter outer padding offsets the larger row gap, so the stage retains its usable height. */
+@media (min-width: 641px) and (max-width: 1350px) and (orientation: landscape) {
+  html.apple-touch-device:not(.tv-mode) .pb > .topbar.appbar {
+    row-gap: 12px;
+    padding-block: calc(3px + var(--header-inset-top)) 1px;
+  }
+}
+/* Short landscape phones retain the selected speed and its full options menu on Playback's second row.
+   The saved width keeps all selected camera chips readable instead of clipping the last colored name. */
+@media (max-width: 1000px) and (orientation: landscape) {
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg > button[data-sp]:not([aria-pressed="true"]) { display: none; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-ctx { grid-column: 1 / -1; grid-row: 2; flex-wrap: nowrap; width: 100%; padding-right: 159px; box-sizing: border-box; overflow: visible; z-index: 1; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chips { flex: 1 1 auto; overflow: visible; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-page-actions {
+    position: absolute; right: max(12px,var(--safe-right)); bottom: 7px; z-index: 9;
+    width: max-content; flex-wrap: nowrap; grid-area: auto;
+  }
+}
+@media (max-width: 700px) and (orientation: landscape) {
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step { width: 88px; padding-inline: 4px; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step > button[data-a="dayprev"],
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step > button[data-a="daynext"] { display: none; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .date-step .date-label { width: 80px; min-width: 80px; height: 40px; padding: 0; font-size: 11px; }
+}
+@media (min-width: 641px) and (max-width: 1000px) {
+  .topbar .bar-title h1 { font-size: 18px; }
+  .topbar.tabroot .bar-back { display: none; }
+  .topbar .bar-title { max-width: 145px; }
+  .topbar .bar-actions { flex-wrap: wrap; gap: 6px; }
+  .speed-seg { display: none; }
+  .pb > .topbar.appbar .speed-seg { display: inline-flex; }
+  .pb > .topbar.appbar .bar-global-actions { grid-column: 5; }
+  .settings { grid-template-columns: 190px minmax(0,1fr); grid-template-rows: 1fr; }
+  .settings .side { flex-direction: column; border-right: 1px solid var(--line); border-bottom: 0; }
+  .pane { padding-inline: 20px; }
+  .form-conn { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .form-conn .f-pass,.form-conn .f-user { grid-column: auto; }
+  .pb-ctrlrow { gap: 4px; padding-inline: 10px; }
+  .pb-ctrl-center { gap: 3px; }
+  .pb-ctrl-right { flex-wrap: wrap; }
+  .savebar { left: 190px; }
+}
+/* Compact is selected by both width and available height, including windowed iPad. */
+html.compact-ui:not(.tv-mode) .tabbar { position: fixed; z-index: 60; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); left: max(12px,var(--safe-left)); right: max(12px,var(--safe-right)); bottom: var(--nav-bottom); width: auto; max-width: 520px; margin-inline: auto; height: 64px; padding: 5px; border: 1px solid var(--line); border-radius: var(--r-full); background: var(--panel); box-shadow: var(--shadow-2); }
+.tabbar .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: var(--r-full); min-width: 0; min-height: 44px; color: var(--muted); text-decoration: none; font-size: 11px; font-weight: 600; }
+.tabbar .tab .i { width: 20px; height: 20px; }
+.tabbar .tab[aria-current=page] { background: var(--panel-2); color: var(--text); }
+.tabbar .tab.locked::after { content: '·'; position: absolute; top: 7px; }
+html.compact-ui:not(.tv-mode) .app-destinations { display: none; }
+html.compact-ui:not(.tv-mode) .topbar.appbar { display: flex; flex-wrap: wrap; gap: 6px; height: auto; min-height: 56px; padding: calc(8px + var(--header-inset-top)) max(12px,var(--safe-right)) 8px max(12px,var(--safe-left)); }
+html.compact-ui:not(.tv-mode) .topbar .bar-title h1 { font-size: 22px; }
+html.compact-ui:not(.tv-mode) .topbar .bar-brand { display: none; }
+html.compact-ui:not(.tv-mode) .topbar .bar-title { max-width: none; flex-shrink: 1; }
+html.compact-ui:not(.tv-mode) .topbar .bar-ctx { order: 10; flex: 1 0 100%; overflow-x: auto; margin: 0; max-width: none; }
+html.compact-ui:not(.tv-mode) .topbar.live .bar-actions { display: flex; }
+html.compact-ui:not(.tv-mode) .topbar.live .avatar { display: grid; }
+html.compact-ui:not(.tv-mode) .topbar.live > .spacer { display: block; flex: 1; }
+@media (max-width: 640px) {
+  html.compact-ui:not(.tv-mode) .topbar.live { display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; grid-template-areas: "title ctx page global" "health health health global"; }
+  html.compact-ui:not(.tv-mode) .topbar.live .bar-ctx { grid-area: ctx; order: 0; flex: initial; width: auto; overflow: visible; }
+  html.compact-ui:not(.tv-mode) .topbar.live .bar-page-actions { grid-area: page; }
+  html.compact-ui:not(.tv-mode) .topbar.live .bar-global-actions { grid-area: global; }
+  html.compact-ui:not(.tv-mode) .topbar.live > .spacer { display: none; }
+  /* The Overview toggle and layout picker share the single context row. Keep both recognizable by icon;
+     their full names remain available to VoiceOver and through each button's title. */
+  html.compact-ui:not(.tv-mode) .topbar.live .lay-btn { width: 44px; padding-inline: 0; justify-content: center; }
+  html.compact-ui:not(.tv-mode) .topbar.live .lay-btn span,
+  html.compact-ui:not(.tv-mode) .topbar.live .lay-btn > .i:last-child { display: none; }
+}
+html.compact-ui:not(.tv-mode) :is(.btn,.btn.icon,.seg button,.date-step button,.cam-chip,.avatar,.pop-item,.cal-day,.cal-nav) { min-width: 44px; min-height: 44px; }
+html.compact-ui:not(.tv-mode) .topbar.live .lay-btn { display: flex; }
+html.compact-ui:not(.tv-mode) .topbar.live [data-a=wallfs] { display: flex; }
+html.compact-ui:not(.tv-mode) .topbar.live .pill.health { display: none; }
+html.compact-ui:not(.tv-mode) .topbar .speed-seg { display: none; }
+html.compact-ui:not(.tv-mode) .topbar.tabroot .bar-back { display: none; }
+html.compact-ui:not(.tv-mode) .settings { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .pane,html.compact-ui:not(.tv-mode) .settings:not(.list-mode) .side { display: none; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side { display: flex; flex-direction: column; border: 0; padding: 20px 16px 24px; gap: 0; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a { min-height: 52px; flex-shrink: 0; background: var(--panel); border-radius: 0; margin: 0; padding: 10px 16px; color: var(--text); font-size: 15px; border: 0; position: relative; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a + a::before { content: ''; position: absolute; top: 0; left: 44px; right: 16px; height: 1px; background: var(--line); }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a:first-child { border-radius: var(--r-md) var(--r-md) 0 0; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a:nth-last-child(2) { border-radius: 0 0 var(--r-md) var(--r-md); }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a.side-account { margin-top: 20px; border-radius: var(--r-md); }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a.side-account::before { display: none; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a span { white-space: normal; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a .i { width: 18px; height: 18px; color: var(--muted); }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a::after { content: ''; margin-left: auto; width: 6px; height: 6px; border-right: 1.5px solid var(--faint); border-top: 1.5px solid var(--faint); transform: rotate(45deg); flex-shrink: 0; }
+html.compact-ui:not(.tv-mode) .settings.list-mode .side a:hover { background: var(--panel-2); }
+html.compact-ui:not(.tv-mode) .settings:not(.list-mode) .pane-head h1 { font-size: 22px; }
+html.compact-ui:not(.tv-mode) .pane { padding: 18px 16px 100px; }
+html.compact-ui:not(.tv-mode) .form,html.compact-ui:not(.tv-mode) .form-conn { grid-template-columns: minmax(0,1fr); }
+html.compact-ui:not(.tv-mode) .form > * { grid-column: auto; }
+html.compact-ui:not(.tv-mode) .savebar { left: 0; padding: 8px 12px; }
+html.compact-ui:not(.tv-mode) .savebar > div { flex-wrap: wrap; justify-content: center; }
+html.compact-ui:not(.tv-mode) .acct-grid { grid-template-columns: 1fr; }
+html.compact-ui:not(.tv-mode) .srow { flex-wrap: wrap; }
+html.compact-ui:not(.tv-mode) .pb-ctrl-center { gap: 2px; }
+html.compact-ui:not(.tv-mode) .pb-ctrlrow { grid-template-columns: minmax(0,1fr) auto; gap: 4px; }
+html.compact-ui:not(.tv-mode) .pb-ctrl-right :is([data-a=bookmark],.enh-wrap,[data-a=aienhance],[data-a=selectrange]),html.compact-ui:not(.tv-mode) .pb [data-a=now] { display: none; }
+html.compact-ui.short-ui:not(.tv-mode) .pb-ctrl-right [data-a=timeline] { display: inline-flex; }
+html.compact-ui:not(.tv-mode) .enh2-bar .bar-actions { display: flex; order: 10; flex: 1 0 100%; overflow-x: auto; }
+html.compact-ui:not(.tv-mode) .enh2-result { overflow: auto; flex-direction: column; padding: 12px; }
+html.compact-ui:not(.tv-mode) .enh2-side { width: auto; overflow: visible; }
+html.compact-ui:not(.tv-mode) .xp-body { grid-template-columns: minmax(0,1fr); padding: 16px; gap: 18px; }
+html.compact-ui:not(.tv-mode) .focus-bar { gap: 6px; padding-inline: max(10px,var(--safe-left)) max(10px,var(--safe-right)); }
+html.compact-ui:not(.tv-mode) .focus-bar .seg button { padding-inline: 10px; }
+html.compact-ui:not(.tv-mode) .focus-bottom { gap: 4px; }
+html.compact-ui:not(.tv-mode) .focus-bottom .btn { padding-inline: 10px; }
+/* On installed iOS, center footage in the usable area between the expanded status region and home indicator. */
+html.ios-pwa:not(.tv-mode) :is(.focus.immersive .stage,.liveview.immersive .wall.chan0-single .stage,.replay-overlay.immersive .replay-stage) {
+  box-sizing: border-box; padding-block: var(--header-inset-top) var(--safe-bottom);
+}
+html.ios-pwa:not(.tv-mode) :is(.pb.immersive .pb-panes:not(.stacked):not(.inspecting) > .pb-pane:only-child,.pb.immersive .pb-panes.inspecting > .pb-pane.inspected) {
+  /* Fullscreen media owns the whole viewport; safe-area spacing belongs to the controls layered over it.
+     Padding this pane made the footage fit an inset rectangle and left large black bands around it. */
+  box-sizing: border-box; padding-block: 0;
+}
+html.ios-pwa:not(.tv-mode) :is(.liveview.immersive,.liveview:fullscreen) .overview-cap.top { top: max(30px,calc(var(--safe-top) + 12px)); }
+/* Give the Overview/Channel zero caption more room from the top edge on iPad landscape fullscreen.
+   The width floor excludes iPhone landscape, whose CSS viewport can also be wider than 640px. */
+@media (min-width: 1000px) and (orientation: landscape) {
+  html.ios-pwa.apple-touch-device:not(.tv-mode) :is(.liveview.immersive,.liveview:fullscreen) .overview-cap.top {
+    top: max(46px,calc(var(--safe-top) + 28px));
+  }
+}
+html.ios-pwa:not(.tv-mode) .evp-scrim { padding-block: max(16px,calc(var(--header-inset-top) + 8px)); }
+/* Landscape phone and short desktop: one shallow transport, precision tools remain on demand. */
+html.short-ui:not(.tv-mode) .topbar.appbar { min-height: 48px; padding-block: calc(2px + var(--header-inset-top)) 2px; row-gap: 0; flex-wrap: nowrap; }
+html.short-ui:not(.tv-mode) .topbar .bar-title h1 { font-size: 16px; }
+html.short-ui:not(.tv-mode) .topbar .bar-sub,html.short-ui:not(.tv-mode) .bar-sep { display: none; }
+html.short-ui:not(.tv-mode) .topbar .bar-ctx { flex: 1 1 auto; order: 0; overflow: auto; }
+html.short-ui:not(.tv-mode) .topbar .bar-title { flex: 0 1 100px; }
+html.short-ui:not(.tv-mode) .topbar .bar-actions { gap: 4px; }
+/* Installed compact mode also applies to short landscape viewports. Preserve Playback's deliberate
+   two-row grid after the general short-header rule so its date/camera and speed/export controls cannot
+   collapse into or clip a single 48px row. */
+@media (min-width: 641px) and (max-width: 1000px) and (orientation: landscape) {
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto; grid-template-rows: 44px 44px; column-gap: 8px; row-gap: 10px; height: auto; min-height: 0; padding: calc(2px + var(--header-inset-top)) max(12px,var(--safe-right)) 2px max(12px,var(--safe-left)); }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .speed-seg { display: inline-flex; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip { width: clamp(80px,calc((100vw - 347px)/4),110px); max-width: clamp(80px,calc((100vw - 347px)/4),110px); min-width: 80px; gap: 4px; padding-inline: 4px; font-size: 11.5px; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .cam-chip .av { width: 18px; height: 18px; }
+  html.short-ui:not(.tv-mode) .pb > .topbar.appbar .bar-ctx { padding-right: 159px; }
+}
+html.short-ui:not(.tv-mode) .tabbar { height: 52px; bottom: var(--nav-bottom); }
+html.short-ui:not(.tv-mode) .tabbar .tab { flex-direction: row; gap: 6px; }
+html.short-ui:not(.tv-mode) .pb-stage { padding: 4px 12px; }
+html.short-ui:not(.tv-mode) .pb-panes { inset: 4px 12px; gap: 6px; }
+html.short-ui:not(.tv-mode) .pb-ctrlrow { display: flex; justify-content: space-between; flex-wrap: nowrap; min-height: 48px; padding: 2px max(10px,var(--safe-right)) 2px max(10px,var(--safe-left)); gap: 8px; }
+html.short-ui:not(.tv-mode) .pb-ctrl-left { flex: 1; }
+html.short-ui:not(.tv-mode) .pb-ctrl-center { gap: 0; }
+html.short-ui:not(.tv-mode) .pb-ctrl-right { flex-wrap: nowrap; gap: 0; }
+html.short-ui:not(.tv-mode) .pb-ctrl-right :is([data-a=bookmark],.enh-wrap,[data-a=aienhance],[data-a=selectrange]),html.short-ui:not(.tv-mode) :is([data-a=stepback],[data-a=stepfwd],[data-a=now]) { display: none; }
+html.short-ui:not(.tv-mode) .pb-ctrl-right [data-a=timeline] { display: inline-flex; }
+html.short-ui:not(.tv-mode) .pb-timeline-panel { display: none; }
+html.short-ui:not(.tv-mode) .pb.details-open .pb-timeline-panel { display: flex; position: absolute; z-index: 12; left: max(12px,var(--safe-left)); right: max(12px,var(--safe-right)); bottom: 52px; max-height: calc(var(--visual-height,100dvh) - 110px - var(--header-inset-top) - var(--nav-footprint)); overflow: auto; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px; box-shadow: var(--shadow); background: var(--panel); }
+html.short-ui:not(.tv-mode) .tlp-legend,html.short-ui:not(.tv-mode) .tlp-foot .hint { display: none; }
+html.short-ui:not(.tv-mode) .liveview { overflow: hidden; }
+html.short-ui:not(.tv-mode) .liveview .wall { flex: 1; overflow: hidden; min-height: 0; padding: 4px 12px; gap: 6px; }
+html.short-ui:not(.tv-mode) .wall .tile,html.short-ui:not(.tv-mode) .wall .tile-slot { aspect-ratio: auto; min-height: 0; }
+html.short-ui:not(.tv-mode) .focus-bar { height: 48px; }
+html.short-ui:not(.tv-mode) .focus-bottom { padding: 4px 8px; bottom: max(6px,var(--safe-bottom)); }
+html.short-ui:not(.tv-mode) .focus-bottom .btn { font-size: 12px; }
+html.short-ui:not(.tv-mode) .enh2-pick { display: grid; grid-template-columns: minmax(0,1fr) minmax(220px,32%); grid-template-rows: minmax(0,1fr) auto; padding: 8px 14px; gap: 8px; overflow: auto; }
+html.short-ui:not(.tv-mode) .enh2-pv { grid-column: 1; grid-row: 1 / 3; height: 100%; min-height: 100px; }
+html.short-ui:not(.tv-mode) .enh2-pv-cap { display: none; }
+html.short-ui:not(.tv-mode) .enh2-strip { grid-column: 2; flex-wrap: wrap; overflow: auto; max-height: 100%; }
+html.short-ui:not(.tv-mode) .enh2-pick-bar { grid-column: 2; gap: 6px; }
+html.short-ui:not(.tv-mode) .enh2-pick-bar .enh2-cap { flex-basis: 100%; }
+html.short-ui:not(.tv-mode) .enh2-result { flex-direction: row; overflow: auto; gap: 12px; padding: 10px; }
+html.short-ui:not(.tv-mode) .enh2-main { flex: 1; min-height: 0; }
+html.short-ui:not(.tv-mode) .enh2-stage { flex: 1; min-height: 140px; aspect-ratio: auto; }
+html.short-ui:not(.tv-mode) .enh2-side { width: 240px; overflow: auto; }
+html.short-ui:not(.tv-mode) .xp-body { grid-template-columns: minmax(0,1fr) minmax(260px,1fr); padding: 12px; gap: 16px; }
+html.short-ui:not(.tv-mode) .xp-preview { max-height: 180px; }
+html.short-ui:not(.tv-mode) .evp-stage { max-height: 42dvh; }
+html.short-ui:not(.tv-mode) .auth-wrap { padding-block: 12px; }
+/* All input sizes, not only the Live buttons. Visual icons stay small inside generous hit areas. */
+@media (any-pointer: coarse) {
+  :is(.btn,.btn.icon,.seg button,.date-step button,.cam-chip,.zoomtag,.avatar,.pop-item,.ev-link,.cal-day,.cal-nav,.enh2-frame) { min-width: 44px; min-height: 44px; }
+  .date-step { height: 44px; }
+  .xp-h::after { content: ''; position: absolute; inset: -10px -16px; }
+  .enh2-split { width: 44px; margin-left: -22px; }
+  .enh2-split::before { left: 21px; }
+  .enh2-crop-box .h::after,.enh2-ocrbox .h::after,.enh2-ocrbox .rot::before { content: ''; position: absolute; inset: -15px; }
+  :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { font-size: max(16px,1em); }
+}
+/* TV is a dedicated profile across every route; preserve its hardware video-plane workaround. */
+html.tv-mode { --bar: 80px; --nav-footprint: 0px; }
+html.tv-mode .tabbar { display: none; }
+html.tv-mode .topbar.appbar { display: flex; flex-wrap: wrap; min-height: 80px; height: auto; padding: 12px 32px; gap: 12px; }
+html.tv-mode .live-bar .topbar.tv { --text: inherit; --muted: inherit; min-height: 80px; padding: 12px 32px; align-items: center; background: var(--chrome-bg); color: var(--text); border-bottom: 1px solid var(--line); }
+html.tv-mode .tv-clock { color: var(--muted); }
+html.tv-mode .live-bar .topbar .tv-btn { min-height: 56px; background: var(--panel-2); color: var(--text); }
+html.tv-mode .liveview:not(.immersive):not(:fullscreen) .wall:not(.chan0-single) { padding-top: calc(var(--tv-header-height,100px) + 12px); }
+html.tv-mode .liveview.immersive .wall { padding: 0; }
+.liveview.immersive .tv-page { display: none; }
+@media (max-width: 1350px) {
+  html.tv-mode .topbar [data-a=tvfs] { width: 56px; padding: 0; justify-content: center; }
+  html.tv-mode .topbar [data-a=tvfs] span { display: none; }
+}
+html.tv-mode .app-destinations { display: flex; }
+html.tv-mode .app-dest { min-height: 52px; padding: 0 16px; font-size: 19px; }
+html.tv-mode .app-dest .i { display: inline; width: 22px; height: 22px; }
+html.tv-mode :is(.btn,.btn.icon,.seg button,.avatar,.pop-item,.cam-chip,.date-step button,.side a,.cal-day) { min-height: 56px; min-width: 56px; font-size: 19px; }
+html.tv-mode :is(input:not([type=checkbox]):not([type=radio]),select,textarea) { min-height: 52px; font-size: 19px; }
+html.tv-mode :is(.field label,.lbl,.srow-title,.acct-dev b,.pane-head p,.hint,.pane-note,.acct-note,.auth-card p,.ev-item,.ev-sec h3,.enh2-note,.enh2-detected,.enh2-cap,.pb-time,.tlp-range,.tlp-foot,.xp-pkg small) { font-size: 18px; line-height: 1.5; }
+html.tv-mode :is(.pane,.acct,.events-main,.enh2-result,.xp-body) { padding-inline: 32px; }
+html.tv-mode .dialog,html.tv-mode .menu { font-size: 19px; max-width: calc(100vw - 64px); }
+html.tv-mode .dialog { width: min(800px,100%); }
+html.tv-mode .settings { grid-template-columns: 260px minmax(0,1fr); }
+html.tv-mode .side { flex-direction: column; }
+html.tv-mode .pb-ctrl-center { gap: 8px; }
+html.tv-mode .pb-controls .btn { min-width: 56px; }
+html.tv-mode .pb-timeline-panel { padding: 12px 24px; }
+html.tv-mode .pb-ctrlrow { grid-template-columns: auto 1fr auto; }
+html.tv-mode .pb-ctrl-right { flex-wrap: wrap; }
+html.tv-mode .focus-bottom { transform: translateX(-50%); padding: 10px 20px; }
+html.tv-mode .focus .focus-bottom:not(.show) { transform: translate(-50%,150%); }
+html.tv-mode .focus-bar [data-a=more],html.tv-mode .focus-bottom :is([data-a=playback],.enh-wrap,[data-a=snap],[data-a=fs]) { display: inline-flex !important; }
+html.tv-mode .liveview.immersive:not(.show) :is(.tile .ov,.overview-cap,.tv-fs-controls) { opacity: 1; visibility: hidden; }
+html.tv-mode :focus-visible { outline: 3px solid var(--accent-text); outline-offset: 4px; }
+html.viewer-open.compact-ui .tabbar,html.cover-open.compact-ui .tabbar,html.keyboard-open.compact-ui .tabbar { display: none; }
+@media (prefers-reduced-motion: reduce) { .immersive,.focus-bottom { animation: none; transition: none; } }
+
+
+/* Inspection keeps provenance visible and exposes the same Details control in every layout. */
+.enh2.immersive .enh2-result { padding: 0; overflow: hidden; }
+.enh2.immersive .enh2-main { flex: 1; min-height: 0; }
+.enh2.immersive .enh2-stage { flex: 1; min-height: 0; aspect-ratio: auto; border-radius: 0; }
+.enh2.immersive .enh2-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+.enh2.immersive .enh2-side { display: none; }
+.enh2.immersive.inspector-open .enh2-side { display: flex; position: absolute; right: max(12px,var(--safe-right)); bottom: calc(84px + var(--safe-bottom)); top: calc(70px + var(--header-inset-top)); z-index: 11; width: min(320px,calc(100% - 24px)); padding: 12px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); overflow: auto; }
+.enh2.immersive .enh2-under { position: absolute; bottom: max(12px,var(--safe-bottom)); left: max(12px,var(--safe-left)); right: max(12px,var(--safe-right)); z-index: 10; padding: 10px 14px; border-radius: var(--r-lg); background: var(--panel); }
+.enh2.immersive .enh2-badge { position: absolute; bottom: calc(84px + var(--safe-bottom)); left: max(12px,var(--safe-left)); z-index: 6; max-width: min(600px,calc(100% - 24px)); background: #352511; }
+.enh2.immersive :is(.enh2-bar,.enh2-under):not(.show) { opacity: 0; pointer-events: none; }
+html.compact-ui:not(.tv-mode) .ev-filters-btn { display: inline-flex; }
+html.compact-ui:not(.tv-mode) .ev-side { position: absolute; z-index: 30; inset: 0 auto 0 0; width: min(320px,86vw); transform: translateX(-102%); background: var(--panel); box-shadow: var(--shadow-3); }
+html.compact-ui:not(.tv-mode) .ev-side.open { transform: none; }
+html.compact-ui:not(.tv-mode) .ev-sheet-head { display: flex; align-items: center; justify-content: space-between; }
+html.compact-ui:not(.tv-mode) .ev-sec-range { display: block; }
+html.compact-ui:not(.tv-mode) .ev-scrim:not([hidden]) { display: block; position: absolute; inset: 0; z-index: 29; background: var(--scrim); }
+html.compact-ui:not(.tv-mode) .ev-bar .bar-actions > .ev-range { display: none; }
+html.compact-ui:not(.tv-mode) .auth-page { align-items: center; }
+html.keyboard-open .auth-page { height: var(--visual-height); }
+/* Events keeps title and search together; shorter tablet widths move the range into Filters. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; column-gap: 8px; row-gap: 6px; height: auto; min-height: var(--bar); }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; height: auto; min-height: var(--bar); }
+  .topbar.appbar.ev-bar .bar-back { display: flex; }
+  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: 100%; max-width: 240px; min-width: 0; margin: 0; overflow: visible; }
+  .topbar.appbar.ev-bar > .spacer { display: none; }
+  .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; grid-row: 1; flex: none; }
+  .topbar.appbar.ev-bar .app-destinations { grid-column: 5; grid-row: 1; }
+  .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; grid-row: 1; }
+  .topbar.appbar.ev-bar :is(.app-destinations,.bar-global-actions) { justify-self: end; }
+  .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
+  /* Keep all destinations compact while preserving room for the far-right Account target on iPad. */
+  .topbar.appbar.ev-bar .app-destinations { gap: 1px; padding-inline: 2px; }
+  .topbar.appbar.ev-bar .app-dest { padding-inline: 5px; }
+}
+@media (min-width: 901px) and (max-width: 1350px) {
+  .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; column-gap: 8px; height: auto; min-height: var(--bar); }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.ev-bar { display: grid; grid-template-columns: auto minmax(90px,140px) minmax(140px,240px) auto auto auto; height: auto; min-height: var(--bar); }
+  .topbar.appbar.ev-bar .bar-back { display: flex; }
+  .topbar.appbar.ev-bar .bar-ctx { grid-column: 3; grid-row: 1; flex: none; width: 100%; max-width: 260px; min-width: 0; margin: 0; overflow: visible; }
+  .topbar.appbar.ev-bar > .spacer { display: none; }
+  .topbar.appbar.ev-bar .bar-page-actions { grid-column: 4; gap: 3px; }
+  .topbar.appbar.ev-bar .app-destinations { grid-column: 5; }
+  .topbar.appbar.ev-bar .bar-global-actions { grid-column: 6; }
+  .topbar.appbar.ev-bar :is(.app-destinations,.bar-global-actions) { justify-self: end; }
+  .topbar.appbar.ev-bar .bar-global-actions { flex-wrap: nowrap; width: max-content; }
+  .topbar.appbar.ev-bar .ev-range { display: flex; }
+}
+html.short-ui:not(.tv-mode) .pb-stage { flex: 1; aspect-ratio: auto; }
+html.short-ui:not(.tv-mode) .pb-body { overflow: hidden; }
+html.short-ui:not(.tv-mode) .pb [data-a=export] .lbl { display: none; }
+@media (max-width: 360px) {
+  .menu.cal-popover { width: 100vw; padding: 4px; scrollbar-width: none; }
+  .menu.cal-popover::-webkit-scrollbar { display: none; }
+  .menu.cal-popover .cal-card { padding: 0; }
+}
+@media (max-width: 640px) {
+  .cal-popover { padding: 4px; }
+  .cal-pop .cal-card { min-width: 0; padding: 8px; }
+  .cal-pop .cal-grid { gap: 2px 0; }
+  .pb .topbar .bar-ctx { flex-wrap: wrap; overflow: visible !important; }
+  .pb .cam-chips { flex: 1 0 100%; overflow-x: auto; min-width: 0; }
+  .pb .cam-chip { max-width: min(250px,72vw); }
+  .pb .date-step { min-height: 44px; }
+  .pb .cam-more { min-width: 44px; min-height: 44px; }
+}
+html.tv-mode .cal-popover { width: min(900px,calc(100vw - 64px)); }
+.quick-jumps { margin: 0; }
+.quick-jumps button { white-space: normal; min-width: 0; min-height: 44px; }
+.speed-menu button { min-height: 44px; }
+html.tv-mode :is(.quick-jumps button,.speed-menu button) { min-height: 56px; font-size: 19px; }
+
+html.compact-ui:not(.tv-mode) .tbl-scroll { overflow: visible; }
+html.compact-ui:not(.tv-mode) table.tbl { min-width: 0; width: 100%; }
+html.compact-ui:not(.tv-mode) table.tbl thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+html.compact-ui:not(.tv-mode) table.tbl tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); padding: 12px; margin-bottom: 10px; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); }
+html.compact-ui:not(.tv-mode) table.tbl td { display: flex; flex-direction: column; align-items: start; gap: 6px; padding: 0; border: 0; width: auto !important; min-width: 0; white-space: normal !important; overflow-wrap: anywhere; }
+html.compact-ui:not(.tv-mode) table.tbl td::before { content: attr(data-label); font-size: 12px; color: var(--muted); }
+html.compact-ui:not(.tv-mode) table.tbl td[data-label=Name] { grid-column: 1 / -1; }
+html.compact-ui:not(.tv-mode) table.tbl td input { max-width: 100%; width: 100%; }
+html.compact-ui:not(.tv-mode) table.tbl td.act { flex-direction: row; flex-wrap: wrap; align-items: end; }
+html.compact-ui:not(.tv-mode) table.tbl tr.adv { grid-template-columns: 1fr; }
+html.compact-ui:not(.tv-mode) table.tbl tr.adv td:first-child { display: none; }
+html.tv-mode .tbl { min-width: 0; }
+html.tv-mode .tbl td,html.tv-mode .tbl th { font-size: 18px; padding: 14px 10px; }
+
+/* A phone's Channel-zero wall must own the available column height. The ordinary mobile grid uses
+   intrinsic aspect-ratio cards and lets its wall grow; the single overview has no intrinsic card height,
+   so that rule otherwise collapses the live video to zero in portrait. */
+@media (max-width: 640px) {
+  html.compact-ui:not(.tv-mode) .liveview > .wall.chan0-single { flex: 1 1 0; min-height: 0; height: auto; overflow: hidden; padding: 0; }
+  html.compact-ui:not(.tv-mode) .liveview > .wall.chan0-single > .tile { grid-column: 1 !important; grid-row: 1 !important; width: 100%; height: 100%; min-height: 0; aspect-ratio: auto; }
+}
+
+/* The normal compact Playback transport hides its fullscreen action to save space. Once immersive,
+   that same bottom-bar action is the only exit after removing the redundant upper-corner control. */
+html.compact-ui:not(.tv-mode) :is(.pb.immersive,.pb:fullscreen) .pb-ctrl-right [data-a=pbfs] { display: inline-flex !important; }
+
+/* Short mobile landscape moves the destination pill into the app header. Keep the real links and their
+   accessible names; remove the bottom pill and leave the full-height surface for video. */
+@media (orientation: landscape) and (max-height: 540px) {
+  html.compact-ui:not(.tv-mode) .tabbar { display: none !important; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar { flex-wrap: nowrap; min-width: 0; }
+  /* Some iOS standalone builds do not receive the apple-touch-device class. Keep the shared
+     destinations and account controls anchored to the trailing edge through the compact fallback too. */
+  html.compact-ui:not(.tv-mode) .topbar.appbar .app-destinations { display: flex; flex: none; align-items: center; gap: 2px; height: 38px; padding: 2px; margin: 0 0 0 auto; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest { position: relative; flex: none; width: 36px; min-width: 36px; height: 32px; min-height: 32px; padding: 0; gap: 0; font-size: 0; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest .i { display: block; width: 18px; height: 18px; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest span { font-size: 0; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar .app-dest[data-locked]::after { top: 1px; right: 3px; left: auto; font-size: 10px; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live { display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live .bar-title { flex: 0 1 72px; min-width: 42px; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live .bar-title h1 { font-size: 17px; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live .bar-ctx { order: 0; flex: none; width: auto; max-width: none; overflow: visible; margin: 0; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live > .spacer { display: none; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live .bar-page-actions { order: 2; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live .app-destinations { order: 3; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar.live .bar-global-actions { order: 4; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 640px) {
+  html.compact-ui:not(.tv-mode) .topbar.appbar:not(.live) { flex-wrap: wrap; }
+  html.compact-ui:not(.tv-mode) .topbar.appbar:not(.live) .bar-ctx { order: 10; flex: 1 0 100%; }
+}
+
+/* Compact navigation is an icon dock on both iPhone and iPad. The labels remain in the accessibility tree
+   and every link has an explicit accessible name; the 44px hit areas and selected backgrounds stay intact. */
+html.compact-ui:not(.tv-mode) .tabbar .tab { position: relative; gap: 0; }
+html.compact-ui:not(.tv-mode) .tabbar .tab .i { width: 22px; height: 22px; }
+html.compact-ui:not(.tv-mode) .tabbar .tab span {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-destinations { gap: 2px; width: max-content; height: 48px; min-height: 48px; padding: 1px; }
+html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest { position: relative; flex: none; width: 44px; min-width: 44px; min-height: 44px; padding: 0; gap: 0; font-size: 0; }
+html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest .i { display: block; width: 20px; height: 20px; }
+html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest[data-locked]::after { top: 2px; right: 4px; left: auto; font-size: 10px; }
+
+/* Keep the shared destinations and account/notification controls in one stable trailing cluster on
+   iPhone landscape and iPad. Page headers have different context rows (Playback has two), so letting
+   these controls participate in each page's flex/grid layout makes them jump between rows and columns. */
+@media (min-width: 641px), (orientation: landscape) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar { min-height: calc(var(--header-inset-top) + 58px); }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-destinations {
+    position: absolute; z-index: 8; top: calc(var(--header-inset-top) + 8px);
+    right: calc(max(12px,var(--safe-right)) + 106px); margin: 0; grid-area: auto;
+  }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar .bar-global-actions {
+    position: absolute; z-index: 8; top: calc(var(--header-inset-top) + 10px);
+    right: max(12px,var(--safe-right)); width: max-content; margin: 0; grid-area: auto;
+  }
+  /* Viewer accounts have no notification control, so keep the same compact gap before the avatar. */
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar:not(:has(.bar-global-actions .gbtn[data-g="bell"])) .app-destinations {
+    right: calc(max(12px,var(--safe-right)) + 52px);
+  }
+  /* Keep Account's page-level Sign out action to the left of the overlaid destination/avatar cluster. */
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.acct-page-bar .bar-page-actions { margin-right: 300px; }
+}
+@media (min-width: 641px) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.live .bar-page-actions { margin-right: 300px; }
+}
+
+/* Keep the Events search and its filters together on a second row when the tablet-width header cannot
+   fit them before the shared trailing cluster. On wider iPads they stay beside the title as before. */
+@media (min-width: 641px) and (max-width: 1139px) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar {
+    display: flex; flex-wrap: wrap; height: auto; min-height: var(--bar);
+    padding-block: calc(8px + var(--header-inset-top)) 8px; row-gap: 6px;
+  }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-back { order: 0; }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-title { order: 1; flex: 0 0 auto; }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-ctx {
+    order: 10; flex: 0 0 240px; width: 240px; max-width: 240px; margin: 0; overflow: visible;
+  }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar > .spacer { display: none; }
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-page-actions { order: 11; flex: 0 0 auto; margin-left: 2px; }
+}
+@media (min-width: 641px) and (max-width: 799px) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-page-actions { flex-basis: 100%; margin-left: 0; }
+}
+@media (max-width: 640px) and (orientation: landscape) {
+  html.apple-touch-device:not(.tv-mode) .topbar.appbar.ev-bar .bar-page-actions { order: 11; flex: 0 0 100%; }
+}
+
+/* Desktop Playback fullscreen uses the same edge-to-edge bottom chrome panel as its top bar. Keep the
+   center transport and side actions together inside that panel instead of a detached floating capsule. */
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv-mode):not(.apple-touch-device) :is(.pb.immersive,.pb:fullscreen) .pb-controls {
+    left: 0; right: 0; bottom: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0;
+    padding: 8px max(14px,var(--safe-right)) var(--safe-bottom) max(14px,var(--safe-left));
+    background: var(--chrome-bg); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+
+/* Portrait phones have room for both the glyph and its destination name. Keep the compact text labels in
+   the bottom pill for fast recognition; short landscape stays icon-only to protect the video/header width. */
+@media (max-width: 640px) and (orientation: portrait) {
+  html.compact-ui:not(.tv-mode) .tabbar .tab { gap: 2px; }
+  html.compact-ui:not(.tv-mode) .tabbar .tab span {
+    position: static; width: auto; height: auto; padding: 0; margin: 0; overflow: visible;
+    clip: auto; white-space: nowrap; border: 0; font-size: 11px; line-height: 14px;
+  }
+}
+
+/* Touch fullscreen keeps a solid, edge-to-edge transport dock that matches the app header. Its controls
+   share the viewer's eight-second wake interval, then the complete chrome can clear the picture together. */
+@media (pointer: coarse) {
+  html:not(.tv-mode) :is(.pb.immersive,.pb:fullscreen) .pb-controls {
+    left: 0; right: 0; bottom: 0; z-index: 11; border: 0; border-top: 1px solid var(--line);
+    border-radius: 0; padding: 8px max(8px,var(--safe-right)) var(--safe-bottom) max(8px,var(--safe-left));
+    background: var(--chrome-bg); --text: inherit; --muted: inherit;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+
+/* Native select arrows vary by browser and were sitting off-center in the Connection test row. Draw this
+   one with the same muted token as the other field affordances, centered against the actual control box. */
+.test-channel-select { position: relative; display: inline-flex; flex: 0 1 auto; min-width: 150px; }
+.test-channel-select select { width: 100%; min-width: 0; padding-right: 38px; appearance: none; -webkit-appearance: none; }
+.test-channel-select::after {
+  content: ''; position: absolute; top: 50%; right: 15px; width: 7px; height: 7px;
+  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-68%) rotate(45deg); pointer-events: none;
+}

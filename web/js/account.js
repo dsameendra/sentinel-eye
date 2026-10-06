@@ -5,7 +5,7 @@ import { authApi } from './api.js';
 import { AVATAR_COLORS, AVATAR_COLOR_NAMES, AVATAR_PRESETS, avatarInner, compressPhoto, defaultColor } from './avatar.js';
 import { barHTML, wireBar } from './bar.js';
 import { qrSvg } from './qr.js';
-import { confirmDialog, esc, icon, toast } from './ui.js';
+import { confirmDialog, esc, icon, toast, modalRoot } from './ui.js';
 
 export const fmtWhen = (ts) => {
   if (!ts) return 'never';
@@ -39,15 +39,17 @@ export function wireCopy(root) {
 }
 
 export function openAccount(ctx, { force2fa = false } = {}) {
-  const root = document.getElementById('modal-root');
+  const root = modalRoot();
   const me = ctx.me();
   let sessions = null, enrol = null, codes = null;
 
   const close = () => {
     if (force2fa && !ctx.me().user.has_totp) return;   // can't dismiss until 2FA is set up
+    root._dispose = null;
     root.innerHTML = '';
     document.removeEventListener('keydown', onKey, true);
   };
+  root._dispose = close;
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   document.addEventListener('keydown', onKey, true);
 
@@ -164,7 +166,7 @@ export function openAccount(ctx, { force2fa = false } = {}) {
   };
 
   paint();
-  if (!(force2fa && !me.user.has_totp)) authApi.sessions().then((s) => { sessions = s; if (root.querySelector('.dialog')) paint(); }).catch(() => {});
+  if (!(force2fa && !me.user.has_totp)) authApi.sessions().then((s) => { sessions = s; if (root._dispose === close) paint(); }).catch(() => {});
 }
 
 // ------------------------------------------------------------------------------------------- Account page
@@ -213,13 +215,14 @@ export class AccountView {
   }
 
   paint() {
+    if (this._dead) return;
     const me = this.ctx.me() || {};
     const signOut = me.via === 'session' ? `<button class="btn glass-btn" data-a="logout">${icon('logout')} Sign out${this.user?.kind === 'device' ? ' this device' : ''}</button>` : '';
     if (this.embedded) {
       this.root.innerHTML = `<header class="pane-head"><h1>Account</h1><p>Your profile, password and sign-in, and where you're signed in.</p></header>
         <div class="acct acct-embed">${this.body(me)}${signOut ? `<section class="card acct-row"><div><b>Sign out</b><small>Of this browser. Your other devices stay signed in.</small></div>${signOut}</section>` : ''}</div>`;
     } else {
-      this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
+      this.root.innerHTML = `${barHTML({ lead: 'back', title: 'Your account', size: 'title', cls: 'acct-page-bar', actions: signOut })}<main class="acct"><div class="acct-inner">${this.body(me)}</div></main>`;
       wireBar(this.root, this.ctx, { back: 'history' });
     }
     this.wire();
@@ -473,5 +476,5 @@ export class AccountView {
     wireCopy(r);
   }
 
-  destroy() { this.root.innerHTML = ''; }
+  destroy() { this._dead = true; this.root.innerHTML = ''; }
 }

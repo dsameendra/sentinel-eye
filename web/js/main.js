@@ -6,8 +6,8 @@ import { LiveView } from './live.js';
 import { PlaybackView } from './playback.js';
 import { EventsView } from './events.js';
 import { SettingsView } from './settings.js';
-import { esc, icon, toast } from './ui.js';
-import { tabBarHTML } from './bar.js';
+import { closeModal, closePopover, esc, icon, shortcutsDialog, toast } from './ui.js';
+import { configureNavigation, tabBarHTML } from './bar.js';
 import { layoutIds } from './layouts.js';
 import { fetchTzOffset } from './dvrtime.js';
 
@@ -18,22 +18,24 @@ const can = (role) => (ROLE_RANK[state.me?.role] ?? -1) >= ROLE_RANK[role];
 const SECTION_ROLE = { playback: 'operator', events: 'operator', search: 'operator' };
 const app = document.getElementById('app');
 
-// Matches --bg in app.css exactly (dark/light) — kept as its own small map rather than reading the CSS
-// variable at call time, since the value is needed before layout/paint on the very first call.
-const THEME_BG = { dark: '#09090b', light: '#f2f2f5' };
+// The guide is available from every authenticated page; its playback/live actions remain contextual.
+document.addEventListener('keydown', e => {
+  if (e.key !== '?' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey
+    || e.target?.closest?.('input,textarea,select,[contenteditable]')
+    || document.getElementById('modal-root')?.firstChild) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  closePopover(); shortcutsDialog();
+}, true);
+
 function applyTheme(t) {
   // A TV in TV mode follows its own appearance (dark unless chosen otherwise), not the synced theme: a
   // TV browser often reports a light preference, which turned everything around the video light.
   if (getTvMode()) { const tv = getTvTheme(); t = tv === 'auto' ? null : tv; }
   if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
   else document.documentElement.removeAttribute('data-theme');
-  // Installed-app chrome (iOS status bar tint, Android/desktop PWA title bar) reads this meta tag, not the
-  // page's own CSS — manifest.json's theme_color only covers the OS's default-theme guess before this JS
-  // runs, and can't follow "auto" or an explicit override at all, so this keeps it in sync with whichever
-  // theme is actually showing, the same way any other themed chrome in this app already does.
-  const effective = (t === 'dark' || t === 'light') ? t : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-  document.querySelector('meta[name=theme-color]')?.setAttribute('content', THEME_BG[effective]);
+  window.SentinelPWA?.syncTheme();
 }
+
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
   if (getTvMode() || !(state.settings?.display.theme === 'dark' || state.settings?.display.theme === 'light')) applyTheme(state.settings?.display.theme);
 });
@@ -144,43 +146,46 @@ async function route() {
     history.replaceState(null, '', state.hash);
     return;
   }
-  if (state.hash && state.hash !== hash) state.prev = state.hash;
-  state.hash = hash;
-  const host = document.getElementById('view');
-  const navSection = section === 'search' ? 'events' : section;
-  document.querySelectorAll('.tabbar .tab').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
-  if (section === 'account') {
-    if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
-    return;
-  }
+  if (state.hash && state.hash !== hash) { closePopover(); if (state.kind !== section) closeModal(); state.prev = state.hash; }
+  const commitRoute = () => {
+    state.hash = hash;
+    const host = document.getElementById('view');
+    const navSection = section === 'search' ? 'events' : section;
+    document.querySelectorAll('.tabbar .tab,.app-dest').forEach((a) => (a.dataset.tab === navSection ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+    if (section === 'account') {
+      if (state.kind !== 'account') { state.view?.destroy(); state.view = new AccountView(host, ctx); state.kind = 'account'; }
+      return;
+    }
 
-  if (section === 'settings') {
-    if (state.kind === 'settings') { state.view.setTab(arg); return; }
-    state.view?.destroy();
-    state.view = new SettingsView(host, ctx, arg);
-    state.kind = 'settings';
-    return;
-  }
-  if (section === 'playback') {
-    // the view updates the URL itself when the camera selection changes (ctx.go below); once we're already
-    // in playback, that's a notification, not a request to rebuild — rebuilding would tear down live panes
-    // mid-switch. A real navigation into playback from elsewhere in the app still builds fresh.
-    if (state.kind === 'playback') return;
-    state.view?.destroy();
-    state.view = new PlaybackView(host, ctx, arg || null, arg2 || null);
-    state.kind = 'playback';
-    return;
-  }
-  if (section === 'events' || section === 'search') {   // 'search' kept as an alias for old links/bookmarks
-    if (state.kind !== 'events') { state.view?.destroy(); state.view = new EventsView(host, ctx); state.kind = 'events'; }
-    return;
-  }
-  if (state.kind !== 'live') {
-    state.view?.destroy();
-    state.view = new LiveView(host, ctx);
-    state.kind = 'live';
-  }
-  state.view.route(arg || null);
+    if (section === 'settings') {
+      if (state.kind === 'settings') { state.view.setTab(arg); return; }
+      state.view?.destroy();
+      state.view = new SettingsView(host, ctx, arg);
+      state.kind = 'settings';
+      return;
+    }
+    if (section === 'playback') {
+      // The view updates the URL itself when camera selection changes; don't rebuild live panes mid-switch.
+      if (state.kind === 'playback') return;
+      state.view?.destroy();
+      state.view = new PlaybackView(host, ctx, arg || null, arg2 || null);
+      state.kind = 'playback';
+      return;
+    }
+    if (section === 'events' || section === 'search') {
+      if (state.kind !== 'events') { state.view?.destroy(); state.view = new EventsView(host, ctx); state.kind = 'events'; }
+      return;
+    }
+    if (state.kind !== 'live') {
+      state.view?.destroy();
+      state.view = new LiveView(host, ctx);
+      state.kind = 'live';
+    }
+    state.view.route(arg || null);
+  };
+  // Replace route-owned DOM synchronously. A fading View Transition can expose the PWA's black shell
+  // between surveillance views, and overlapping transitions reject when users switch pages quickly.
+  commitRoute();
 }
 
 async function boot() {
@@ -190,6 +195,7 @@ async function boot() {
   if (state.me.auth_enabled && state.me.via === 'anon') { signInAgain(); return; }   // e.g. a cached shell from the service worker
   authHooks.needs2fa = () => { if (!document.querySelector('#modal-root .dialog')) openAccount(ctx, { force2fa: true }); };
   document.documentElement.classList.toggle('role-viewer', !can('operator'));   // hides review-only buttons (app.css)
+  configureNavigation(ctx);
   shell();
   if (state.me.limited) { openAccount(ctx, { force2fa: true }); return; }
   if (can('operator')) fetchTzOffset();   // remembered, so Playback and Events never wait on it later
