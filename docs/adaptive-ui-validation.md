@@ -126,26 +126,27 @@ No real recorder settings or accounts were changed by these tests. The video rig
 
 ## Screenshots and reproducibility
 
-The README gallery uses optimized JPEG captures. For this UI refresh, Focus, Playback, Events, Enhancer and Settings were replaced with current-branch captures; the Live grid keeps its four-stream synthetic test-pattern capture. Additional captures document important adaptive views. The images are interface evidence, not production camera footage: all scenes and event thumbnails are synthetic, and the enhancer image demonstrates the interface rather than image quality.
+The README gallery uses optimized progressive JPEG captures. All 14 screenshots are generated deterministically using a unified 4-channel residential camera rig (`tools/synthetic_scenes.py` and `tools/capture_screenshots.py`). The images are interface evidence, not production camera footage: all scenes and event thumbnails are 100% synthetic, and the enhancer image demonstrates the interface rather than image quality.
 
 | Capture | Dimensions | Source |
 | --- | --- | --- |
-| [Live grid](screenshots/live-grid.jpg) | 1440×900 | Four decoded fake-camera streams |
-| [Focus](screenshots/focus.jpg) | 1440×900 | Decoded 1920×1080 synthetic HD stream, settled controls |
-| [Phone Live](screenshots/mobile-live.jpg) | 390×844 | Fake-camera rig in a browser dimension profile; no native PWA compositor |
-| [Playback](screenshots/playback.jpg) | 1440×900 | Review fixture; no connected recorder |
-| [Events](screenshots/events.jpg) | 1440×900 | Synthetic events and thumbnails |
-| [Enhancer](screenshots/enhancer.jpg) | 1440×900 | In-memory comparison/result fixture, no AI inference |
-| [Settings](screenshots/settings.jpg) | 1440×900 | Display/layout fixture |
-| [TV profile](screenshots/tv-mode.jpg) | 1280×720 | Real decoded fake stream and keyboard-focused navigation in desktop Chrome; no physical TV |
-| [Landscape Playback](screenshots/phone-landscape-playback.jpg) | 667×375 | Four selected cameras, compact calendar and speed controls, export still visible; no recorder connected |
-| [iPad Playback](screenshots/ipad-playback.jpg) | 1180×820 | Two selected review panes, injected installed signals/insets |
-| [Light Events](screenshots/light-events.jpg) | 1440×900 | Light-theme event fixture |
-| [Phone Settings](screenshots/mobile-settings.jpg) | 390×844 | Grouped sections and injected installed signals/insets |
-| [Landscape Export](screenshots/export-landscape.jpg) | 844×390 | Export UI fixture; no job executed |
-| [Repaired phone login](screenshots/login-phone.jpg) | 390×844 | Anonymous form with injected installed signals/insets |
+| [Live grid](screenshots/live-grid.jpg) | 1440×900 | Four synthetic residential camera streams (Driveway, Front Door, Backyard, Side Gate) |
+| [Focus](screenshots/focus.jpg) | 1440×900 | Synthetic 1080p Driveway camera in Focus with settled controls |
+| [Phone Live](screenshots/mobile-live.jpg) | 390×785 | Phone portrait live view 2-column grid with bottom capsule navigation (status area cropped) |
+| [Playback](screenshots/playback.jpg) | 1440×900 | Review workspace with synthetic Driveway stream, timeline coverage span and transport |
+| [Events](screenshots/events.jpg) | 1440×900 | Synthetic events with matching camera scene thumbnails and filter sidebar |
+| [Enhancer](screenshots/enhancer.jpg) | 1440×900 | Vehicle license plate comparison slider with active plate OCR reading panel (`CAB 4821 100%`) and ENHANCED banner |
+| [Settings](screenshots/settings.jpg) | 1440×900 | Display and layout settings fixture |
+| [TV profile](screenshots/tv-mode.jpg) | 1920×1080 | Fullscreen Channel-zero 4-camera composite overview with persistent top navigation bar and clock |
+| [Landscape Playback](screenshots/phone-landscape-playback.jpg) | 844×390 | Phone landscape review with shallow transport and on-demand Timeline |
+| [iPad Playback](screenshots/ipad-playback.jpg) | 1180×796 | iPad landscape review workspace with timeline coverage span and speed controls (status area cropped) |
+| [Light Events](screenshots/light-events.jpg) | 1440×900 | Light-theme event review workspace |
+| [Phone Settings](screenshots/mobile-settings.jpg) | 390×785 | Phone compact grouped settings sections and bottom navigation |
+| [Landscape Export](screenshots/export-landscape.jpg) | 844×390 | Signed evidence package export dialog with interactive trimming |
+| [Phone login](screenshots/login-phone.jpg) | 390×844 | Mobile login card with TV pairing option |
 
-Run `.venv/bin/python tools/pwa_preview.py --port 8083` for the isolated UI fixture. Its URL flags select `theme`, `pwa`, `top`, `bottom`, `apple=1` (simulate Apple touch-device detection), `tv`, `role`, `signed`, `overview`, `demo`, `unsupported` and a capture overlay (`screen=enhancer` or `screen=export`). `capture=1` hides fixture instrumentation. Injected device flags are fixture-only, not production detection logic.
+Run `.venv/bin/python3 tools/capture_screenshots.py` to regenerate all 14 screenshots automatically via headless Chrome.
+Run `.venv/bin/python3 tools/pwa_preview.py --port 8083` for the interactive isolated UI preview fixture. Its URL flags select `theme`, `pwa`, `top`, `bottom`, `apple=1` (simulate Apple touch-device detection), `tv`, `role`, `signed`, `overview`, `demo`, `unsupported` and a capture overlay (`screen=enhancer` or `screen=export`). `capture=1` hides fixture instrumentation. Injected device flags are fixture-only, not production detection logic.
 
 `tools/adaptive_browser_checks.mjs` exports the profile list and `runRoutes`, `runEntries`, `runCameraTools` for the documented Browser skill runtime's tab/viewport APIs. Run profiles in small batches and save results between batches. This module is a runtime helper, not a standalone CLI test. `tools/test_rig.sh start` prepares the fake camera rig; `serve` keeps it under a foreground session owner when detached children would be reaped. UI settings tests belong only in this rig or the preview.
 

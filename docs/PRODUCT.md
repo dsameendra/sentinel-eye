@@ -33,6 +33,6 @@ No fabricated testimonials, customers, benchmarks, or pricing — this is a pers
 ## Product Principles
 1. Everything runs locally — no cloud account, no vendor app, no plugin, ever required.
 2. The vendor's own app/cloud is the bar to replace, not just match on live viewing.
-3. Single trusted operator, not a multi-tenant product — don't design for logins, roles, or public exposure.
+3. Single operator or household/trusted team, not multi-tenant SaaS — sign-in is optional and local-first with viewer/operator/admin roles; never depend on external cloud identity or public exposure.
 4. No frontend build step — the web UI stays plain ES modules; don't assume a bundler/framework is available.
 5. New surfaces (events, playback, enhancement) extend the same self-hosted, privacy-first stack, not bolt-on cloud services.
