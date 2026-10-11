@@ -27,6 +27,8 @@ cameras ever leaves your network.
 
 ---
 
+https://github.com/user-attachments/assets/8cc91469-8ee5-4d01-864b-47cdca178d22
+
 <div align="center">
 
 ![Live camera grid with four synthetic residential camera streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
