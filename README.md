@@ -1,18 +1,37 @@
-<img src="web/icons/app-icon-512.png" width="88" height="88" alt="Sentinel Eye" align="left" style="margin-right:16px">
+<div align="center">
+
+<img src="web/icons/app-icon-512.png" width="112" height="112" alt="Sentinel Eye">
 
 # Sentinel Eye
 
-A self-hosted web dashboard for Hikvision recorders and cameras — live viewing, DVR/NVR playback and review,
-event search, exports, and real-time AI-assisted enhancement, all running on your own machine.
+[![CI](https://github.com/dsameendra/sentinel-eye/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dsameendra/sentinel-eye/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-0074e8?style=flat-square)](LICENSE) ![Self-hosted](https://img.shields.io/badge/self--hosted-no%20cloud-30d158?style=flat-square)
 
-<br clear="left">
+### Your Hikvision cameras, on your own machine.
+
+Live view, DVR/NVR playback and review, event search, signed evidence exports, and local AI-assisted enhancement.
+
+_No vendor app. No plugin. No cloud._
+
+</div>
 
 No Hikvision app, no plugin, and no cloud account. It reads the recorder's standard RTSP streams over your
 LAN and, when the recorder's proprietary "Stream Encryption" is turned on, decrypts them itself (the scheme
 was reverse-engineered from scratch — see `tools/NOTES.md`). Nothing about how you watch or review your
 cameras ever leaves your network.
 
+<div align="center">
+
+**[Features](#features) · [How it works](#how-it-works) · [Running it](#running-it) · [Sign-in](#sign-in-optional) · [Installing as an app](#installing-as-an-app) · [TV mode](#tv-mode) · [Contributing](#contributing)**
+
+</div>
+
+---
+
+<div align="center">
+
 ![Live camera grid with four synthetic residential camera streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
+
+</div>
 
 *(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. All scenes use vector-rendered synthetic residential feeds (Driveway, Front Door, Backyard, Side Gate); playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
 
