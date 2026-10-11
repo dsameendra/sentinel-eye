@@ -25,17 +25,9 @@ cameras ever leaves your network.
 
 </div>
 
+https://github.com/user-attachments/assets/440a295a-b318-4464-a528-4b3b2af88bff
+
 ---
-
-https://github.com/user-attachments/assets/8cc91469-8ee5-4d01-864b-47cdca178d22
-
-<div align="center">
-
-![Live camera grid with four synthetic residential camera streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
-
-</div>
-
-*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. All scenes use vector-rendered synthetic residential feeds (Driveway, Front Door, Backyard, Side Gate); playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
 
 ## Why
 
@@ -74,7 +66,11 @@ involved.
 - **TV mode** (Settings → Display & layout): a remote-friendly layout for leaving the cameras on a TV — see
   [TV mode](#tv-mode) below.
 
+![Live camera grid with four synthetic residential camera streams, page controls, and destination navigation beside notifications and Account](docs/screenshots/live-grid.jpg)
+
 ![Synthetic camera in Focus with a compact title bar, stream controls and playback actions](docs/screenshots/focus.jpg)
+
+*(Screenshots use an isolated synthetic camera rig or UI fixtures, with invented accounts and camera names. All scenes use vector-rendered synthetic residential feeds (Driveway, Front Door, Backyard, Side Gate); playback shows the review interface without a connected recorder, and the enhancer example is a UI fixture, not an AI quality result. No real surveillance footage is included. [Capture details](docs/adaptive-ui-validation.md).)*
 
 ### Playback and review
 - Review up to four cameras at once, frame-locked. Speeds run from 1/8× to 16×, within the recorder's own
