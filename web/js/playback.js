@@ -5,7 +5,8 @@ import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle,
 import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
-import { WCPlayer, unsupportedReason } from './wcplayer.js';
+import { WCPlayer, openVideoFrames, unsupportedReason } from './wcplayer.js';
+import { MasterClock, gapJump, shouldWait } from './masterclock.js';
 import { partsFromEpoch, fetchTzOffset, knownTzOffset, provisionalTzOffset, waitTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
@@ -50,6 +51,10 @@ export class PlaybackView {
     // of gambling on the retry loop; "Jump to now" is one click away for whoever actually wants live edge.
     this.currentEpoch = startEpoch ? +startEpoch : Date.now() / 1000 - 180;
     this.speed = '1';
+    // The one clock every pane renders from (docs/SPEC.md 7.2): T advances with speed while playing, stands still
+    // while paused or while a pane can't show T yet (strict sync), and each pane shows its newest frame <= T.
+    this.clock = new MasterClock();
+    this.clock.seek(this.currentEpoch);
     this.tzOffsetMin = provisionalTzOffset(); // replaced in _init by the recorder's own offset
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.clips = [];               // [[startEpoch, endEpoch], …] — multi-cut clipper's pending list (spec 10/15)
@@ -58,7 +63,6 @@ export class PlaybackView {
     this.enhParams = { ...(ENHANCE_PRESETS[ctx.settings().display.enhance_default_preset] || ENHANCE_PRESETS.off) };
     this._roiSelectMode = false;   // armed via the wand panel's "Select region" button — next drag on any pane sets *that* pane's ROI
     this._flashlightMode = false;  // armed via "Digital flashlight" — cursor over any pane locally lifts shadows around it there
-    this._alignSeq = 0;            // bumped on every seek/selection change so a slow, superseded pane's landing can't retroactively trigger alignment
     this.fitOverride = null;       // null = follow Settings > Display > Fit; 'contain'/'cover' = this-session-only override, never saved (see fitMode())
     try { this.skipEmpty = localStorage.getItem(SKIP_KEY) === '1'; } catch { this.skipEmpty = false; }
     this._spanWin = null;          // Skip empty's loaded events: {chans, from, loadedTo, complete, fetchedAt, spans}
@@ -247,6 +251,8 @@ export class PlaybackView {
     this._renderTime();
     this.timeline.goTo(this.currentEpoch);
     this._setSelection([first.id]); // sets this.playing before controls are bound, so the very first auto-hide countdown is correct
+    window.__pbSync = () => this.syncInfo();   // debug/test hook: master time vs what each pane shows
+    window.__pbSync.endFeed = (i) => this.panes[i]?.player.disconnectSocket(true);   // test: a session that ends cleanly
     this._bindAutoHideControls();
     this.root.querySelector('[data-a=timeline]').addEventListener('click', () => this.toggleDetails());
     this._pollPool();
@@ -515,16 +521,15 @@ export class PlaybackView {
     // rather than push — otherwise every camera toggle fills history with entries that all render this
     // same view, and Back becomes a several-times-in-a-row no-op.
     this.ctx.replace(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
-    // (re)connect only the panes that don't already have a live session at the current position. A newly
-    // added camera starts at its own keyframe before that position, so it plays the moments leading up to it
-    // with their true times (see _alignPanes on why panes are no longer re-seeked to "match" each other).
-    const toConnect = this.panes.filter((pane) =>
-      pane.player.ws?.readyState !== WebSocket.OPEN && pane.player.ws?.readyState !== WebSocket.CONNECTING);
+    // Connect only the panes that don't already have a session. A newly added camera joins at the master time:
+    // the clock waits (strict sync) while its session decodes its way from its keyframe up to T.
+    const toConnect = this.panes.filter((pane) => !pane.connected);
     if (toConnect.length) {
-      this.playing = true;
-      this._alignPanes(this.panes, this.currentEpoch, this.speed, this.playing, toConnect);
+      if (!this._started) { this._started = true; this.playing = true; this.clock.play(); }
+      this._connectPanes(toConnect, this.clock.time());
     }
     this._paintPlayIcon();
+    this._startTick();
   }
 
   _makePane(cam) {
@@ -544,9 +549,15 @@ export class PlaybackView {
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
     const veil = el.querySelector('.pb-veil');
-    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null, _pauseOnNextFrame: false };
+    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null, connected: false };
     pane.player = new WCPlayer(canvas, {
+      clock: this.clock,
+      // Through a keyframe pre-roll, or short of footage, the feed runs as fast as the recorder's budget allows
+      // for this many cameras; comfortably ahead, it drops back to twice the playing speed (masterclock.feedPlan).
+      maxSpeed: () => maxSpeedFor(this.panes.length),
+      keepBehind: 12,
       onFrame: (t) => this._onFrame(pane, t),
+      onSegment: (msg) => this._onSegment(pane, msg),
       onState: (s, m) => this._onPaneState(pane, s, m),
       onError: (m) => { this._onPaneState(pane, 'error', m); if (pane === this.panes[0]) toast(`${cam.name || 'Camera'}: ${m}`, 'bad', 6000); },
       onQueued: (info) => this._onPaneState(pane, 'queued', `Recorder busy: ${info.busy}/${info.limit} sessions in use`),
@@ -764,125 +775,173 @@ export class PlaybackView {
   }
 
   // ---------------------------------------------------------------- playback control (applies to every pane)
-  // Pausing no longer disconnects (that's what made frame-stepping slow — every step had to open a brand
-  // new DVR session from scratch, real RTSP setup latency each time). It now just stops auto-advancing the
-  // displayed frame while the session keeps decoding into WCPlayer's own ring buffer in the background —
-  // see wcplayer.js. Resuming jumps to the newest buffered frame instead of reconnecting.
+  // Every pane renders the one master clock (docs/SPEC.md 7.2): play/pause/speed/step/seek move the clock, and
+  // each pane shows its newest frame <= T. Pausing keeps every session open (the recorder's feed is paused by
+  // back-pressure once enough is buffered — wcplayer.js), so play resumes at once and stepping needs no new
+  // recorder round trip.
   play() {
     this.playing = true;
+    this.clock.play();
     this._paintPlayIcon();
-    const iso = new Date(this.currentEpoch * 1000).toISOString();
-    for (const p of this.panes) {
-      if (p.player.ws?.readyState === WebSocket.OPEN) p.player.resumeFollow();
-      else p.player.connect(p.cam.id, iso, this.speed);
-    }
+    // A pane whose session has ended (or never opened) reopens at T; the clock waits for it.
+    const T = this.clock.time();
+    this._connectPanes(this.panes.filter((p) => !p.connected || (p.player.ended && !p.player.covers(T + 1))), T);
     this._showControls?.(); // starts the auto-hide countdown now that playing again
   }
 
   pause() {
     this.playing = false;
+    this.clock.pause();
     this._paintPlayIcon();
-    for (const p of this.panes) p.player.pauseHere();
-    this._onState('paused');
     this._showControls?.(); // paused = actively reviewing — stays visible (show() checks this.playing)
   }
 
   togglePlay() { this.playing ? this.pause() : this.play(); }
 
-  /** @param forcePlay start playing even if currently paused (used by "Jump to now"). Used to also update
-   * only the displayed position/UI while paused, leaving the actual player session untouched — found
-   * (not assumed) to desync the two: picking a new date/time while paused moved the playhead and time
-   * fields, but the still-open session just sat at its old position, so pressing Play resumed from wherever
-   * that stale session happened to be (e.g. an initial midnight/deep-link position) instead of from the
-   * newly picked time. A seek is always a deliberate "go here" action regardless of play state, so it now
-   * always reconnects — and, if this wasn't a play request, immediately re-pauses once the first frame at
-   * the new position has actually painted, landing paused exactly where the UI already claimed to be
-   * instead of silently drifting away from it. */
+  /** Go to `epoch`. Every pane is moved to the same instant: within what's already buffered that's just the
+   * clock moving (instant); otherwise each pane gets a fresh recorder session there (each starts at its own
+   * camera's keyframe before `epoch`, decodes its way up to it without showing those frames, and the clock waits
+   * until every pane can show `epoch`). Paused, every pane lands on its frame for exactly `epoch`.
+   * @param forcePlay start playing even if currently paused (used by "Jump to now"). */
   seekTo(epoch, forcePlay = false, { source = 'user' } = {}) {
     // A deliberate seek (not Skip empty's own, nor previous/next event's) pauses Skip empty for a moment and
     // forgets the last event jump, so neither fights where the operator just went.
     if (source === 'user') { this._userSeekAt = Date.now(); this._skipTarget = null; this._skipNote = null; }
     if (source !== 'jump') this._lastJump = null;
     this.currentEpoch = epoch;
+    this.playing = this.playing || forcePlay;
+    if (this.playing) this.clock.play(); else this.clock.pause();
+    this.clock.seek(epoch);
+    this._seekTarget = epoch;
     this._renderTime();
     this.timeline?.setPlayhead(epoch);
-    const shouldPlay = this.playing || forcePlay;
-    this.playing = shouldPlay;
     this._paintPlayIcon();
-    // Always a fresh session, never the in-session "seek" WS message — measured directly (not assumed)
-    // that reissuing PLAY with a new clock= range on an already-open RTSP session can land noticeably off
-    // target (observed: requested exact midnight, landed ~89 minutes later — most likely the calibration-regime
-    // labelling error since found and fixed, docs/SPEC.md section 2.4, but a fresh connect costs little).
-    // Each camera's session starts at that camera's own keyframe before `epoch` (measured 5-13 s early, and the
-    // keyframe interval is 14-50 s here), and the server labels those frames with their true recorded time, so
-    // panes briefly show the moments leading up to `epoch`; a paused seek stops on `epoch` itself (_onFrame).
-    for (const pane of this.panes) pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
-    this._alignPanes(this.panes, epoch, this.speed, shouldPlay);
+    // A pane already holding footage around `epoch` (a short skip back or forward) needs no new session.
+    this._connectPanes(this.panes.filter((p) => !(p.connected && p.player.ws && p.player.covers(epoch) && p.player.covers(epoch + 1))), epoch);
   }
 
-  /** Connects (or reconnects) every pane in `toConnect` (default: all of `panes`) to `epoch`, and resolves
-   * once each has shown its first frame (or a 6 s timeout) — a newer seek or selection change supersedes it.
-   *
-   * There used to be a second pass here that re-seeked any pane which "landed" earlier than its siblings to
-   * the latest landing. It only ever aligned *labels*: the server used to stamp every session's first frame
-   * with the requested time, while each session really starts at its own camera's keyframe before it (two
-   * cameras both labelled 19:57:37 were really at :27.1 and :26.0 — tools/measure_playback_time.py). Now
-   * the labels are the recorded times, and re-seeking a pane to a sibling's landing just snaps it back to the
-   * same keyframe again, so the pass could never converge; it is gone. Every pane is asked for the same
-   * instant and plays from its own keyframe towards it. Holding panes on one master clock (docs/SPEC.md
-   * section 7.2) is what true frame-lock still needs. */
-  async _alignPanes(panes, epoch, speed, shouldPlay, toConnect = panes) {
+  /** Open (or reopen) a recorder session for each of `panes` at `epoch`. */
+  _connectPanes(panes, epoch) {
     const iso = new Date(epoch * 1000).toISOString();
-    ++this._alignSeq;
-    const connecting = new Set(toConnect);
-    await Promise.all(panes.filter((pane) => connecting.has(pane)).map((pane) => new Promise((resolve) => {
-      pane._alignResolve = (t) => { pane._alignResolve = null; resolve(t); };
-      pane.player.connect(pane.cam.id, iso, speed);
-      setTimeout(() => { if (pane._alignResolve) { const r = pane._alignResolve; pane._alignResolve = null; r(null); } }, 6000);
-    })));
+    for (const pane of panes) {
+      pane.connected = true;
+      pane._shownKey = null;
+      pane.player.connect(pane.cam.id, iso);
+    }
   }
 
   setSpeed(s) {
     this.speed = s;
-    if (!this.playing) return;
-    for (const p of this.panes) if (p.player.ws?.readyState === WebSocket.OPEN) p.player.setSpeed(s);
+    this.clock.setSpeed(+s);   // T carries on from where it is; each pane's feed follows on its own (feedPlan)
   }
 
+  /** Frame step: the master time moves to the next/previous frame of the focused pane (the enlarged one, else the
+   * first), and every pane shows its frame for that instant. Within the buffer it's instant; one step past the
+   * newest frame waits briefly for it; one step back past the buffered minute re-opens the recorder there. */
   async stepFrame(dir) {
-    this.playing = false;
-    this._paintPlayIcon();
+    this.pause();
     this._onState('paused');
-    this._showControls?.();
-    // no spinner-first here: stepping is normally instant now (buffered), and flashing a veil on every
-    // click would make the common case feel slower than it is — only the rare backward-past-buffer fetch
-    // takes real time, and that pane's own veil (wired in _makePane) covers it if it does.
-    try {
-      const results = await Promise.all(this.panes.map((p) =>
-        (dir > 0 ? p.player.stepForward() : p.player.stepBackward(this.currentEpoch, p.cam.id))));
-      const t = results[0];
-      if (t != null) { this.currentEpoch = t; this._renderTime(); this.timeline?.setPlayhead(t); }
-    } catch (e) {
-      toast(String(e.message || e), 'bad');
+    const focus = this.inspected || this.panes[0];
+    if (!focus) return;
+    const T = this.clock.time();
+    const from = focus.player.painted ?? T;
+    let t = focus.player.stepTime(from, dir);
+    const deadline = performance.now() + 3000;
+    while (t == null && dir > 0 && focus.player.ws && performance.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 40));
+      if (this._dead || this.clock.time() !== T) return;   // moved meanwhile
+      t = focus.player.stepTime(from, dir);
     }
+    if (t == null) {
+      if (dir < 0) this.seekTo(from - 1 / 15, false, { source: 'step' });
+      return;
+    }
+    this.clock.seek(t);
+    this.currentEpoch = t;
+    this._renderTime();
+    this.timeline?.setPlayhead(t);
+  }
+
+  // ---------------------------------------------------------------- the render loop: one clock, every pane
+  _startTick() {
+    if (this._tickOn || this._dead) return;
+    this._tickOn = true;
+    const loop = () => {
+      if (this._dead) { this._tickOn = false; return; }
+      this._tick();
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  /** Every animation frame: where each pane stands at T, whether the clock must wait (strict sync: a pane that
+   * can't show T yet holds every pane), every pane painted for T, and the time readout/playhead followed. */
+  _tick() {
+    const clk = this.clock;
+    let T = clk.time();
+    const st = this.panes.map((p) => p.player.status(T));
+    if (this.playing) {
+      const j = gapJump(st, T);   // every pane in a recording gap: on to the first footage after it
+      if (j != null) { clk.seek(j); T = j; }
+      clk.setWaiting(shouldWait(st, clk.waiting));
+    } else clk.setWaiting(false);
+    T = clk.time();
+    if (this.playing) {
+      // A pane whose session ended cleanly (server restart, a network blip, the page coming back from the
+      // back/forward cache, an older server that ignores "hold") reopens at T as T nears the end of what it has;
+      // the clock just waits for it. At most every 5 s a pane, so a session that keeps closing can't spin.
+      const now = performance.now();
+      this.panes.forEach((p, i) => {
+        if (p.player.ended && p.player.state !== 'error' && st[i].newest != null && (st[i].newest - T) / clk.speed < 2
+            && now - (p._reopenAt || 0) > 5000) {
+          p._reopenAt = now;
+          this._connectPanes([p], T);
+        }
+      });
+    }
+    this.panes.forEach((p, i) => { p.player.render(T); this._paneVeil(p, st[i]); });
+    const waiting = this.panes.filter((p, i) => ['connecting', 'starved', 'decoding'].includes(st[i].state));
+    this._syncStatus(waiting);
+    this.currentEpoch = T;
+    const now = performance.now();
+    if (Math.floor(T) !== this._shownSecond || now - (this._uiAt || 0) > 250) {
+      this._shownSecond = Math.floor(T);
+      this._uiAt = now;
+      this._renderTime();
+      this.timeline?.setPlayhead(T);
+      if (this.playing && clk.running && this.panes[0]) this._skipTick(T, this.panes[0]);
+    }
+  }
+
+  /** A pane's own overlay for where it stands at T (connecting/queued/error ones are drawn by _onPaneState). */
+  _paneVeil(pane, s) {
+    const key = s.state === 'starved' || s.state === 'decoding' ? (this.clock.waiting ? 'buffering' : 'ok') : s.state;
+    if (key === pane._shownKey) return;
+    if (['connecting', 'off'].includes(s.state) && ['connecting', 'queued', 'error'].includes(pane.player.state)) { pane._shownKey = null; return; }
+    pane._shownKey = key;
+    const v = pane.veil;
+    if (key === 'buffering') {
+      v.hidden = false; v.className = 'pb-veil is-wait';
+      v.innerHTML = `<div class="msg">Buffering — waiting for this camera's footage to reach the others</div>`;
+    } else if (key === 'gap') {
+      v.hidden = false; v.className = 'pb-veil is-wait';
+      v.innerHTML = `<div class="msg">No recording at this moment</div>`;
+    } else if (key === 'ok') v.hidden = true;
+  }
+
+  /** The bar's status: "Buffering <cameras>" while the clock waits for them, else playing/paused. */
+  _syncStatus(waiting) {
+    const names = waiting.map((p) => p.cam.name || `Camera ${p.cam.channel}`);
+    const key = !this.playing ? 'paused' : this.clock.waiting ? `wait:${names.join(',')}` : 'playing';
+    if (key === this._statusKey) return;
+    this._statusKey = key;
+    if (key === 'paused') this._onState('paused');
+    else if (key === 'playing') this._onState('playing');
+    else this._onState('buffering', names.length ? `Buffering ${names.join(', ')}` : 'Buffering…');
   }
 
   // ---------------------------------------------------------------- per-pane state -> shared UI
   _onFrame(pane, absTime) {
-    pane.veil.hidden = true;
-    pane._lastAbsTime = absTime; // this pane's own last known real position
-    if (pane._alignResolve) pane._alignResolve(absTime); // reports this pane's actual landed position to _alignPanes, if a (re)connect is waiting on it
-    // Consumes the flag seekTo() set: this pane just reconnected for a seek that wasn't a play request, so hold
-    // here rather than letting WCPlayer's default post-connect "follow" keep streaming it forward while the rest
-    // of the UI says paused. The session starts at the keyframe before the requested instant (truthfully
-    // labelled, up to ~a minute early): hold that first picture — decoding carries on into the buffer — and jump
-    // to the requested frame once it's decoded, leaving the playhead on the requested time meanwhile.
-    let holding = false;
-    if (pane._pauseOnNextFrame) {
-      pane._pauseOnNextFrame = false;
-      pane.player.pauseHere();
-      const from = pane.player.displayFrom;
-      if (from != null && absTime < from - 0.05) { holding = true; pane.player.landAt(from); }
-    }
     // Keep the pane's --ar in sync with the decoded frame's real shape (tile.js does the same for live
     // view) — without this the canvas sizing CSS falls back to a fixed 16:9 guess, which is wrong for any
     // camera whose stream isn't 16:9 and produces the same "too much black" effect this was meant to fix.
@@ -891,32 +950,53 @@ export class PlaybackView {
       const ar = w / h;
       if (pane.ar !== ar) { pane.ar = ar; pane.el.style.setProperty('--ar', ar.toFixed(4)); }
     }
-    if (pane === this.panes[0] && !holding) {
-      this.currentEpoch = absTime;
-      this._renderTime();
-      this.timeline?.setPlayhead(absTime);
-      this._skipTick(absTime, pane);
+  }
+
+  /** A pane's session started (or re-started) a segment. When the recorder couldn't serve the instant asked for
+   * — the newest minute or two isn't playable yet, and the server backs off to the newest it will serve — the
+   * master time moves back to where that session really starts, rather than waiting on footage that isn't there. */
+  _onSegment(pane, msg) {
+    const T = this.clock.time();
+    if (typeof msg.display_from === 'number' && this._seekTarget != null && msg.display_from < this._seekTarget - 1 && msg.display_from < T) {
+      this.clock.seek(msg.display_from);
+      this._seekTarget = msg.display_from;
     }
+    this._renderTime();
   }
 
   _onPaneState(pane, s, msg) {
     const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
       paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'] };
-    const [cls, label] = labels[s] || ['off', s];
-    if (s === 'connecting' || s === 'queued') { pane.veil.hidden = false; pane.veil.className = 'pb-veil is-wait'; pane.veil.innerHTML = `<div class="msg">${esc(label)}</div>`; }
-    if (s === 'error') { pane.veil.className = 'pb-veil'; pane.veil.innerHTML = `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(msg || '')}">Couldn't play this moment — try another time or camera</div>`; }
-    if (pane === this.panes[0]) this._onState(s, msg);
+    const [, label] = labels[s] || ['off', s];
+    if (s === 'connecting' || s === 'queued') { pane._shownKey = null; pane.veil.hidden = false; pane.veil.className = 'pb-veil is-wait'; pane.veil.innerHTML = `<div class="msg">${esc(label)}</div>`; }
+    if (s === 'error') { pane._shownKey = null; pane.veil.hidden = false; pane.veil.className = 'pb-veil'; pane.veil.innerHTML = `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(msg || '')}">Couldn't play this moment — try another time or camera</div>`; }
+    if (pane === this.panes[0] && (s === 'error' || s === 'queued')) this._onState(s, msg);
   }
 
   _onState(s, msg) {
     const dot = this.statusEl.querySelector('.dot');
     const txt = this.statusEl.querySelector('.txt');
     const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
-      paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'] };
+      paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'], buffering: ['wait', msg || 'Buffering…'] };
     const [cls, label] = labels[s] || ['off', s];
     dot.className = `dot ${cls}`;
     txt.textContent = label;
-    if (s === 'error') { this.playing = false; this._paintPlayIcon(); }
+    if (s === 'error' && this.panes.length === 1) { this.playing = false; this.clock.pause(); this._paintPlayIcon(); }
+  }
+
+  /** Debug/test hook (tools/e2e_playback_sync.py): the master time and what every pane shows for it. */
+  syncInfo() {
+    const T = this.clock.time();
+    return {
+      T, playing: this.playing, running: this.clock.running, waiting: this.clock.waiting, speed: this.clock.speed,
+      videoFrames: openVideoFrames(),
+      panes: this.panes.map((p) => {
+        const s = p.player.status(T);
+        return { cam: p.cam.id, channel: p.cam.channel, shown: p.player.painted, state: s.state, ahead: s.ahead,
+          newest: s.newest, approx: !!p.player.segment?.approx, decoded: p.player.frames.length,
+          encoded: p.player.chunks.length, bytes: p.player.bytes, feed: { ...p.player.feed }, wsOpen: !!p.player.ws };
+      }),
+    };
   }
 
   async _pollPool() {
@@ -949,7 +1029,8 @@ export class PlaybackView {
     // "≈" when the server couldn't place this footage with a clock calibration (time_source "anchor"): its
     // times are the requested instant, and the picture can really be up to a keyframe interval earlier.
     const approx = (pane) => !!pane?.player.segment?.approx;
-    const why = 'Approximate time — no clock calibration covers when this was recorded. The clock in the picture is the reference.';
+    const why = 'Approximate time — no clock calibration covers when this was recorded. The clock in the picture is the reference.'
+      + (this.panes.length > 1 ? ' This camera can\'t be frame-locked to the others: its picture can be up to a keyframe interval (about a minute) away from theirs.' : '');
     if (approx(this.panes[0])) this.timeEl.textContent = '≈ ' + this.timeEl.textContent;
     this.timeEl.title = approx(this.panes[0]) ? why : '';
     for (const pane of this.panes) {
@@ -1161,11 +1242,12 @@ export class PlaybackView {
       const kept = this.panes.filter((p) => want.includes(p.cam.id));
       this._userSeekAt = Date.now(); this._skipTarget = null; this._lastJump = null;
       this.currentEpoch = t;
+      this.clock.seek(t);
+      this._seekTarget = t;
       this._renderTime();
       this.timeline?.setPlayhead(t);
       this._setSelection(want);
-      for (const pane of kept) pane._pauseOnNextFrame = !this.playing;
-      if (kept.length) this._alignPanes(kept, t, this.speed, this.playing);
+      this._connectPanes(kept.filter((p) => !(p.player.ws && p.player.covers(t) && p.player.covers(t + 1))), t);
     } else {
       this.seekTo(t, false, { source: 'user' });
     }
@@ -1512,6 +1594,7 @@ export class PlaybackView {
 
   destroy() {
     this._dead = true;
+    if (window.__pbSync) delete window.__pbSync;
     this.viewerControls?.destroy();
     document.removeEventListener('keydown', this.onKey);
     window.removeEventListener('resize', this.onResize);

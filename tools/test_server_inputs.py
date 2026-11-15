@@ -67,7 +67,8 @@ class FakeReader:
     instances = []
 
     def __init__(self, conn, channel, path, a_const, start_utc, tz, speed="1", adaptive_speeds=None):
-        self.args = {"path": path, "start": start_utc, "speed": speed}
+        self.args = {"path": path, "start": start_utc, "speed": speed, "adaptive": adaptive_speeds}
+        self.speed = speed
         self.calls = []
         self.q = queue.Queue()
         self.waiting_for_slot = False
@@ -81,6 +82,12 @@ class FakeReader:
 
     def set_speed(self, s):
         self.calls.append(("speed", s))
+
+    def hold(self):
+        self.calls.append(("hold",))
+
+    def resume(self):
+        self.calls.append(("resume",))
 
     def stop(self):
         self.q.put(None)
@@ -143,7 +150,7 @@ def playback_ws_inputs():
             for msg in ({"type": "seek", "t": "not a time"}, {"type": "seek", "t": t_ok, "scale": "1\r\nX: y"},
                         {"type": "seek", "t": t_ok}, {"type": "seek", "t": t_ok, "scale": "4"},
                         {"type": "speed", "scale": "3"}, {"type": "speed"}, {"type": "speed", "scale": "8"},
-                        {"type": "speed", "scale": 0.5}, ["not", "an", "object"]):
+                        {"type": "speed", "scale": 0.5}, {"type": "hold"}, {"type": "resume"}, ["not", "an", "object"]):
                 ws.send_text(json.dumps(msg))
             time.sleep(0.4)
         r = FakeReader.instances[0]
@@ -151,7 +158,9 @@ def playback_ws_inputs():
         check("ws: playback uses the channel's playback_path override, not the live main_path", r.args["path"] == "/custom/tracks/101", r.args)
         check("ws: start handed on normalised", r.args["start"] == datetime.datetime.fromisoformat(start.replace("Z", "+00:00")).isoformat(), r.args)
         check("ws: messages validated (bad time ignored, bad scale dropped, bad speed ignored, numbers canonical)",
-              r.calls == [("seek", norm, None), ("seek", norm, None), ("seek", norm, "4"), ("speed", "8"), ("speed", "0.5")], r.calls)
+              r.calls == [("seek", norm, None), ("seek", norm, None), ("seek", norm, "4"), ("speed", "8"), ("speed", "0.5"), ("hold",), ("resume",)], r.calls)
+        check("ws: a feed faster than 1x is asked for adaptively (the fastest the budget allows, down to 1x)",
+              r.args["adaptive"] == ["1", "2"], r.args)
         c2 = cfg.Settings(**server.state["settings"].model_dump())
         c2.channels[1].playback_path = ""
         FakeReader.instances.clear()
@@ -172,10 +181,13 @@ def playback_ws_inputs():
                       server.psess.Frame(990.5 + 1 / 15, False, b"\x00\x00\x00\x01\x41", seg1, True),
                       server.psess.Frame(2000.0, True, b"\x00\x00\x00\x01\x65", seg2, False)):
                 q.put(f)
-            m1, b1, b2, m2, b3 = ws.receive_json(), ws.receive_bytes(), ws.receive_bytes(), ws.receive_json(), ws.receive_bytes()
-        check("ws: 'playing' carries the segment (no private fields)",
+            q.put(("feed", {"scale": "2", "hold": True}))
+            m1, b1, b2, m2, b3, m3 = (ws.receive_json(), ws.receive_bytes(), ws.receive_bytes(), ws.receive_json(),
+                                      ws.receive_bytes(), ws.receive_json())
+        check("ws: 'playing' carries the segment (no private fields) and the feed speed the session got",
               m1 == {"type": "playing", "codec": "h264", "time_source": "calibration", "approx": False,
-                     "display_from": 1000.0, "first_utc": 990.5, "bound_s": 1.6}, m1)
+                     "display_from": 1000.0, "first_utc": 990.5, "bound_s": 1.6, "scale": "1"}, m1)
+        check("ws: a feed change is passed on as a 'feed' message", m3 == {"type": "feed", "scale": "2", "hold": True}, m3)
         check("ws: frame header unchanged (keyframe flag, then the recorded time)",
               b1[0] == 1 and struct.unpack(">d", b1[1:9])[0] == 990.5 and b1[9:] == b"\x00\x00\x00\x01\x65" and b2[0] == 0, b1[:9])
         check("ws: a new segment is announced before its first frame",

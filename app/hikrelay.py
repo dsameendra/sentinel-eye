@@ -83,6 +83,9 @@ class RtspClient:
         self.auth = None
         self.codec = None
         self.sdp = ""
+        # Video packets that arrived ahead of a reply (see _resp): the stream carrying on, handed out by packets()
+        # before anything newer.
+        self.pending = []
 
     @staticmethod
     def _md5(s):
@@ -106,11 +109,13 @@ class RtspClient:
         self.buf += d
 
     def _resp(self):
-        """Read one RTSP text response. Mid-session (e.g. reissuing PLAY to seek), interleaved RTP frames
-        for the still-flowing old range can arrive ahead of the reply on the same socket — those are
-        binary ($-prefixed) and must be skipped, or they get misread as response text (a real bug this
-        once produced: garbage binary decoded as a header, no error until a caller checked the status
-        line)."""
+        """Read one RTSP text response. Mid-session (reissuing PLAY to seek or change speed, PAUSE, a keep-alive),
+        interleaved RTP frames for the still-flowing stream can arrive ahead of the reply on the same socket —
+        binary ($-prefixed), so they must not be read as response text (a real bug this once produced: garbage
+        binary decoded as a header, no error until a caller checked the status line). Video ones are kept in
+        `pending` rather than thrown away: after a speed change or a pause they are the stream continuing
+        (measured: up to 33 packets ahead of a PLAY reply at 1x), and dropping them broke every frame up to the
+        next keyframe. A seek clears them (play(keep=False)) — they belong to the old position."""
         while True:
             while not self.buf:
                 self._recv()
@@ -120,6 +125,8 @@ class RtspClient:
                 ln = struct.unpack(">H", self.buf[2:4])[0]
                 while len(self.buf) < 4 + ln:
                     self._recv()
+                if self.buf[1] == 0:
+                    self.pending.append(self.buf[4:4 + ln])
                 self.buf = self.buf[4 + ln:]
                 continue
             break
@@ -209,14 +216,17 @@ class RtspClient:
         self.sock.settimeout(idle_timeout)
         return self
 
-    def play(self, range_="npt=0.000-", scale=None):
-        """(Re)issue PLAY on an already-set-up session — used to seek within a playback session.
-        Returns the RTSP status line."""
+    def play(self, range_="npt=0.000-", scale=None, keep=False):
+        """(Re)issue PLAY on an already-set-up session — to seek within a playback session (keep=False: video
+        that arrived meanwhile belongs to the old position and is dropped), or with `npt=now-` to change speed or
+        resume after PAUSE in place (keep=True). Returns the RTSP status line."""
         _no_crlf("range", range_)
         _no_crlf("speed", scale)
         extra = f"Range: {range_}\r\n" + (f"Scale: {scale}\r\n" if scale else "")
         self._send("PLAY", self.url, extra)
         head, _ = self._resp()
+        if not keep:
+            self.pending.clear()
         return head.split("\r\n")[0]
 
     def pause(self):
@@ -224,10 +234,18 @@ class RtspClient:
         head, _ = self._resp()
         return head.split("\r\n")[0]
 
+    def keepalive(self):
+        """OPTIONS, awaited — keeps a paused session alive (nothing else is flowing to show it's in use)."""
+        self._send("OPTIONS", self.url)
+        head, _ = self._resp()
+        return head.split("\r\n")[0]
+
     def packets(self):
         """Yield interleaved RTP packets on channel 0 (video)."""
         last_ka = time.time()
         while True:
+            while self.pending:
+                yield self.pending.pop(0)
             while len(self.buf) < 4:
                 self._recv()
             if self.buf[0] != 0x24:  # a keep-alive reply between media packets

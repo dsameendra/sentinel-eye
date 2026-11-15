@@ -28,6 +28,26 @@
 - go2rtc: `exec:` sources are only accepted from its config file (not its API); it drops RTSP pushes to
   undefined stream names; on-demand starters time out after ~5 s.
 
+## Steering a playback session (measured 2026-11-15, read-only, ch 1/2, footage ~15 min old)
+- Speed change: `PLAY` with `Range: clock=<current>-` restarts at the keyframe before it (the picture jumped back
+  7.9 s). `PLAY` with `Range: npt=now-` and the new `Scale:` carries on from the very next frame — no repeat, no gap,
+  200 OK at every speed from 1/8x to 16x, picture held at most ~0.8 s; after four of them a `clock=` seek still lands
+  and TEARDOWN is answered. `Scale:` alone and PAUSE then PLAY also carry on, but held 3.8 s and 2.3 s. The reply's
+  `Range:` header after `npt=now-` is nonsense (19:50:34 for footage at 21:58): ignore it.
+- The stream keeps flowing while a mid-session request is answered: up to 241 RTP packets arrived ahead of a PLAY
+  reply. Dropping them (as the client used to, harmless before a seek) breaks every frame to the next keyframe after
+  a speed change: hikrelay keeps them (`RtspClient.pending`) unless the request was a seek.
+- Back-pressure: PAUSE, OPTIONS every 5-10 s, then `PLAY npt=now-` resumed exactly where it stopped after 30 s and
+  90 s. Just not reading the socket: fine for 20 s, two frames lost after 60 s. A paused session accepts a `clock=`
+  PLAY (a seek) and plays from there.
+- Delivery is bursty and not always Scale x real time. The keyframe pre-roll comes at the playing speed (6.3 s of
+  it took 6.0 s at 1x). Asked for 4/8/16x, ch 1 ran ~4.3x for 2 s, ~1x for a few seconds, then caught up — about
+  3-3.5x on average — while ch 2 delivered 7-8x steadily at 8x. Rates swing 0.5-1.5x around 1x too. 16x was refused
+  (453) with 17 live streams open from this Mac, and served with 9: the speed budget shares the recorder with live.
+- Labels are good to about a second (single calibration readings scatter +/-0.5 s): a session asked for T sometimes
+  starts at a keyframe labelled up to ~1.2 s after T. Every channel's calibrations agree (no channel more than 0.3 s
+  off on average), so they are pooled per round (`playback_session.pooled_history`).
+
 ## Other
 - ISAPI `GET /ISAPI/System/Video/inputs/channels` (HTTP digest) returns camera names.
 - Repeated wrong logins lock the account: the tools stop at the first authentication failure.

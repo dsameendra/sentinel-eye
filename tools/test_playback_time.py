@@ -1,8 +1,8 @@
 """Checks for how playback frames get their recorded time (no recorder): timebase.choose_label's decision between
 a calibration and the anchored fallback — regimes split at RTP resets, outliers ignored, gaps and forward jumps
 anchored, the plausible window, the 32-bit RTP wrap — and a real PlaybackReader driven by a fake RTSP session:
-segment metadata, pre-roll flags, a speed change resuming from the label (not the raw a_const answer), and a
-reader stopped while queued for a slot never logging in. Measurements behind the numbers: docs/SPEC.md 2.4.
+segment metadata, pre-roll flags, a speed change carrying on in place (PLAY npt=now-, same segment, no repeat),
+the pooled calibration history, and a reader stopped while queued for a slot never logging in. Measurements behind the numbers: docs/SPEC.md 2.4.
 
    .venv/bin/python3 tools/test_playback_time.py
 """
@@ -190,9 +190,16 @@ class FakeRecorder:
         self._seek(play_range)
         return self
 
-    def play(self, range_="", scale=None):
+    def play(self, range_="", scale=None, keep=False):
         self.plays.append((range_, scale))
-        self._seek(range_)
+        if not range_.startswith("npt=now"):   # npt=now-: carry on from the next frame (as the recorder does)
+            self._seek(range_)
+        return "RTSP/1.0 200 OK"
+
+    def pause(self):
+        return "RTSP/1.0 200 OK"
+
+    def keepalive(self):
         return "RTSP/1.0 200 OK"
 
     def packets(self):
@@ -269,32 +276,47 @@ def reader_end_to_end():
         check("reader: labels evenly spaced", all(abs(s - 1 / FPS) < 1e-3 for s in steps))
 
         rec = FakeRecorder.instances[-1]
+        last = frames[-1]
         r.set_speed("2")
         deadline = time.time() + 5
-        while len(rec.plays) < 2 and time.time() < deadline:
+        after = []
+        while (len(rec.plays) < 2 or len(after) < 30) and time.time() < deadline:
             try:
-                r.q.get(timeout=0.2)
+                it = r.q.get(timeout=0.2)
             except queue.Empty:
-                pass
-        resumed = datetime.datetime.strptime(rec.plays[-1][0].split("=")[1].split("-")[0], "%Y%m%dT%H%M%SZ").replace(tzinfo=TZ).timestamp()
-        check("speed change re-PLAYs at the footage's labelled time (not the hours-off raw answer)",
-              len(rec.plays) >= 2 and rec.plays[-1][1] == "2" and req - 10 <= resumed <= req + 30, (rec.plays[-1], resumed - req))
-        it = r.q.get(timeout=5)
-        while it is not None and it[0] != "error" and it.seg is seg:
-            it = r.q.get(timeout=5)
-        check("speed change starts a new segment (its own display_from)", it is not None and it[0] != "error" and it.seg is not seg and it.seg["time_source"] == "calibration")
+                continue
+            if it is not None and it[0] == "feed":
+                continue
+            after.append(it)
+        check("speed change re-PLAYs in place (npt=now-, new Scale), not at a clock= time",
+              len(rec.plays) >= 2 and rec.plays[-1] == ("npt=now-", "2"), rec.plays[-1:])
+        seq = [last] + after
+        check("speed change: the same segment carries on, the next frame after the last one, no repeat or gap",
+              all(f.seg is seg for f in after) and all(abs((b.t - a.t) - 1 / FPS) < 1e-3 for a, b in zip(seq, seq[1:])),
+              [round(b.t - a.t, 3) for a, b in zip(seq, seq[1:])][:5])
         r.stop()
         r.thread.join(timeout=5)
         check("reader: stops", not r.thread.is_alive())
 
-        # Anchored fallback: no history for this channel at all.
+        # Another channel with no history of its own: the recorder's RTP clock is shared, so channel 3's
+        # calibrations label it too (pooled_history).
         r = psess.PlaybackReader(CONN, 4, "/Streaming/tracks/401", None, datetime.datetime.fromtimestamp(req, UTC).isoformat(), TZ, "1")
         r.start()
         it = r.q.get(timeout=5)
         r.stop()
         r.thread.join(timeout=5)
+        check("pooled: a channel with no rows of its own is labelled from the shared clock's history",
+              it.seg["time_source"] == "calibration" and abs(it.t - (req - 7.0)) < 0.01, it.seg["time_source"])
+
+        # Anchored fallback: footage no calibration regime covers (long before every measurement).
+        old = req - 40 * DAY
+        r = psess.PlaybackReader(CONN, 4, "/Streaming/tracks/401", None, datetime.datetime.fromtimestamp(old, UTC).isoformat(), TZ, "1")
+        r.start()
+        it = r.q.get(timeout=5)
+        r.stop()
+        r.thread.join(timeout=5)
         check("anchored: approx, first frame labelled the request, nothing flagged pre",
-              it.seg["time_source"] == "anchor" and it.seg["approx"] and abs(it.t - req) < 1e-6 and not it.pre, it.seg)
+              it.seg["time_source"] == "anchor" and it.seg["approx"] and abs(it.t - old) < 1e-6 and not it.pre, it.seg)
     finally:
         h.RtspClient = real
 

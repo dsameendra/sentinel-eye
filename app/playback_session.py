@@ -7,12 +7,19 @@ footage was recorded when one can be trusted, otherwise anchored to the request 
 pushes Frame tuples into a thread-safe queue that the WebSocket handler, exports and thumbnails drain. A
 session starts at the keyframe before the requested instant (up to a keyframe interval — measured up to ~50 s
 — early); those frames are kept, truthfully labelled and flagged `pre`, because decoding needs them.
-Seeking and speed changes reissue PLAY on the same RTSP session (cheap: ~70-100ms, no reconnect).
+Seeking reissues PLAY with a new `clock=` range on the same RTSP session (cheap: ~70-100ms, no reconnect).
+A speed change, and resuming a held feed, reissue PLAY with `Range: npt=now-` instead: measured on the recorder,
+that carries on from the very next frame (no repeat, no gap, accepted at every speed), where `clock=<now>`
+restarted from the previous keyframe — the picture jumped back up to a keyframe interval. The browser holds
+(RTSP PAUSE, kept alive) and resumes the feed as its buffer fills and drains: real back-pressure, nothing is
+dropped (docs/SPEC.md 7.2, tools/NOTES.md).
 """
 import collections
 import datetime
 import queue
+import statistics
 import threading
+import time
 
 import db
 import hikrelay as h
@@ -27,6 +34,8 @@ MAX_SESSIONS = 4
 SPEED_BUDGET = 16
 NICE_SPEEDS = ("0.125", "0.25", "0.5", "1", "2", "4", "8", "16")
 BANDWIDTH_MSG = "The recorder can't play this many cameras this fast — lower the speed, or show fewer cameras."
+KEEPALIVE_S = 10         # a held (RTSP-paused) session sends OPTIONS this often: nothing else shows it's in use
+AUTO_HOLD_S = 5          # a consumer that stops reading for this long gets the feed paused for it (see _put)
 
 # One picture from a reader: t = its recorded time (epoch s), key = keyframe, data = Annex-B access unit,
 # seg = the segment's shared metadata dict (see PlaybackReader._new_segment), pre = recorded before the requested
@@ -186,6 +195,10 @@ class PlaybackReader:
         self.segment = None        # the current segment's metadata (see _new_segment), for callers that poll
         self._last_label = None    # recorded time of the newest frame handed out: where a speed change resumes
         self.waiting_for_slot = False
+        self._want_hold = False    # the consumer asked for the feed to be paused (hold()/resume())
+        self._auto_hold = False    # ...or it stopped reading for AUTO_HOLD_S (_put)
+        self._paused = False       # the RTSP session is PAUSEd right now
+        self._wake = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
@@ -198,7 +211,7 @@ class PlaybackReader:
         return c.codec if c is not None else None
 
     def seek(self, start_utc, speed=None):
-        """Ignored when `start_utc` isn't an ISO 8601 instant; an invalid `speed` keeps the current one (the
+        """Play from `start_utc` (resuming a held feed). Ignored when it isn't an ISO 8601 instant; an invalid `speed` keeps the current one (the
         server validates both first; this is the second layer before they reach the RTSP request)."""
         dt = parse_utc(start_utc)
         if dt is None:
@@ -206,13 +219,27 @@ class PlaybackReader:
         self._seek_to = dt.isoformat()
         if valid_speed(speed) is not None:
             self._new_speed = valid_speed(speed)
+        self._want_hold = False   # a seek empties the consumer's buffer: it wants the new position's frames
+        self._wake.set()
 
     def set_speed(self, speed):
+        """Change speed in place: the stream carries on from the next frame (PLAY `npt=now-`)."""
         if valid_speed(speed) is not None:
             self._new_speed = valid_speed(speed)
+            self._wake.set()
+
+    def hold(self):
+        """Pause the recorder's feed (RTSP PAUSE, kept alive) — the consumer has enough buffered."""
+        self._want_hold = True
+
+    def resume(self):
+        """Resume a held feed where it stopped (PLAY `npt=now-`)."""
+        self._want_hold = False
+        self._wake.set()
 
     def stop(self):
         self._stop.set()
+        self._wake.set()
         # A flowing session notices the flag on its next packet and tears down cleanly (waiting for the
         # recorder's reply, so its budget is really free before the pool hands it on). A quiet one — no
         # packets coming — gets its socket cut after a short grace, so its share isn't held for the 15s
@@ -289,7 +316,7 @@ class PlaybackReader:
         """Metadata shared by every frame of one PLAY segment, decided from its first frame (timebase.choose_label).
         `display_from` is the requested instant: frames before it are the keyframe pre-roll."""
         try:
-            history = db.get_calibration_history(self.channel)
+            history = pooled_history()
         except Exception:
             history = []
         lab = timebase.choose_label(rtp_first, target_utc, history, self.a_const)
@@ -330,8 +357,15 @@ class PlaybackReader:
             except h.RelayError as e:
                 self.client.close()
                 if "fast" in str(e) and attempt < tries - 1:
-                    # 453: the recorder's budget is (still) spoken for — a session that just ended can
-                    # take a moment to be released on its side. Wait briefly rather than fail.
+                    # 453: the recorder's budget is (still) spoken for — a session that just ended can take a moment
+                    # to be released on its side, and its budget is shared with whatever else plays from it (another
+                    # app; heavy live viewing — measured: 16x refused with 17 live streams open, served with 9).
+                    # A fast catch-up feed steps down a speed at once; otherwise wait briefly rather than fail.
+                    lower = [sp for sp in NICE_SPEEDS if 1 <= float(sp) < float(self.speed)]
+                    if lower and self.adaptive_speeds:
+                        pool.change(self._held, lower[-1])
+                        self._held = self.speed = lower[-1]
+                        continue
                     if self._stop.wait(0.8):
                         return
                     continue
@@ -339,6 +373,7 @@ class PlaybackReader:
                 if not too_close or attempt == tries - 1:
                     raise
                 start_dt -= datetime.timedelta(seconds=backoff[attempt])
+        self._paused = False
         aes = h.make_aes(self.conn["key"]) if self.conn["encrypted"] else None
         dp = h.Depacketizer(self.client.codec, aes)
         gate = h.StartGate(self.client.codec, self.client.sdp)
@@ -346,29 +381,29 @@ class PlaybackReader:
         seg = None        # decided from this segment's first frame — see _new_segment
         near_raw = target_utc
         aus = AccessUnits(self.client.codec)
-        for p in self.client.packets():
+        pk = self.client.packets()
+        while True:
             if self._stop.is_set():
                 return
-            if self._seek_to is not None or self._new_speed is not None:
-                # A speed change alone resumes from the newest frame handed out, by its *label* — the raw a_const
-                # answer can be hours off for old footage (a calibration from across an RTP reset), and PLAYing at
-                # that would jump to different footage.
-                resume = self._last_label if self._last_label is not None else target_utc
-                seek_dt = (parse_utc(self._seek_to) if self._seek_to else None) or \
-                    datetime.datetime.fromtimestamp(resume, datetime.timezone.utc)
+            if self._seek_to is not None:
+                seek_dt = parse_utc(self._seek_to)
                 speed = self._new_speed or self.speed
                 self._seek_to, self._new_speed = None, None
+                if seek_dt is None:
+                    continue
                 if speed != self._held:
                     if not pool.change(self._held, speed):
-                        self.q.put(("error", BANDWIDTH_MSG))
+                        self._put(("error", BANDWIDTH_MSG))
                         return
                     self._held = speed
                 self.speed = speed
                 self.a_const = self._a_const_for(seek_dt)
                 seek_end = seek_dt + datetime.timedelta(hours=24)
+                # From a held (PAUSEd) session too: measured, a clock= PLAY seeks and plays from there.
                 status = self.client.play(f"clock={hik_time(seek_dt, self.tz)}-{hik_time(seek_end, self.tz)}", speed)
+                self._paused = False
                 if "453" in status:
-                    self.q.put(("error", BANDWIDTH_MSG))
+                    self._put(("error", BANDWIDTH_MSG))
                     return
                 if not status.startswith("RTSP/1.0 200"):
                     # Measured on the recorder: an in-session seek closer than ~30 s to now is refused (400),
@@ -376,22 +411,31 @@ class PlaybackReader:
                     # with 455 Method Not Valid In This State. It can't be revived, so close it (TEARDOWN,
                     # awaited, so its budget is free) and open a new one at that time; opening backs off
                     # from "too close to now" on its own, and gets nearer to now than a seek may.
-                    self.client.teardown()
-                    self.client.close()
-                    self.client = None
-                    if self._seek_to is None:   # a newer seek that arrived meanwhile wins
-                        self._seek_to = seek_dt.isoformat()
                     self._flush_queue()
-                    return "reopen"
+                    self._last_label = None
+                    return self._reopen_at(seek_dt)
                 target_utc = seek_dt.timestamp()
                 near_raw = target_utc
                 seg = None   # re-decided for the new segment
-                self._last_label = None   # until it delivers a frame, a speed change resumes at this target
+                self._last_label = None
                 dp = h.Depacketizer(self.client.codec, aes)
                 gate = h.StartGate(self.client.codec, self.client.sdp)
                 aus = AccessUnits(self.client.codec)
                 self._flush_queue()
                 continue
+            if self._want_hold or (self._auto_hold and self.q.qsize() > self.q.maxsize // 2):
+                r = self._hold_feed()
+                if r is not None:
+                    return r
+                continue
+            self._auto_hold = False
+            if self._paused or self._new_speed is not None:
+                # Resume a held feed and/or change speed, in place: the same segment carries on.
+                r = self._play_in_place()
+                if r is not None:
+                    return r
+                continue
+            p = next(pk)
             for ts, nal in dp.feed(p):
                 for n in gate.feed(nal):
                     au = aus.feed(n)
@@ -400,11 +444,104 @@ class PlaybackReader:
                     if seg is None:
                         seg = self._new_segment(target_utc, ts)
                     t, near_raw = _label(seg, ts, near_raw)
-                    self._last_label = t
+                    # A frame older than one already handed out (a recorder that restarted from the keyframe
+                    # after all): needed for decoding, never to be shown as new — flagged like pre-roll.
+                    pre = t < seg["display_from"] - 0.02 or (self._last_label is not None and t <= self._last_label - 0.02)
+                    if not pre or self._last_label is None:
+                        self._last_label = t
+                    self._put(Frame(t, au[0], au[1], seg, pre))
+
+    def _put(self, item):
+        """Hand an item to the consumer without ever dropping it: a dropped frame breaks decoding up to the next
+        keyframe (up to ~50 s here). A consumer that stops reading for AUTO_HOLD_S gets the recorder's feed
+        PAUSEd for it (measured: a session simply left unread for 60 s lost a frame or two; a PAUSEd one kept
+        alive resumed exactly after 90 s), and resumed once it has drained half the queue."""
+        waited = 0.0
+        while not self._stop.is_set():
+            try:
+                self.q.put(item, timeout=0.25)
+                return
+            except queue.Full:
+                waited += 0.25
+                if self._seek_to is not None and item is not None and item[0] != "error":
+                    return   # a seek is waiting: this frame belongs to the old position anyway
+                if waited >= AUTO_HOLD_S and not self._paused and self.client is not None:
                     try:
-                        self.q.put(Frame(t, au[0], au[1], seg, t < seg["display_from"] - 0.02), timeout=2)
-                    except queue.Full:
-                        pass  # slow consumer: drop rather than stall the DVR session
+                        if self.client.pause().startswith("RTSP/1.0 200"):
+                            self._paused = True
+                            self._auto_hold = True
+                    except (OSError, ConnectionError):
+                        pass
+
+    def _hold_feed(self):
+        """Pause the recorder's feed (if it isn't already) and keep the session alive until resumed, a seek or
+        a stop. Returns None to carry on, or what _play_loop should return."""
+        if not self._paused:
+            status = self.client.pause()
+            if not status.startswith("RTSP/1.0 200"):
+                # Can't pause here: carry on feeding (the consumer's own buffer cap and the blocking queue
+                # still bound it).
+                self._want_hold = self._auto_hold = False
+                self._put(("feed", {"scale": self.speed, "hold": False, "refused": "hold"}))
+                return None
+            self._paused = True
+        if self._want_hold:
+            self._put(("feed", {"scale": self.speed, "hold": True}))
+        last = time.monotonic()
+        while not self._stop.is_set() and self._seek_to is None:
+            if not (self._want_hold or (self._auto_hold and self.q.qsize() > self.q.maxsize // 2)):
+                break
+            self._wake.wait(0.25)
+            self._wake.clear()
+            if time.monotonic() - last >= KEEPALIVE_S:
+                self.client.keepalive()
+                last = time.monotonic()
+        return None
+
+    def _play_in_place(self):
+        """PLAY `npt=now-` (resume after a hold, and/or a new speed): measured on the recorder, the stream then
+        carries on from the next frame. Returns None to carry on, or what _play_loop should return."""
+        want = self._new_speed or self.speed
+        self._new_speed = None
+        old = self.speed
+        refused = None
+        if want != self._held:
+            if pool.change(self._held, want):
+                self._held = want
+            else:
+                refused, want = want, self._held   # the budget is spoken for (an export, a thumbnail): keep the old speed
+        status = self.client.play("npt=now-", want, keep=True)
+        if "453" in status and want != old:
+            pool.change(want, old)
+            self._held = old
+            refused, want = want, old
+            status = self.client.play("npt=now-", want, keep=True)
+        self.speed = want
+        if not status.startswith("RTSP/1.0 200"):
+            # Not accepted (never seen on this recorder): fall back to reopening at the newest frame handed out.
+            # It restarts at the keyframe before that, so those frames come flagged `pre` and the player decodes
+            # them without showing them — the picture holds, it never jumps back.
+            resume = self._last_label
+            return self._reopen_at(datetime.datetime.fromtimestamp(resume, datetime.timezone.utc) if resume is not None
+                                   else parse_utc(self.start_utc))
+        was_paused, self._paused = self._paused, False
+        if refused or want != old or (was_paused and not self._auto_hold):
+            msg = {"scale": want, "hold": False}
+            if refused:
+                msg["refused"] = refused
+            self._put(("feed", msg))
+        self._auto_hold = False
+        return None
+
+    def _reopen_at(self, dt):
+        """Close this (unusable) session and have _run open a fresh one at `dt`."""
+        self.client.teardown()
+        self.client.close()
+        self.client = None
+        self._paused = False
+        if self._seek_to is None:   # a newer seek that arrived meanwhile wins
+            self._seek_to = dt.isoformat()
+        return "reopen"
 
     def _flush_queue(self):
         try:
@@ -412,6 +549,45 @@ class PlaybackReader:
                 self.q.get_nowait()
         except queue.Empty:
             pass
+
+
+BATCH_S = 600   # calibration rows measured this close together are one round (the service calibrates every camera in turn)
+
+
+def pooled_history():
+    """Every channel's calibration history as one, each calibration round reduced to its median. The recorder's
+    RTP timestamps are one clock shared by every channel (docs/SPEC.md 2.4), so a measurement on any channel
+    calibrates them all — and each single measurement scatters about ±0.5 s (measured over 2026-09/11: per channel
+    standard deviation 0.35-0.98 s around its round's median, no channel offset by more than 0.3 s on average).
+    Labelling each channel from its own rows let two cameras' labels for the same instant disagree by up to
+    ~1.6 s; one pooled history gives every pane the same answer, so frame-locked panes agree on their burned-in
+    clocks, and the median of a round is steadier than any one row."""
+    rows = [dict(r) for r in db.query(
+        "SELECT a_const, measured_utc, error_estimate, method FROM calibration_history ORDER BY measured_utc")]
+    out, cur = [], []
+
+    def flush():
+        if not cur:
+            return
+        # The rows of a round that agree with most of the others (a single bad measurement — one 285 s off was
+        # seen — is left out), aligned across 32-bit wraps, then their median.
+        agree = lambda x, y: timebase._circ(x["a_const"], y["a_const"]) <= timebase.REGIME_TOL_S
+        anchor = max(cur, key=lambda r: sum(agree(r, o) for o in cur))
+        ok = [r for r in cur if agree(r, anchor)]
+        ref = anchor["a_const"]
+        aligned = sorted(r["a_const"] + round((ref - r["a_const"]) / timebase.PERIOD) * timebase.PERIOD for r in ok)
+        mid = ok[len(ok) // 2]
+        out.append({"a_const": statistics.median(aligned), "measured_utc": mid["measured_utc"],
+                    "error_estimate": statistics.median(float(r["error_estimate"] or 0) for r in ok),
+                    "method": mid["method"], "n": len(ok)})
+
+    for r in rows:
+        if cur and timebase._epoch(r["measured_utc"]) - timebase._epoch(cur[0]["measured_utc"]) > BATCH_S:
+            flush()
+            cur = []
+        cur.append(r)
+    flush()
+    return out
 
 
 def _abs_time(a_const, rtp_ts, near_utc):

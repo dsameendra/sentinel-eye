@@ -76,6 +76,11 @@ involved.
 - Review up to four cameras at once, frame-locked. Speeds run from 1/8× to 16×, within the recorder's own
   budget for fast playback (four cameras at 4×, two at 8×, one at 16× — faster choices than the cameras on
   screen allow are greyed out rather than failing).
+- One clock drives every camera on screen: each pane shows its frame for the same instant, and when one
+  camera is still waiting for footage the others wait with it ("Buffering *camera*") instead of drifting
+  apart. Measured on a DS-7208HQHI-K1 with four cameras, panes stayed within one frame of each other.
+  Changing speed carries on from the frame on screen — the picture never jumps back. A camera whose footage
+  has no trustworthy clock calibration is marked "≈" and can't be locked to the others.
 - A zoomable, scrollable timeline with each camera's recorded coverage and events, click or drag to seek,
   and frame-accurate stepping forward and backward.
 - A "select a range" tool for exporting exactly the footage you need, and a multi-cut clipper: build a list
@@ -537,7 +542,7 @@ Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and pi
 
 ![Event review in the light theme](docs/screenshots/light-events.jpg)
 
-Online updates use a network-first static shell (`adaptive-v34`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
+Online updates use a network-first static shell (`adaptive-v35`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 

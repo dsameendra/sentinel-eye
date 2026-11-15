@@ -902,8 +902,12 @@ async def timeline_tz():
 #   bytes 1-8   : recorded time (UTC epoch seconds), float64 big-endian — see playback_session's segment labels
 #   bytes 9+    : Annex-B NAL bytes (start code included), fed straight into WebCodecs VideoDecoder
 # Before each segment's first frame a JSON text message: {"type":"playing"|"segment", "codec":"hevc"|"h264",
-# "time_source":"calibration"|"anchor", "approx":bool, "display_from":epoch, "first_utc":epoch, "bound_s":…}.
-# Control messages from the browser are JSON text: {"type":"seek","t":"<iso>"} or {"type":"speed","scale":"2"}.
+# "time_source":"calibration"|"anchor", "approx":bool, "display_from":epoch, "first_utc":epoch, "bound_s":…}
+# ("playing" also carries "scale", the feed speed the session got). {"type":"feed","scale":"2","hold":bool[,
+# "refused":"8"|"hold"]} answers a speed/hold/resume request once the recorder has applied it.
+# Control messages from the browser are JSON text: {"type":"seek","t":"<iso>"}, {"type":"speed","scale":"2"} (the
+# feed speed: changed in place, the stream carries on from the next frame), and {"type":"hold"} / {"type":"resume"}
+# — the player's back-pressure: pause the recorder's feed while its buffer is full, resume it as it drains.
 # Speeds are only ever one of playback_session.NICE_SPEEDS and times only ever ISO 8601 instants: both end up in
 # the recorder's RTSP request text (`Scale:` / `Range:`), so anything else is refused at connect (close 1008) or
 # ignored in a message, never passed on.
@@ -959,7 +963,10 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
     path = hikrelay.playback_path(ch.channel, ch.playback_path)
     await ws.accept()
     tracked = _ws_track(p, ws)
-    reader = psess.PlaybackReader(conn, ch.channel, path, a_const, start, tz, speed)
+    # Asked for more than 1x (the player catching up through a keyframe pre-roll), take the fastest of the speeds
+    # up to it that the recorder's budget allows right now rather than queueing for all of it.
+    adaptive = [sp for sp in psess.NICE_SPEEDS if 1 <= float(sp) <= float(speed)] if float(speed) > 1 else None
+    reader = psess.PlaybackReader(conn, ch.channel, path, a_const, start, tz, speed, adaptive_speeds=adaptive)
     reader.start()
     try:
         async def from_client():
@@ -992,6 +999,11 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
                         sp = psess.valid_speed(msg.get("scale"))
                         if review and sp is not None:
                             reader.set_speed(sp)
+                    elif msg.get("type") == "hold":
+                        # Back-pressure only: pausing and resuming the feed never moves it in time, so any role.
+                        reader.hold()
+                    elif msg.get("type") == "resume":
+                        reader.resume()
 
         async def to_client():
             import struct
@@ -1005,11 +1017,15 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
                 if item[0] == "error":
                     await ws.send_json({"type": "error", "message": item[1]})
                     return
+                if item[0] == "feed":
+                    await ws.send_json({"type": "feed", **item[1]})
+                    continue
                 if item.seg is not seg:
                     # Before the segment's first frame, on the same ordered socket: "playing" once, then "segment"
                     # after each seek. Codec, where the times come from (approx when anchored), and display_from
                     # — frames before it are the keyframe pre-roll, truthfully labelled.
-                    await ws.send_json({"type": "playing" if seg is None else "segment", **psess.public_segment(item.seg)})
+                    extra = {"scale": reader.speed} if seg is None else {}
+                    await ws.send_json({"type": "playing" if seg is None else "segment", **psess.public_segment(item.seg), **extra})
                     seg = item.seg
                 header = bytes([1 if item.key else 0]) + struct.pack(">d", item.t)
                 await ws.send_bytes(header + item.data)

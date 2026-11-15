@@ -95,8 +95,10 @@ Everything below was measured on your DVR with read-only requests, most of it tw
   calibrated first frame was within 0.7 s of the on-screen clock, including 30-day-old footage from an earlier
   regime; the 11-05 footage (no calibration in its regime) is flagged approximate.
 
-  Still open: frame-locked multi-camera playback needs one master clock across panes (7.2) — each pane starts at
-  its own camera's keyframe; and footage in an uncalibrated regime stays approximate (a calibration can only be
+  Since then (7.2): one master clock across panes, and every channel's calibrations pooled per round — the RTP
+  clock is shared, single readings scatter ±0.5 s per channel (σ 0.35–0.98 s around their round's median, no channel
+  more than 0.3 s off on average), so labelling each camera from its own rows let two cameras disagree by up to
+  ~1.6 s about the same instant. Still open: footage in an uncalibrated regime stays approximate (a calibration can only be
   measured live, so a regime nobody calibrated during can't be recovered later).
 
 ### 2.5 This Mac
@@ -261,6 +263,45 @@ ch 1, 2, 3, 7, and can be extended to the rest with no trade-off.
 * **Strict-sync toggle:** ON waits for the slowest pane ("buffering CH5"); OFF lets panes skip to stay closer to real time.
 * **Detach pane:** a pane keeps its own clock once detached; "sync to group" re-attaches it.
 
+**Status (2026-11): one master clock is built; strict sync only (no toggle, no detach).** `web/js/masterclock.js` (pure,
+tested by `tools/test_masterclock.mjs`) holds the clock and the scheduling decisions; `web/js/wcplayer.js` is a
+passive renderer of it; Playback's one animation-frame loop asks every pane where it stands at `T`, holds the clock
+while any pane can't show `T` yet (the bar says "Buffering *camera*", the pane says so too), then paints every pane's
+newest decoded frame ≤ `T`. A single pane takes the same path. Measured on the recorder in Chrome
+(`tools/e2e_playback_sync.py`, footage ~15 min old, frames here 40 or 80 ms apart around 15 fps):
+* 1 camera at 1×: the frame shown is at most 93 ms behind `T` (median 46 ms) — always the newest one ≤ `T`; `T` runs
+  at 0.5/1/2× exactly; ±1 frame steps move the picture one frame each (40/80 ms) and back through the same frames; a
+  paused seek lands on the newest frame ≤ the requested time.
+* 2 cameras at 1× (1 min sampled every 100 ms): cross-pane spread median 1 ms, p95 41 ms, max 80 ms; shown frame
+  behind `T` median 38 ms. At 4×: spread median 2 ms, max 41 ms; the clock waited 19% of the time for the recorder.
+  The burned-in clocks of both panes read the same second as the readout in the screenshot taken.
+* 4 cameras at 1× (1.8 min): spread median 29 ms, p95 68 ms, max 77 ms; behind `T` median 40 ms, max 95 ms; the
+  clock waited 2% of the time. At 4× (1.2 min): spread median 64 ms, max 75 ms (at 4× `T` moves ~67 ms per screen
+  refresh, so panes land on neighbouring frames); waited 29% of the time — the recorder's delivery, not the player.
+  All four burned-in clocks matched the readout to the second. Start: 14 s to get all four to `T` (7.7 s for two).
+* Seeks with 4 cameras: ±10 s within what's buffered re-decodes from each camera's keyframe (ch 2's is 50 s
+  back): 2.6–5.5 s; paused, every pane landed on its newest frame ≤ `T` (23–55 ms before it). One that needs fresh
+  sessions took up to 17 s (four logins one at a time, then the pre-roll).
+* Memory, 4 cameras for 5 min: 76 open `VideoFrame`s throughout, JS heap 7–17 MB, ~10 MB of encoded video held.
+* Re-run on the final code at about 03:00 recorder time, with the recorder slow (a probe asked for 4× got under 1×):
+  4 cameras at 1× spread median 25 ms, max 66 ms, the clock waiting 28% of the time; at 4× it waited 90%. Sync held;
+  only throughput fell. The skew numbers depend on the player, the waiting on the recorder.
+
+How a pane gets to `T`: each session still starts at its own camera's keyframe before `T` (2.2); its frames before
+`T` are decoded and closed unseen, and the clock starts when every pane can show `T`. The pre-roll comes at the
+feed's speed, so the feed starts as fast as the recorder's budget allows for this many cameras (16× alone, 4× with
+four; stepped down at once if the recorder answers 453) and drops to twice the playing speed once comfortably
+ahead. What arrives is kept encoded (~5 KB a frame): up to ~14 s of playing time ahead of `T` — then the recorder's
+feed is paused (RTSP PAUSE, kept alive, resumed with `PLAY npt=now-`: real back-pressure, nothing is ever dropped;
+a consumer that stops reading for 5 s gets its feed paused for it) — and a minute behind it for stepping back. Only
+a few frames around `T` are decoded at once (6–48 ahead by speed, 12 behind); open `VideoFrame`s stay around 20 a
+pane. All panes in a recording gap: `T` jumps to the first footage after it. A pane whose labels are approximate
+(`anchor`, 2.4) is placed on the clock by those labels — it can be up to a keyframe interval off the others, and its
+"≈" tooltip says so. Labels themselves come from every channel's calibrations pooled (2.4), so two cameras' labels
+for one instant agree. A session that ends cleanly (server restart, network blip, the page coming back from the
+back/forward cache — leaving the page closes its sessions) reopens at `T` as `T` reaches the end of what it has; one
+refused because the server isn't ready yet (just started) is retried every 2 s for a minute.
+
 ### 7.3 Session scheduling
 Every consumer of DVR history — a playback pane, a background search scan, an export job — draws from the same
 4-session pool. A fair-share queue serves them in request order, a maximised/focused pane gets priority over a
@@ -270,10 +311,29 @@ background scan, and the UI always shows *why* something is waiting ("3 of 4 ses
 ⅛×–16× via the DVR's own `Scale` header. 32×/64× ("scan speed") and all reverse speeds are built by decimating or
 walking the decoded frames ourselves, because the DVR refuses both on the wire (2.2). No audio (none is recorded).
 
+**Status (2026-11): ⅛×–16× built; 32×/64× and reverse are not.** The playing speed is the master clock's (7.2);
+the recorder's feed speed is separate and steered by the player (fast while short of footage, 2× the playing speed
+when ahead, paused when far enough ahead). A feed speed change used to re-`PLAY` with `Range: clock=<current>`, and
+the recorder restarted from the keyframe before it — the picture jumped back up to a keyframe interval and replayed
+it. Measured candidates (`tools/NOTES.md`): `PLAY` with `Range: npt=now-` and the new `Scale:` carries on from the
+next frame at every speed, with the shortest hold (≤ 0.8 s) — that is what the server sends now, keeping the video
+that arrives ahead of the reply. If a recorder ever refused it, the server reopens at the newest frame it handed out
+and flags the replayed pre-roll; the player never shows a frame older than `T` anyway, so the picture can only hold,
+never jump back. Changing 1×→4×→1×→8× while playing with 2 cameras: `T` and every pane's picture never went
+backwards; the picture held at most 3.8 s (at 8× with 2 cameras the recorder delivered well under 8× here — the clock
+waited 66% of that stretch, and the bar said so). The delivered rate at high speed is the recorder's: ch 1 averaged
+~3-3.5× when asked for 8–16×.
+
 ### 7.5 Frame stepping and reverse
 Forward step = next decoded frame. Backward step / reverse play = decode the preceding GOP (14–50 s ⇒ up to ~750 frames, 2.2)
 into memory and walk it backwards; the next GOP back is pre-fetched at the boundary. Reverse at ≤4× is smooth on
 this hardware; faster reverse uses keyframe-stride "scan" mode.
+
+**Status (2026-11): stepping built, reverse play not.** A step moves the master time to the next/previous frame of
+the focused pane (the enlarged one, else the first) and every pane shows its frame for that instant. The 12 frames
+behind `T` stay decoded (instant); further back, the pane re-decodes from the keyframe before, out of the encoded
+minute it keeps — no recorder round trip; past that minute a step back is a paused seek. A step forward past the
+newest frame waits up to 3 s for it.
 
 ### 7.6 Rewind macros
 Default −5 s / −10 s / −30 s (`1`/`2`/`3` with Shift), fully configurable, plus "jump to previous/next event".

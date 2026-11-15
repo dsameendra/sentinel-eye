@@ -88,6 +88,8 @@ Also run the suites for the area you touched. None of them needs a recorder:
 | Log rotation | `.venv/bin/python3 tools/test_log_rotation.py` |
 | Codec strings | `node tools/test_codecs.mjs` |
 | Skip empty / previous-next event | `node tools/test_eventspans.mjs` |
+| Playback master clock (frame choice, buffering) | `node tools/test_masterclock.mjs` |
+| Playback feed (hold/resume, in-place speed change) | `.venv/bin/python3 tools/test_playback_feed.py` |
 | Exports panel (queue wording) | `node tools/test_exportjobs.mjs` |
 | Security headers / CSP | `.venv/bin/python3 tools/test_security_headers.py` |
 | Encoder selection | `.venv/bin/python3 tools/test_hwaccel.py` |
@@ -103,7 +105,8 @@ For UI work, use an isolated instance rather than the real recorder:
 - `.venv/bin/python tools/pwa_preview.py` runs a synthetic UI with no writes.
 
 **Real-recorder scripts:** `tools/test_m0.py`, `tools/e2e_live.py`, `tools/e2e_real_settings.py`,
-`tools/e2e_stress.py`, `tools/e2e_server_load.py` and `tools/measure_playback_time.py` talk to the user's real DVR. Do not run them unless the
+`tools/e2e_stress.py`, `tools/e2e_server_load.py`, `tools/measure_playback_time.py` and
+`tools/e2e_playback_sync.py` talk to the user's real DVR. Do not run them unless the
 user asks.
 
 ## Conventions
@@ -197,7 +200,7 @@ user asks.
 - **Events search** pages newest first by `(start_utc, id)`; look forward with `order=asc` (a newest-first
   capped fetch drops the rows nearest a playhead). Keep the response a bare array — timeline, Live, the bell
   and Events all read it.
-- **Shell revision:** currently `adaptive-v34` (kept in sync across `web/sw.js`, `web/css/app.css`,
+- **Shell revision:** currently `adaptive-v35` (kept in sync across `web/sw.js`, `web/css/app.css`,
   `tools/test_shell_update.mjs`, and `README.md`).
 
 ## Commits and pull requests
