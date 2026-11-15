@@ -1,5 +1,5 @@
 """Sentinel Eye web server: UI, settings API, connection test, and a WebSocket proxy to go2rtc."""
-import asyncio, json, re, threading
+import asyncio, datetime, json, re, threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
@@ -8,7 +8,7 @@ from urllib.parse import quote, urlparse
 import websockets
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.concurrency import run_in_threadpool
@@ -274,18 +274,29 @@ async def discover(req: TestRequest):
 @app.get("/api/status")
 async def status(request: Request):
     g = state["go2rtc"]
-    if request.state.principal.via == "anon":   # the Docker healthcheck: up or not, nothing else
+    principal = request.state.principal
+    if principal.via == "anon":   # the Docker healthcheck: up or not, nothing else
         return {"go2rtc": await run_in_threadpool(g.up)}
     streams = await run_in_threadpool(g.status)
     p = state["playback"]
+    health = await run_in_threadpool(p.health) if p else None
+    out = {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams,
+           "hwaccel": hwaccel.current()[0],
+           # The recorder rejected the saved username/password: nothing logs in until Settings are saved or an
+           # admin retries (POST /api/recorder/retry). A yes/no only — no credentials, so fine for any role.
+           "recorder_auth_failed": _recorder_blocked()}
+    if not principal.can("admin"):
+        # Viewers and operators get yes/no answers only: the raw error strings can name the recorder's address
+        # (a refused connection, a relay error), and the rest is for whoever administers the recorder.
+        out["recorder"] = {"configured": bool(current().connection.host),
+                           "reachable": health["reachable"] if health else None,
+                           "live_events_connected": bool(health and health["live_events"]["connected"])}
+        return out
     sub = p.subscriber if p else None
-    return {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams,
-            "hwaccel": hwaccel.current()[0],
-            # The recorder rejected the saved username/password: nothing logs in until Settings are saved or an
-            # admin retries (POST /api/recorder/retry). A yes/no only — no credentials, so fine for any role.
-            "recorder_auth_failed": _recorder_blocked(),
-            "playback": {**(p.status if p else {}), "alertstream_connected": sub.connected if sub else False,
-                         "last_live_event_utc": sub.last_event_utc if sub else None}}
+    out["recorder"] = {"configured": bool(current().connection.host), **(health or {})}
+    out["playback"] = {**(p.status if p else {}), "alertstream_connected": sub.connected if sub else False,
+                       "last_live_event_utc": sub.last_event_utc if sub else None}
+    return out
 
 
 # ------------------------------------------------------------------ playback (timeline: coverage + events)
@@ -301,30 +312,153 @@ async def timeline_coverage(channel: int, from_day: str, to_day: str):
     return await run_in_threadpool(coverage.cached_range, channel, d0, d1)
 
 
-@app.get("/api/timeline/events")
-async def timeline_events(channel: list[int] | None = Query(None), start_utc: str = "", end_utc: str = "",
-                           kind: str = "", limit: int = 2000):
-    """`channel` may repeat (?channel=1&channel=3) to fetch several cameras' events in one call — the
-    Playback timeline uses this so all selected cameras' events can be shown together, not just the first
-    one picked. `limit` still applies to the combined result, same as the single-channel case."""
+EVENTS_MAX_LIMIT = 5000
+CSV_MAX_ROWS = 100_000
+
+
+def _utc_param(v: str, name: str) -> str:
+    """An ISO 8601 query parameter normalised the way stored times are (UTC, +00:00), so string comparison
+    against the table agrees with time order; "" stays "" (no bound)."""
+    if not v:
+        return ""
+    dt = psess.parse_utc(v)
+    if dt is None:
+        raise HTTPException(422, f"{name} must be an ISO 8601 time")
+    return dt.isoformat()
+
+
+def _cursor(v: str, name: str):
+    """A keyset cursor "<start_utc>,<id>" (the last row of the previous page), or None."""
+    if not v:
+        return None
+    t, _, i = v.rpartition(",")
+    if not t or not i.isdigit():
+        raise HTTPException(422, f"{name} must be <start_utc>,<id>")
+    return _utc_param(t, name), int(i)
+
+
+def _events_query(channel, start_utc, end_utc, kind, before=None, after=None, order="desc"):
+    """SQL + params for the events search shared by the list and the CSV export. Order is (start_utc, id) —
+    stable for keyset paging, since a row's start and id never change (upserts only extend end_utc)."""
     q = "SELECT * FROM events WHERE start_utc <= ? AND end_utc >= ?"
     params = [end_utc or "9999", start_utc or "0000"]
     if channel:
         q += f" AND channel IN ({','.join('?' * len(channel))})"
         params.extend(channel)
-    if kind:
-        q += " AND kind=?"
-        params.append(kind)
-    # Newest first, then capped — not the other way round. With ORDER BY start_utc ASC (oldest first), a
-    # window with more matching rows than `limit` silently keeps the *oldest* slice and drops everything
-    # more recent, including all of today whenever an earlier, busier day alone already fills the cap —
-    # confirmed directly as the cause of a real "today's events don't show up" report, not a hypothetical.
-    # Both callers (events.js, timeline.js) are unaffected by the order itself: events.js re-sorts
-    # client-side regardless, and timeline.js positions each event by its own timestamp, not array order.
-    q += " ORDER BY start_utc DESC LIMIT ?"
-    params.append(max(1, min(limit, 5000)))   # clamped, not refused: bounds one query's cost without a 422
+    kinds = [k for k in (kind or []) if k]
+    if kinds:
+        q += f" AND kind IN ({','.join('?' * len(kinds))})"
+        params.extend(kinds)
+    if before:
+        q += " AND (start_utc < ? OR (start_utc = ? AND id < ?))"
+        params.extend([before[0], before[0], before[1]])
+    if after:
+        q += " AND (start_utc > ? OR (start_utc = ? AND id > ?))"
+        params.extend([after[0], after[0], after[1]])
+    d = "ASC" if order == "asc" else "DESC"
+    q += f" ORDER BY start_utc {d}, id {d}"
+    return q, params
+
+
+@app.get("/api/timeline/events")
+async def timeline_events(channel: list[int] | None = Query(None), start_utc: str = "", end_utc: str = "",
+                           kind: list[str] | None = Query(None), limit: int = 2000, before: str = "", after: str = "",
+                           order: Literal["asc", "desc"] = "desc"):
+    """Events overlapping [start_utc, end_utc]. `channel` and `kind` may repeat (?channel=1&channel=3&kind=motion
+    &kind=line) — the Playback timeline shows every selected camera at once, and Events searches several types
+    in one query. `limit` applies to the combined result.
+
+    Newest first by default, then capped — not the other way round. With oldest first, a window with more
+    matching rows than `limit` silently kept the *oldest* slice and dropped everything more recent, including
+    all of today whenever an earlier, busier day alone filled the cap — confirmed as the cause of a real "today's
+    events don't show up" report. order=asc is for looking forward from a time (Playback's next event / skip
+    empty), where the nearest rows are the oldest ones.
+
+    Paging (Events): `before` = "<start_utc>,<id>" of the last row seen returns the rows after it in newest-first
+    order; `after` the same for order=asc. A page shorter than `limit` is the last one."""
+    q, params = _events_query(channel, _utc_param(start_utc, "start_utc"), _utc_param(end_utc, "end_utc"), kind,
+                              _cursor(before, "before"), _cursor(after, "after"), order)
+    q += " LIMIT ?"
+    params.append(max(1, min(limit, EVENTS_MAX_LIMIT)))   # clamped, not refused: bounds one query's cost without a 422
     rows = await run_in_threadpool(db.query, q, tuple(params))
     return [dict(r) for r in rows]
+
+
+_CSV_DANGER = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(v) -> str:
+    """One CSV cell. Text starting like a formula (= + - @, or a tab/CR) gets a leading apostrophe so a
+    spreadsheet shows it rather than running it (CSV formula injection) — a bookmark title is user input."""
+    if v is None:
+        return ""
+    s = str(v)
+    if isinstance(v, str) and s.startswith(_CSV_DANGER):
+        s = "'" + s
+    if any(c in s for c in ',"\r\n'):
+        s = '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def _csv_events(channel, start_utc, end_utc, kind, tz, names):
+    """Rows of the events CSV, newest first, fetched in keyset batches — each batch its own query, because a
+    StreamingResponse pulls this generator from varying threadpool threads and the DB connection is per thread."""
+    yield ",".join(["start_local", "end_local", "start_utc", "end_utc", "duration_s", "camera", "channel", "kind",
+                    "source", "bookmark_title", "bookmark_severity", "bookmark_note", "bookmark_author"]) + "\r\n"
+    bm_cache = {}
+    sent, cursor = 0, None
+    fmt_local = lambda iso: datetime.datetime.fromisoformat(iso).astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
+    while sent < CSV_MAX_ROWS:
+        q, params = _events_query(channel, start_utc, end_utc, kind, before=cursor)
+        q += " LIMIT ?"
+        params.append(min(1000, CSV_MAX_ROWS - sent))
+        rows = db.query(q, tuple(params))
+        if not rows:
+            return
+        out = []
+        for r in rows:
+            r = dict(r)
+            bm = {}
+            if r["kind"] == "bookmark" and r.get("attrs_json"):
+                try:
+                    bid = json.loads(r["attrs_json"]).get("bookmark_id")
+                except ValueError:
+                    bid = None
+                if bid is not None:
+                    if bid not in bm_cache:
+                        bm_cache[bid] = db.get_bookmark(bid) or {}
+                    bm = bm_cache[bid]
+            s, e = r["start_utc"], r["end_utc"]
+            dur = max(0.0, datetime.datetime.fromisoformat(e).timestamp() - datetime.datetime.fromisoformat(s).timestamp())
+            out.append(",".join(_csv_cell(v) for v in [
+                fmt_local(s), fmt_local(e), s, e, f"{dur:.1f}", names.get(r["channel"], f"Channel {r['channel']}"),
+                r["channel"], r["kind"], r["source"], bm.get("title"), bm.get("severity"), bm.get("note"),
+                bm.get("author")]) + "\r\n")
+        yield "".join(out)
+        sent += len(rows)
+        cursor = (rows[-1]["start_utc"], rows[-1]["id"])
+        if len(rows) < params[-1]:
+            return
+    yield _csv_cell(f"# Stopped at {CSV_MAX_ROWS} rows — narrow the range, cameras or types to export the rest.") + "\r\n"
+
+
+@app.get("/api/timeline/events.csv")
+async def timeline_events_csv(request: Request, channel: list[int] | None = Query(None), start_utc: str = "",
+                               end_utc: str = "", kind: list[str] | None = Query(None)):
+    """Every event matching the Events filters as CSV (not just the rows loaded on screen), newest first, up to
+    CSV_MAX_ROWS — a final comment row says so when that cap cuts it short. Times in recorder-local time and
+    UTC. Audited (events.export_csv)."""
+    tz = _dvr_tz()
+    if tz is None:
+        raise HTTPException(503, TZ_UNKNOWN)   # the local-time columns would be wrong
+    s0, s1 = _utc_param(start_utc, "start_utc"), _utc_param(end_utc, "end_utc")
+    names = {c.channel: c.name or f"Camera {c.channel}" for c in current().channels}
+    _audit(request, "events.export_csv", "", channels=channel or None, kinds=[k for k in (kind or []) if k] or None,
+           start_utc=s0 or None, end_utc=s1 or None)
+    stamp = datetime.datetime.now(tz).strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(_csv_events(channel, s0, s1, kind, tz, names), media_type="text/csv; charset=utf-8",
+                             headers={"Content-Disposition": f'attachment; filename="sentinel-events-{stamp}.csv"',
+                                      "Cache-Control": "no-store"})
 
 
 @app.get("/api/timeline/events/{event_id}/thumbnail")
@@ -363,18 +497,31 @@ async def timeline_calibration():
     return {r["channel"]: dict(r) for r in rows}
 
 
+@app.get("/api/timeline/retention")
+async def timeline_retention():
+    """Per enabled camera, the oldest recording the recorder still has (UTC) and how many days back that is —
+    the recorder overwrites its oldest footage as its disk loops. null = unknown: only ever from this process's
+    own coverage index with the oldest day established for certain, never estimated."""
+    p = state["playback"]
+    ret = await run_in_threadpool(p.retention) if p else {}
+    return {"channels": {str(ch): v for ch, v in ret.items()}}
+
+
 @app.get("/api/playback/pool")
 async def playback_pool():
     """How many of the DVR's 4 playback sessions are in use right now (section 7.3)."""
     return {"busy": psess.pool.busy, "limit": psess.pool.limit, "units": psess.pool.used_units, "budget": psess.pool.budget}
 
 
-class BookmarkRequest(BaseModel):
-    channels: list[str] = Field(max_length=64)  # our channel ids (e.g. "c1"), not DVR channel numbers
-    time_utc: str
+class BookmarkFields(BaseModel):
     title: str = Field("", max_length=200)
     note: str = Field("", max_length=4000)
     severity: Literal["info", "warning", "critical"] = "info"
+
+
+class BookmarkRequest(BookmarkFields):
+    channels: list[str] = Field(max_length=64)  # our channel ids (e.g. "c1"), not DVR channel numbers
+    time_utc: str
 
     @field_validator("time_utc")
     @classmethod
@@ -389,28 +536,79 @@ class BookmarkRequest(BaseModel):
 @app.post("/api/bookmarks")
 async def create_bookmark(req: BookmarkRequest, request: Request):
     """Bookmark = (time, channels[], title, note, severity, author, created) — spec section 9. `author` is the
-    signed-in user ("Operator" while sign-in is off). Mirrored into the events table per channel
-    (kind='bookmark') so it shows up on the timeline and in search for free."""
+    signed-in user ("Operator" while sign-in is off); author_user_id, the account, is what edit/delete rights are
+    checked against. Mirrored into the events table per channel (kind='bookmark') so it shows up on the timeline
+    and in search for free."""
     s = current()
     chan_nums = [c.channel for c in s.channels if c.id in req.channels]
     if not chan_nums:
         raise HTTPException(422, "No valid channel")
-    author = request.state.principal.author
-    bid = await run_in_threadpool(db.create_bookmark, chan_nums, req.time_utc, req.title, req.note, req.severity, author)
-    for ch in chan_nums:
-        await run_in_threadpool(db.upsert_event, "manual", ch, "bookmark", req.time_utc, req.time_utc,
-                                 None, None, {"title": req.title, "severity": req.severity, "bookmark_id": bid}, None)
+    p = request.state.principal
+    author = p.author
+    bid = await run_in_threadpool(db.create_bookmark, chan_nums, req.time_utc, req.title, req.note, req.severity,
+                                   author, None, p.user_id if p.via == "session" else None)
     _audit(request, "bookmark.create", str(bid), channels=chan_nums, time_utc=req.time_utc, severity=req.severity)
     return {"id": bid, "channels": chan_nums, "author": author}
 
 
+def _may_change_bookmark(p, b) -> bool:
+    """Sign-in off: anyone (as before). Admins: any bookmark. Operators: their own — by account id, never by the
+    author name (a display label that can change or collide). An operator coming in over a trusted network
+    without signing in has no account: they may change bookmarks made the same way (no account, same LAN
+    author label). Bookmarks from before accounts were recorded on them (no author_user_id): admins only."""
+    if p.via == "none" or p.can("admin"):
+        return True
+    if not p.can("operator"):
+        return False
+    if p.via == "session":
+        return b.get("author_user_id") is not None and b["author_user_id"] == p.user_id
+    if p.via == "bypass":
+        return b.get("author_user_id") is None and b.get("author") == p.author
+    return False
+
+
+def _owned_bookmark(request: Request, bookmark_id: int) -> dict:
+    b = db.get_bookmark(bookmark_id)
+    if b is None:
+        raise HTTPException(404, "Unknown bookmark")
+    if not _may_change_bookmark(request.state.principal, b):
+        raise HTTPException(403, "Only whoever made this bookmark, or an admin, can change it")
+    return b
+
+
 @app.get("/api/bookmarks")
 async def get_bookmarks(channel: int | None = None, start_utc: str = "", end_utc: str = "", limit: int = 500):
-    return await run_in_threadpool(db.list_bookmarks, channel, start_utc or None, end_utc or None, max(1, min(limit, 1000)))
+    rows = await run_in_threadpool(db.list_bookmarks, channel, _utc_param(start_utc, "start_utc") or None,
+                                   _utc_param(end_utc, "end_utc") or None, max(1, min(limit, 1000)))
+    return rows
+
+
+class BookmarkPatch(BaseModel):
+    """A partial edit: a field left out keeps its stored value. Same limits as creating one."""
+    title: str | None = Field(None, max_length=200)
+    note: str | None = Field(None, max_length=4000)
+    severity: Literal["info", "warning", "critical"] | None = None
+
+
+@app.patch("/api/bookmarks/{bookmark_id}")
+async def update_bookmark(bookmark_id: int, req: BookmarkPatch, request: Request):
+    """Edit a bookmark's title, note and/or severity (its time and cameras stay as recorded); fields not sent are
+    kept. The mirrored events rows follow. Who edited it and when are kept; audited (bookmark.update)."""
+    cur = await run_in_threadpool(_owned_bookmark, request, bookmark_id)
+    b = await run_in_threadpool(db.update_bookmark, bookmark_id,
+                                 cur["title"] or "" if req.title is None else req.title,
+                                 cur["note"] or "" if req.note is None else req.note,
+                                 cur["severity"] or "info" if req.severity is None else req.severity,
+                                 request.state.principal.author)
+    if b is None:
+        raise HTTPException(404, "Unknown bookmark")
+    _audit(request, "bookmark.update", str(bookmark_id), fields=sorted(req.model_dump(exclude_none=True)) or None)
+    return b
 
 
 @app.delete("/api/bookmarks/{bookmark_id}")
 async def remove_bookmark(bookmark_id: int, request: Request):
+    await run_in_threadpool(_owned_bookmark, request, bookmark_id)
     await run_in_threadpool(db.delete_bookmark, bookmark_id)
     _audit(request, "bookmark.delete", str(bookmark_id))
     return {"ok": True}
@@ -425,8 +623,8 @@ class ExportRequest(BaseModel):
 
 @app.post("/api/export")
 async def create_export(req: ExportRequest, request: Request):
-    """Starts a background export job (spec section 10). Each channel is exported through a real
-    PlaybackReader — the DVR's 4-session playback budget applies to exports exactly like a playback pane,
+    """Starts a background export job (spec section 10). Bookmarks on these cameras inside the range go into the
+    signed manifest. Each channel is exported through a real PlaybackReader — the DVR's 4-session playback budget applies to exports exactly like a playback pane,
     and shows up in /api/playback/pool while running."""
     import datetime as _dt
     import secrets as _secrets

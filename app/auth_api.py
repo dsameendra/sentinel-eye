@@ -80,6 +80,9 @@ ROUTE_ROLES = [(m, re.compile(rx), role) for m, rx, role in [
     ("PUT", r"/api/display", "operator"),                 # shared layout/order: everyone's screens change
     ("*", r"/api/(settings|test|discover)", "admin"),
     ("POST", r"/api/recorder/retry", "admin"),             # logs in to the recorder again after a rejection
+    ("GET", r"/api/timeline/retention", "operator"),       # oldest recording per camera: review data, no credentials
+    ("GET", r"/api/timeline/events\.csv", "operator"),     # the Events search as a CSV download; audited
+    ("PATCH|DELETE", r"/api/bookmarks/\d+", "operator"),   # the handler also checks ownership (own, or admin)
     ("*", r"/api/(timeline|playback|bookmarks|export|enhance)(/.*)?", "operator"),
     ("*", r"/api/auth/(admin/.*|pair/approve)", "admin"),
     ("*", r"/api/auth/.*", "viewer"),
@@ -96,7 +99,7 @@ def required_role(method: str, path: str) -> str | None:
         return None
     method = "GET" if method == "HEAD" else method
     for m, rx, role in ROUTE_ROLES:
-        if (m == "*" or m == method) and rx.fullmatch(path):
+        if (m == "*" or method in m.split("|")) and rx.fullmatch(path):
             return role
     return "admin" if path.startswith("/api/") else "viewer"
 

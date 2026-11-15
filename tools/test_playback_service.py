@@ -80,7 +80,7 @@ def boom(*a, **kw):
 
 def coverage_first_pass_failure_recorded():
     s = service()
-    with Patch((coverage, "earliest_recorded_day", boom)):
+    with Patch((coverage, "earliest_recorded_day_checked", boom)):
         s._coverage_pass()  # must not raise
     check("coverage: a first-pass ISAPI failure doesn't propagate", True)
     check("coverage: failure recorded in status", "TimeoutError" in s.status["coverage"].get("last_error", ""), s.status["coverage"])
@@ -100,7 +100,7 @@ def coverage_one_bad_day_doesnt_abort():
             raise isapi.DvrRequestError("recording search", 500)
         return []
 
-    with Patch((coverage, "earliest_recorded_day", lambda *a, **k: earliest), (coverage, "refresh_day", refresh_day)):
+    with Patch((coverage, "earliest_recorded_day_checked", lambda *a, **k: {"day": earliest, "certain": True}), (coverage, "refresh_day", refresh_day)):
         s._coverage_pass()
         first = list(calls)
         check("coverage: every day of the first pass was tried despite one refusal", first == [earliest + datetime.timedelta(days=i) for i in range(6)], first)
@@ -109,8 +109,9 @@ def coverage_one_bad_day_doesnt_abort():
         check("coverage: other days indexed", s.status["coverage"]["days_x_channels_indexed"] == 5, s.status["coverage"])
         calls.clear()
         s._coverage_pass()
-        recent = {today - datetime.timedelta(days=1), today}
-        check("coverage: next pass re-fetches only yesterday+today (old days indexed once, the bad day backs off)",
+        # ...and the oldest day, which the recorder overwrites from its start as its disk loops (retention).
+        recent = {today - datetime.timedelta(days=1), today, earliest}
+        check("coverage: next pass re-fetches only the oldest day, yesterday and today (old days indexed once, the bad day backs off)",
               set(calls) == recent, calls)
         # backoff elapsed: the bad day is retried, and on success clears
         key = (1, bad)
@@ -124,7 +125,7 @@ def coverage_one_bad_day_doesnt_abort():
         calls.append(day)
         return []
     s._cov["failed"][key] = (0.0, 2)
-    with Patch((coverage, "earliest_recorded_day", lambda *a, **k: earliest), (coverage, "refresh_day", refresh_ok)):
+    with Patch((coverage, "earliest_recorded_day_checked", lambda *a, **k: {"day": earliest, "certain": True}), (coverage, "refresh_day", refresh_ok)):
         s._coverage_pass()
     check("coverage: a retried day that succeeds clears the error", "last_error" not in s.status["coverage"]
           and not s._cov["failed"], s.status["coverage"])
@@ -139,7 +140,7 @@ def coverage_reads_settings_each_pass():
         seen.add((ch, api.host))
         return []
 
-    with Patch((coverage, "earliest_recorded_day", lambda *a, **k: today), (coverage, "refresh_day", refresh_day)):
+    with Patch((coverage, "earliest_recorded_day_checked", lambda *a, **k: {"day": today, "certain": True}), (coverage, "refresh_day", refresh_day)):
         s._coverage_pass()
         s.holder.s = make_settings(channels=(1, 3), host="10.0.0.42")
         s.reload(connection_changed=True)
@@ -163,7 +164,8 @@ def loops_wait_while_breaker_tripped():
     note = lambda *a, **k: contacted.append(a) or []
     recorder_guard.trip(s._fp(), "test")
     try:
-        with Patch((coverage, "earliest_recorded_day", note), (coverage, "refresh_day", note),
+        with Patch((coverage, "earliest_recorded_day", note), (coverage, "earliest_recorded_day_checked", note),
+                   (coverage, "refresh_day", note),
                    (events, "backfill_major", note), (timebase, "calibrate_channel", note)):
             threads = []
             for loop, key in ((s._coverage_loop, ("coverage", "waiting")), (s._backfill_loop, ("backfill", "waiting")),

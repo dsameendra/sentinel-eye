@@ -35,7 +35,9 @@ export class Timeline {
     this.el = el;
     this.opts = opts;
     this.opts.channels = this.opts.channels || (opts.channel != null ? [{ channel: opts.channel, name: '' }] : []);
-    this.el.innerHTML = '<canvas></canvas><div class="tl-tip" hidden></div><button class="tl-jumpph" type="button" hidden></button>';
+    // Focusable, with arrow-key seeking (see _keys): the canvas is the timeline for keyboard and screen-reader
+    // users too, not only for a pointer.
+    this.el.innerHTML = '<canvas tabindex="0" role="slider" aria-label="Timeline — arrow keys move the playhead, + and − zoom" aria-valuemin="0" aria-valuemax="100"></canvas><div class="tl-tip" hidden></div><button class="tl-jumpph" type="button" hidden></button>';
     this.canvas = el.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.tip = el.querySelector('.tl-tip');
@@ -54,6 +56,8 @@ export class Timeline {
     this.selectMode = false;   // when true, drag draws a range instead of panning (spec 10: select-to-export)
     this.selection = null;     // [startEpoch, endEpoch] while dragging or just after
     this.clips = [];           // [[startEpoch, endEpoch], …] — the multi-cut clipper's pending clip list (spec 10/15)
+    this.oldest = null;        // epoch of the oldest recording the recorder still has (setRetention), or null = unknown
+    this.flash = null;         // {a, b, until}: a range just skipped by Playback's Skip empty, briefly highlighted
     this.ro = new ResizeObserver(() => this.draw());
     this.ro.observe(el);
     this._bind();
@@ -92,6 +96,21 @@ export class Timeline {
   setClips(clips) {
     this.clips = clips || [];
     this.draw();
+  }
+
+  /** The oldest recording the recorder still has (epoch seconds), or null when unknown: time before it is shaded —
+   * the recorder has overwritten it (its disk loops), whatever the cached coverage still says. */
+  setRetention(oldestEpoch) {
+    this.oldest = Number.isFinite(oldestEpoch) ? oldestEpoch : null;
+    this.draw();
+  }
+
+  /** Briefly highlight [a, b] — Playback's Skip empty marks the stretch it just jumped over, so a skip is seen. */
+  flashRange(a, b, ms = 1600) {
+    this.flash = { a, b, until: performance.now() + ms };
+    this.draw();
+    clearTimeout(this._flashTimer);
+    this._flashTimer = setTimeout(() => { this.flash = null; this.draw(); }, ms);
   }
 
   /** Clears the just-finished drag highlight once its range has been handed to onRangeSelect — otherwise
@@ -240,8 +259,42 @@ export class Timeline {
     });
     c.addEventListener('pointerleave', () => { this.cursorTime = null; this.draw(); this._hideTip(); });
     c.addEventListener('pointercancel', () => { drag = null; this.scrubTime = null; this.draw(); });
+    c.addEventListener('keydown', (e) => this._keys(e));
     c.addEventListener('gesturestart', (e) => { e.preventDefault(); this._gbase = this.pxPerSec; });
     c.addEventListener('gesturechange', (e) => { e.preventDefault(); this._zoomTo(this._gbase * e.scale, e); });
+  }
+
+  /** Arrow keys move the playhead by about a hundredth of the visible span (at least a second; Shift: ten
+   * times that), Home/End by the whole view; + / − zoom. The seek is sent once the keys pause, so holding an
+   * arrow down doesn't reconnect the recorder on every repeat. */
+  _keys(e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const span = (this.canvas.clientWidth || 800) / this.pxPerSec;
+    const step = Math.max(1, Math.round(span / 100)) * (e.shiftKey ? 10 : 1);
+    let d = null;
+    if (e.key === 'ArrowLeft') d = -step;
+    else if (e.key === 'ArrowRight') d = step;
+    else if (e.key === 'PageUp') d = -span / 2;
+    else if (e.key === 'PageDown') d = span / 2;
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); e.stopPropagation(); this.zoomBy(1.8); return; }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); e.stopPropagation(); this.zoomBy(1 / 1.8); return; }
+    if (d === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const from = this._keyTarget ?? this.playhead ?? this.center;
+    this._keyTarget = Math.min(Date.now() / 1000 - 5, from + d);
+    this.scrubTime = this._keyTarget;
+    if (this._keyTarget < this.center - span * 0.45 || this._keyTarget > this.center + span * 0.45) this.center = this._keyTarget;
+    this.reload();
+    clearTimeout(this._keyTimer);
+    this._keyTimer = setTimeout(() => {
+      const t = this._keyTarget;
+      this._keyTarget = null;
+      this.scrubTime = null;
+      this.playhead = t;
+      this.opts.onSeek?.(new Date(t * 1000).toISOString());
+      this.draw();
+    }, 450);
   }
 
   _wheel(e) {
@@ -331,6 +384,27 @@ export class Timeline {
       ctx.beginPath(); ctx.roundRect(4, top + hh / 2 - 3, 6, 6, 2); ctx.fill();
     }
 
+    // before the oldest recording: overwritten by the recorder — a quiet veil over every lane and a dashed edge
+    if (this.oldest != null) {
+      const xo = X(this.oldest);
+      if (xo > 0) {
+        const right = Math.min(w, xo);
+        ctx.save();
+        ctx.fillStyle = v('--tl-gone', 'rgba(127,127,127,.22)');
+        ctx.fillRect(0, LANE_TOP - 4, right, lanesBottom - LANE_TOP + 8);
+        if (xo <= w) {
+          ctx.strokeStyle = v('--warn', '#ffd60a'); ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(xo + .5, LANE_TOP - 4); ctx.lineTo(xo + .5, lanesBottom + 4); ctx.stroke();
+        }
+        if (right > 120) {
+          ctx.setLineDash([]); ctx.font = '600 11px -apple-system, system-ui, sans-serif'; ctx.textBaseline = 'middle';
+          ctx.fillStyle = text; ctx.fillText('Overwritten by the recorder', Math.max(8, right - 168), LANE_TOP + COV_H / 2);
+          ctx.textBaseline = 'top';
+        }
+        ctx.restore();
+      }
+    }
+
     // event ticks (board: thin coloured bars through the lane); spans wider than a tick keep their length
     for (const ev of this.events) {
       const i = this._laneIndex(ev.channel);
@@ -358,6 +432,13 @@ export class Timeline {
     };
     for (const [a, b] of this.clips) range(a, b, false);
     if (this.selection) range(this.selection[0], this.selection[1], true);
+    if (this.flash && performance.now() < this.flash.until) {
+      const x1 = X(this.flash.a), x2 = X(this.flash.b);
+      if (x2 >= 0 && x1 <= w) {
+        ctx.fillStyle = accent + '2e';
+        ctx.beginPath(); ctx.roundRect(Math.max(0, x1), LANE_TOP - 4, Math.max(3, Math.min(w, x2) - Math.max(0, x1)), COV_H + 8, 6); ctx.fill();
+      }
+    }
 
     // live edge
     const nowX = X(Date.now() / 1000);
@@ -399,6 +480,7 @@ export class Timeline {
     } else {
       this.jumpBtn.hidden = true;
     }
+    if (ph != null) this.canvas.setAttribute('aria-valuetext', fmtInstant(ph, this.opts.tzOffsetMin));
     this.opts.onView?.(t0, t0 + spanSec, ph);
   }
 
@@ -466,7 +548,7 @@ export class Timeline {
     if (!this.selectMode) this.canvas.style.cursor = '';
   }
 
-  destroy() { this.ro.disconnect(); }
+  destroy() { this.ro.disconnect(); clearTimeout(this._flashTimer); clearTimeout(this._keyTimer); }
 }
 
 function niceStep(target) {

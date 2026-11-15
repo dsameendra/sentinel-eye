@@ -256,7 +256,8 @@ async function handle(files) {
     const r = manifest.requested_range_utc || clips[0]?.dvr_time_range_utc || {};
     const a = fmtUtc(r.start), b = fmtUtc(r.end);
     const range = a.day ? `${a.day}, ${a.time} – ${b.day && b.day !== a.day ? b.day + ', ' : ''}${b.time || ''} UTC` : '—';
-    const meta = [`Camera${clips.length > 1 ? 's' : ''}: ${esc(cams)}`, `Range: ${esc(range)}`, manifest.operator ? `Exported by: ${esc(manifest.operator)}` : ''].filter(Boolean).join(' · ');
+    const nBm = Array.isArray(manifest.bookmarks) ? manifest.bookmarks.length : 0;
+    const meta = [`Camera${clips.length > 1 ? 's' : ''}: ${esc(cams)}`, `Range: ${esc(range)}`, manifest.operator ? `Exported by: ${esc(manifest.operator)}` : '', nBm ? `${nBm} bookmark${nBm > 1 ? 's' : ''} (see Details)` : ''].filter(Boolean).join(' · ');
     const created = fmtUtc(manifest.created_utc);
     // Manifest v2 fields, each only when present: a v1 package (no manifest_version) shows exactly what it always did.
     const clipRow = (c) => {
@@ -270,6 +271,16 @@ async function handle(files) {
       bits.push(`<code>${esc(c.sha256)}</code>`);
       return `<tr><td>${esc(c.camera_name)}</td><td>${bits.join('<br>')}</td></tr>`;
     };
+    // Bookmarks (added to manifest v2 later; absent when the range had none): signed along with everything else.
+    const bms = Array.isArray(manifest.bookmarks) ? manifest.bookmarks : [];
+    const bmRows = bms.map((b) => {
+      const when = b.time_local ? `${fmtLocal(b.time_local)} recorder time` : `${fmtUtc(b.time_utc).day}, ${fmtUtc(b.time_utc).time} UTC`;
+      const bits = [esc(when), esc([b.severity, (b.cameras || []).join(', ')].filter(Boolean).join(' · '))];
+      if (b.title) bits.push(`<b>${esc(b.title)}</b>`);
+      if (b.note) bits.push(esc(b.note));
+      bits.push(esc(`By ${b.author || '—'}${b.edited_utc ? ` · edited by ${b.edited_by || '—'}` : ''}`));
+      return `<tr><td>Bookmark</td><td>${bits.join('<br>')}</td></tr>`;
+    }).join('');
     const rec = manifest.recorder ? [manifest.recorder.model, manifest.recorder.serial ? `serial ${manifest.recorder.serial}` : '', manifest.recorder.firmware ? `firmware ${manifest.recorder.firmware}` : ''].filter(Boolean).join(' · ') : '';
     show(`${top}
       <div class="card" style="margin-top:20px"><div class="src">${esc(label)}</div><div class="meta">${meta}</div>${rows.join('')}</div>
@@ -281,6 +292,7 @@ async function handle(files) {
         ${manifest.app ? `<tr><td>Exported with</td><td>${esc(`${manifest.app.name || 'Sentinel Eye'} ${manifest.app.version || ''}`.trim())}</td></tr>` : ''}
         ${rec ? `<tr><td>Recorder</td><td>${esc(rec)}</td></tr>` : ''}
         ${clips.map(clipRow).join('')}
+        ${bmRows}
         <tr><td>Public key</td><td><code>${esc(sig.public_key_hex)}</code></td></tr>
       </table></details></div>
       <p class="note" style="margin-top:20px"><b>What this proves, and what it doesn't.</b> A valid result means these files are exactly what Sentinel Eye produced at export time and haven't been changed since. It doesn't, by itself, prove the recorder's original footage was authentic — that rests on physical access to the recorder and this installation's key, as with any camera system.</p>`);

@@ -56,6 +56,9 @@ class FakePlayback:
     def reload(self, connection_changed=True):
         self.reloads.append(connection_changed)
 
+    def health(self):
+        return {"reachable": True, "error": None, "live_events": {"connected": False}}
+
     def wake(self):
         pass
 

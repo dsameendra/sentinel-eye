@@ -80,7 +80,25 @@ involved.
   and frame-accurate stepping forward and backward.
 - A "select a range" tool for exporting exactly the footage you need, and a multi-cut clipper: build a list
   of ranges from several points in the timeline, then export them all as one batch.
-- Bookmarks and incident notes on a moment, on one camera or several, searchable later.
+- **Previous / next event** (`[` / `]`): jump to a few seconds before the nearest motion, line-crossing,
+  tamper, video-loss or bookmark on the selected cameras.
+- **Skip empty** (`S`, remembered on each device): while playing, jump over stretches with no motion,
+  line-crossing, tamper or bookmark on any selected camera (each event padded 3 s before and 5 s after, events
+  under 10 s apart joined). Only gaps that would take longer to play through than to reconnect are skipped —
+  about 30 s of wall time at any speed — and every skip shows on the timeline. It relies on the recorder's own
+  motion/alarm log: a camera with motion detection off has nothing to skip to, and Playback says so instead
+  of jumping to the end.
+- Bookmarks and incident notes on a moment, on one camera or several, searchable later. The **Bookmarks** panel
+  (`L`) lists the day's (or all) bookmarks with search and a severity filter; pick one to play from it (its
+  cameras are added if they aren't shown), or edit or delete it. With sign-in on, operators change their own
+  bookmarks and admins anyone's.
+- **Roll-off warning**: the recorder overwrites its oldest footage as its disk fills. The timeline shades
+  what's already gone, and footage within three days of being overwritten gets a notice with a shortcut to
+  Export — estimated only from the recorder's own recording index, never guessed.
+- Times are the footage's true recorded time. A playback starts at the keyframe before the requested time
+  (keyframes are 14–50 s apart on these recorders), so the first moments shown can be up to a minute early,
+  correctly labelled; a paused seek still lands on the requested frame. A time with no recording plays the
+  next recording.
 
 ![Desktop Playback workspace with selected synthetic Driveway camera, timeline coverage span, transport controls and events](docs/screenshots/playback.jpg)
 
@@ -88,6 +106,13 @@ involved.
 - Motion, line-crossing, intrusion, tamper and video-loss events (and your own bookmarks) across cameras and
   date ranges, as thumbnails or a list, with a quick in-page preview before opening it in Playback or
   exporting. Your last search comes back instantly when you return to it.
+- Results page from the server newest first — **Load more** (or just keep scrolling) fetches the next page —
+  and **Export CSV** downloads every event matching the filters (recorder-local and UTC times, camera, type,
+  source, duration, bookmark title/severity/note/author; up to 100,000 rows, and the file says so if it's cut
+  short). Events whose footage the recorder has overwritten, or soon will, are tagged.
+- The recorder reports each event twice (live, then in its log); they're merged into one. Live events with no
+  "ended" notice close after 120 s without activity, and today's log is re-read hourly so nothing missed live
+  stays missing.
 
 ![Event search with synthetic event cards, camera and type filters, and date-range controls](docs/screenshots/events.jpg)
 
@@ -100,7 +125,8 @@ involved.
   SHA-256 hash, the camera, codec and picture size, the recorded time range in UTC and DVR/NVR-local time,
   where those times come from and how accurate they are, the app version and the recorder's model and
   firmware, and an Ed25519 signature over that manifest, plus an offline `verify.html` that checks it all in a
-  browser with nothing installed and no server involved. Older (version 1) packages still verify.
+  browser with nothing installed and no server involved. Bookmarks on the exported cameras inside the range
+  are included in the signed manifest and shown by `verify.html`. Older (version 1) packages still verify.
 - **Signing key fingerprint**: Settings → Status (admins) or Settings → This device (operators) shows this
   installation's key fingerprint under "Evidence signing key"; `verify.html` shows the fingerprint of the key that signed a package. A recipient should
   compare the two — a valid signature only proves the files match the key that signed them.
@@ -140,7 +166,12 @@ reconstruction of it" is never blurred.
 ### Settings
 Recorder address and login, the encryption toggle and verification code, per-channel names/order/frame-rate
 overrides and custom RTSP paths, a "detect channels" scan (also reads the recorder's own camera names),
-theme, layout and streaming defaults, and live connection/engine status. With [sign-in](#sign-in-optional)
+theme, layout and streaming defaults, and live connection/engine status. A per-channel **Recordings path**
+overrides the RTSP path used for playback, thumbnails and export (for non-Hikvision sources), separately from
+the live paths. Saving connection or channel changes applies them at once — no restart. **Status** shows the
+recorder's health in plain words: reachable or not, whether its sign-in was rejected (with *Try again*), live
+events, how far the event history is synced, the recording index, each camera's clock calibration, the
+recorder's UTC offset, the oldest recording it still has, and the daily clean-up. With [sign-in](#sign-in-optional)
 on, Security holds accounts, paired TVs, sessions, network access and an activity log, and Account is where
 you change your password, two-factor, username and picture (your initial on a colour, a designed avatar, or
 a photo).
@@ -189,8 +220,14 @@ Press `?` on Live or Playback for this list in the app.
 | `,` / `.` | One frame back / forward |
 | `Shift` + `1` / `2` / `3` | Back 5 s / 10 s / 30 s |
 | `Shift` + `4` / `5` / `6` | Forward 5 s / 10 s / 30 s |
+| `[` / `]` | Previous / next event |
+| `S` | Skip empty on / off |
 | `B` | Bookmark this moment |
+| `L` | Bookmarks list |
 | `F` | Full screen |
+
+On the Playback timeline itself (click it or Tab to it): `←` / `→` move the playhead (`Shift` for bigger
+steps), `Page Up` / `Page Down` by half the view, `+` / `-` zoom.
 
 ## How it works
 
@@ -257,6 +294,24 @@ logging to the terminal instead of `data/sentinel.log`. `stop`, `status` and `lo
 when a native instance is running. Only one of the two can run at a time, since they share ports.
 
 `backup` archives contain the DVR/NVR password; `backups/` is git-ignored and created with owner-only access.
+
+### Keeping the recorder safe and the data tidy
+
+- **Lockout breaker.** Hikvision recorders lock an account after a few failed logins. The first time the
+  recorder rejects the saved username or password, every automatic login (background jobs, live relays,
+  playback, thumbnails) stops and stays stopped — marked by `data/recorder_auth_failed.json` — until the
+  connection is saved in Settings or an admin presses *Try again* (Live, Playback and Settings say so).
+- **Recorder clock.** Playback, exports and thumbnails wait (HTTP 503) until the recorder's own UTC offset is
+  known — never a guessed time zone — and the offset is re-read hourly (daylight saving).
+- **Daily clean-up.** Recorder events, their thumbnails and the recording index are removed for footage from
+  more than two days before the oldest recording the recorder still has (it overwrites its oldest footage),
+  but only once a full pass of the recording index has established that day for certain. Bookmarks are never
+  removed, and neither is the clock-calibration history.
+- **Limits.** Requests are bounded (event search up to 5,000 rows a page, bookmark text lengths, upload sizes,
+  speeds and seek times checked before they reach the recorder).
+- **Logs.** `data/sentinel.log` (native) and `data/go2rtc.log` keep one older generation once they pass 10 MB.
+- **go2rtc** is downloaded at a pinned version and checked against pinned SHA-256 hashes, by `run.sh` and the
+  Dockerfile alike; bump the version and the hashes together.
 
 ### Configure
 
@@ -429,6 +484,10 @@ viewer's copy of the settings doesn't include the recorder's address or login.
 Accounts, sessions and the activity log live in `data/auth.db` (passwords as scrypt hashes, session tokens
 only as hashes); `./run.sh backup` includes it.
 
+The activity log (Settings → Security & sign-in) records sign-ins and account changes, and also settings
+saves (which sections and connection fields changed — never their values), recorder retries, exports
+(created, downloaded, cancelled), bookmarks (created, edited, deleted), event CSV exports and model downloads.
+
 How it's protected, what's in scope, and how to report a vulnerability privately: [SECURITY.md](SECURITY.md).
 
 ## Installing as an app
@@ -468,7 +527,7 @@ Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and pi
 
 ![Event review in the light theme](docs/screenshots/light-events.jpg)
 
-Online updates use a network-first static shell (`adaptive-v33`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
+Online updates use a network-first static shell (`adaptive-v34`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 
@@ -517,11 +576,19 @@ tools/test_rig.sh start                              # isolated instance against
 node tools/test_viewer.mjs                         # real viewer and gesture logic, deterministic input
 node tools/test_shell_update.mjs                    # shell imports, cache/update and install identity
 node tools/test_pwa_bootstrap.mjs                   # installed Apple detection
+node tools/test_codecs.mjs                          # WebCodecs codec strings (H.265 / H.264)
+node tools/test_eventspans.mjs                      # Skip empty spans, previous/next event
 .venv/bin/python tools/pwa_preview.py               # synthetic UI; no recorder or production writes
 ```
 
-`tools/e2e_live.py` and `tools/e2e_real_settings.py` check against your real recorder without changing
-anything on it. Sign-in has its own suites, no recorder needed:
+Every `tools/test_*.py` except `test_m0.py` runs without a recorder (CI runs them all), with a scratch data
+directory: events and paging (`test_events.py`, `test_events_api.py`), playback sessions and time labels
+(`test_playback_session.py`, `test_playback_time.py`), background jobs and clean-up (`test_playback_service.py`,
+`test_prune.py`), the lockout breaker (`test_recorder_guard.py`), input limits (`test_server_inputs.py`),
+export (`test_export.py`, needs ffmpeg) and log rotation (`test_log_rotation.py`).
+
+`tools/e2e_live.py`, `tools/e2e_real_settings.py` and `tools/measure_playback_time.py` check against your real
+recorder without changing anything on it. Sign-in has its own suites, no recorder needed:
 
 ```sh
 .venv/bin/pip install -r requirements-dev.txt

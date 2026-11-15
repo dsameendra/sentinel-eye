@@ -236,6 +236,8 @@ class AlertStreamSubscriber:
         self._thread = None
         self.last_event_utc = None
         self.last_error = None
+        self.last_error_at = None            # epoch seconds of last_error
+        self.last_error_unreachable = False   # last_error was a failure to reach the recorder at all
         self.connected = False
         # (kind, channel) -> [start ts, last "active" seen], persisted across live notifications — unlike
         # stitch()'s own dict, which is scoped to one call and built for batch backfill (a whole day's entries at
@@ -283,8 +285,12 @@ class AlertStreamSubscriber:
                             buf = buf[end:]
             except recorder_guard.RecorderAuthBlocked as e:
                 self.last_error = str(e)   # the breaker is tripped now; the top of the loop waits it out
+                self.last_error_at, self.last_error_unreachable = time.time(), False
             except Exception as e:
                 self.last_error = f"{type(e).__name__}: {e}"
+                self.last_error_at = time.time()
+                # Not an HTTP answer (the recorder is there): refused, timed out, no route.
+                self.last_error_unreachable = isinstance(e, (OSError, TimeoutError)) and not hasattr(e, "code")
             self.connected = False
             if self._stop.wait(delay):
                 break

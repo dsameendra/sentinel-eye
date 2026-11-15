@@ -78,9 +78,22 @@ Also run the suites for the area you touched. None of them needs a recorder:
 | Viewer, gestures, zoom UI | `node tools/test_viewer.mjs` |
 | Service worker / PWA shell | `node tools/test_shell_update.mjs`, `node tools/test_pwa_bootstrap.mjs` |
 | Playback background loops | `.venv/bin/python3 tools/test_playback_service.py` |
+| Pruning, retention, recorder health | `.venv/bin/python3 tools/test_prune.py` |
+| Events: ingest, live/log merging | `.venv/bin/python3 tools/test_events.py` |
+| Events search paging, CSV, bookmark edits, manifest bookmarks | `.venv/bin/python3 tools/test_events_api.py` |
+| Playback sessions / time labels | `.venv/bin/python3 tools/test_playback_session.py`, `tools/test_playback_time.py` |
+| Export (needs ffmpeg) | `.venv/bin/python3 tools/test_export.py` |
+| Lockout breaker | `.venv/bin/python3 tools/test_recorder_guard.py` |
+| Server input limits, recorder clock, audit | `.venv/bin/python3 tools/test_server_inputs.py` |
+| Log rotation | `.venv/bin/python3 tools/test_log_rotation.py` |
+| Codec strings | `node tools/test_codecs.mjs` |
+| Skip empty / previous-next event | `node tools/test_eventspans.mjs` |
 | Encoder selection | `.venv/bin/python3 tools/test_hwaccel.py` |
 | AI enhancer | `.venv/bin/python3 tools/test_enhance_models.py`, `tools/test_enhance_ai.py` |
 | Docker | `tools/test_docker_image.sh`, `tools/test_docker_compose.sh` |
+
+CI runs every `tools/test_*.py` except `test_m0.py`, and the node suites listed in `.github/workflows/ci.yml`
+(add a new `.mjs` suite there).
 
 For UI work, use an isolated instance rather than the real recorder:
 
@@ -88,7 +101,7 @@ For UI work, use an isolated instance rather than the real recorder:
 - `.venv/bin/python tools/pwa_preview.py` runs a synthetic UI with no writes.
 
 **Real-recorder scripts:** `tools/test_m0.py`, `tools/e2e_live.py`, `tools/e2e_real_settings.py`,
-`tools/e2e_stress.py` and `tools/e2e_server_load.py` talk to the user's real DVR. Do not run them unless the
+`tools/e2e_stress.py`, `tools/e2e_server_load.py` and `tools/measure_playback_time.py` talk to the user's real DVR. Do not run them unless the
 user asks.
 
 ## Conventions
@@ -108,6 +121,8 @@ user asks.
   - `CACHE_NAME` in `web/sw.js`
   - `--shell-revision` in `web/css/app.css`
   - the expected strings in `tools/test_shell_update.mjs`
+  - (the same `adaptive-vNN` also appears in `web/index.html`, `login.html`, `pair.html`, `web/js/pwa.js`,
+    `README.md` and below; the shell test checks the HTML ones)
 - **UI** uses the tokens and rules in `docs/DESIGN.md` (dark graphite, one accent colour for interactive
   elements, Inter). `.impeccable/config.json` records reviewed design-lint exceptions. It is shared state,
   so update it intentionally. `.impeccable/hook.cache.json` is local.
@@ -160,7 +175,23 @@ user asks.
 - **Optional enhancer:** the AI enhancer is native-only. Code paths must degrade with a clear message when
   its dependencies are missing (see `tools/test_enhance_ai.py`).
 - **Ports:** native and Docker instances share ports. Only one can run at a time.
-- **Shell revision:** currently `adaptive-v33` (kept in sync across `web/sw.js`, `web/css/app.css`,
+- **Recorder lockout breaker:** every automatic recorder login goes through `app/recorder_guard.py` (marker
+  `data/recorder_auth_failed.json`; cleared by saving Settings or `POST /api/recorder/retry`). Never add a
+  recorder login path that bypasses it — a wrong password retried by several loops locks the DVR account.
+- **Recorder time:** the recorder's UTC offset comes from the recorder; playback, export and thumbnails answer
+  503 until it is known. Never default a time zone.
+- **Keyframe pre-roll:** recorded keyframes are 14–50 s apart, so a playback session starts up to ~1 min
+  before the requested time. Those frames are labelled with their true time and flagged as pre-roll
+  (`display_from`); a paused seek lands on the requested frame. A request for an unrecorded time gets 200 OK and
+  the next recording.
+- **Clock periods:** recordings keep their recorded RTP timestamps, and the recorder resets that clock on all
+  channels at once, so a calibration is only valid within its own clock period. Label footage with
+  `timebase.choose_label`, never the nearest calibration by time. `calibration_history` is never pruned.
+- **Playback reader queue** items are `playback_session.Frame` tuples (plus `("error", msg)` and `None`).
+- **Events search** pages newest first by `(start_utc, id)`; look forward with `order=asc` (a newest-first
+  capped fetch drops the rows nearest a playhead). Keep the response a bare array — timeline, Live, the bell
+  and Events all read it.
+- **Shell revision:** currently `adaptive-v34` (kept in sync across `web/sw.js`, `web/css/app.css`,
   `tools/test_shell_update.mjs`, and `README.md`).
 
 ## Commits and pull requests
@@ -183,3 +214,8 @@ When reviewing a change, flag:
 - an export path that re-encodes or skips signing
 - secrets, `data/` or footage in the diff
 - behaviour changes without a matching `README.md` / `docs/SPEC.md` update
+- a recorder login that doesn't go through `recorder_guard`, or a guessed time zone
+- footage labelled from the nearest calibration instead of `timebase.choose_label`
+- pruning that can delete bookmarks/`manual` events or `calibration_history`, or that acts without a certain
+  oldest recorded day
+- recorder error strings or the recorder's address in a payload non-admins can read (`/api/status` trims them)

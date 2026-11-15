@@ -161,6 +161,10 @@ def role_matrix():
         ("GET", "/api/timeline/coverage?channel=1&from_day=2026-01-01&to_day=2026-01-01", None, "operator"),
         ("GET", "/api/playback/pool", None, "operator"),
         ("GET", "/api/bookmarks", None, "operator"),
+        ("PATCH", "/api/bookmarks/999999", {"title": "x"}, "operator"),    # 404 for operators: ownership is the handler's
+        ("DELETE", "/api/bookmarks/999999", None, "operator"),
+        ("GET", "/api/timeline/events.csv", None, "operator"),             # 503 here (no recorder clock), never 401/403
+        ("GET", "/api/timeline/retention", None, "operator"),
         ("POST", "/api/export", {"channels": ["zz"], "start_utc": "x", "end_utc": "y"}, "operator"),
         ("GET", "/api/export/signing-key", None, "operator"),   # public key + fingerprint (Settings, verify.html)
         ("DELETE", "/api/export/no-such-job", None, "operator"),   # cancel an export: 404 here, never 401/403
@@ -197,7 +201,52 @@ def role_matrix():
           ws_close_code(clients["operator"], "/api/playback/ws?channel=nope&start=x") == 4404)
     r = clients["operator"].post("/api/bookmarks", json={"channels": ["c1"], "time_utc": "2026-09-28T10:00:00+00:00"})
     check("bookmark author is the user", r.status_code == 200 and r.json()["author"] == "opal", r.text[:200])
+    bookmark_ownership(clients, r.json()["id"])
+    status_per_role(clients)
     return clients
+
+
+def bookmark_ownership(clients, opal_bm):
+    """Operators edit/delete their own bookmarks (by account, not by name); admins anyone's."""
+    auth.create_user("otto", PW, "operator")
+    otto = client()
+    login(otto, "otto")
+    r = otto.patch(f"/api/bookmarks/{opal_bm}", json={"title": "not mine"})
+    check("bookmark: another operator can't edit it (403)", r.status_code == 403 and r.json().get("code") != "forbidden", r.text)
+    check("bookmark: another operator can't delete it (403)", otto.delete(f"/api/bookmarks/{opal_bm}").status_code == 403)
+    r = clients["operator"].patch(f"/api/bookmarks/{opal_bm}", json={"title": "mine", "severity": "warning"})
+    check("bookmark: its author can edit it", r.status_code == 200 and r.json()["title"] == "mine" and r.json()["edited_by"] == "opal", r.text)
+    # Renaming the other operator to the author's display name gives no rights: ownership is the account id.
+    import db
+    legacy = db.create_bookmark([1], "2026-09-28T11:00:00+00:00", "old", "", "info", "opal")   # no author_user_id
+    check("bookmark: one from before accounts were recorded is admin-only",
+          clients["operator"].patch(f"/api/bookmarks/{legacy}", json={"title": "x"}).status_code == 403)
+    r = clients["admin"].patch(f"/api/bookmarks/{legacy}", json={"title": "fixed"})
+    check("bookmark: an admin can edit anyone's", r.status_code == 200 and r.json()["edited_by"] == "ada", r.text)
+    check("bookmark: a viewer can't touch any", clients["viewer"].patch(f"/api/bookmarks/{legacy}", json={"title": "x"}).status_code == 403)
+    check("bookmark: its author can delete it", clients["operator"].delete(f"/api/bookmarks/{opal_bm}").status_code == 200)
+    check("bookmark: an admin can delete anyone's", clients["admin"].delete(f"/api/bookmarks/{legacy}").status_code == 200)
+
+
+def status_per_role(clients):
+    """Viewers and operators get yes/no recorder health only: raw errors can name the recorder's address."""
+    class FakePlayback:
+        tz = None
+        subscriber = None
+        status = {"dvr_error": "URLError: http://192.0.2.77:80 refused"}
+
+        def health(self):
+            return {"reachable": False, "error": self.status["dvr_error"], "live_events": {"connected": False}}
+    server.state["playback"] = FakePlayback()
+    try:
+        op = clients["operator"].get("/api/status").json()
+        ad = clients["admin"].get("/api/status").json()
+    finally:
+        server.state["playback"] = None
+    check("status: operator gets reachable yes/no, no error text or raw playback state",
+          set(op["recorder"]) == {"configured", "reachable", "live_events_connected"} and op["recorder"]["reachable"] is False
+          and "playback" not in op and "192.0.2.77" not in str(op), op)
+    check("status: admin gets the detail", ad["recorder"]["error"] and "playback" in ad, ad)
 
 
 def revocation_closes_ws(clients):

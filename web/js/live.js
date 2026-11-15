@@ -9,6 +9,7 @@ import { onboardingDialog } from './onboarding.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
 import { api, getJSON } from './api.js';
 import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhancePanel.js';
+import { RecorderWatch } from './recorderNotice.js';
 
 // The recorder's channel-zero overview stream (Settings > Connection) — a synthetic "camera" that isn't a
 // real entry in settings.channels (mirrors app/settings.py's channel_zero_channel), so it never touches
@@ -60,7 +61,8 @@ export class LiveView {
     document.addEventListener('keydown', this.onKey);
     this.onTvEdge = (e) => this._tvEdge(e);
     document.addEventListener('tvnav-edge', this.onTvEdge);
-    this.onVis = () => { if (!document.hidden && this.tvMode) this._tvWakeLock(); };
+    // A hidden tab doesn't poll the event index (nothing to badge or announce); coming back catches up at once.
+    this.onVis = () => { if (!document.hidden) { if (this.tvMode) this._tvWakeLock(); this.pollEvents(); } };
     document.addEventListener('visibilitychange', this.onVis);
     this.onFs = () => this.syncFullscreen();
     document.addEventListener('fullscreenchange', this.onFs);
@@ -69,6 +71,19 @@ export class LiveView {
     this.evTimer = setInterval(() => this.pollEvents(), 4000);
     this.pollEvents();
     this.build();
+    // The recorder's own health (server side): a compact notice under the bar when it's unreachable or rejected
+    // the sign-in, and the bar's health pill says the same (_healthHTML).
+    this.recorderWatch = new RecorderWatch(this.root.querySelector('.rec-notice-host'), ctx, {
+      onChange: () => this.countLive(),
+      suppress: (st) => st === 'unreachable' && this.tiles.length > 0 && this.tiles.every((t) => t.state === 'live'),
+    });
+  }
+
+  /** build() replaces the page: point the recorder notice at its new host. */
+  _attachNotice() {
+    if (!this.recorderWatch) return;
+    this.recorderWatch.host = this.root.querySelector('.rec-notice-host');
+    this.recorderWatch.render();
   }
 
   get s() { return this.ctx.settings(); }
@@ -103,12 +118,13 @@ export class LiveView {
     // Empty states keep the bar (so Settings/Playback/your account stay one click away) and use the States
     // board's designed treatment rather than a bare card.
     const emptyState = (iconName, title, body, actionsHtml) => {
-      this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="state-card"><div class="state-ico">${icon(iconName)}</div>
+      this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="rec-notice-host" hidden></div><div class="state-card"><div class="state-ico">${icon(iconName)}</div>
         <h2>${title}</h2><p>${body}</p>${actionsHtml}</div></main>`;
       this.live = this.root.querySelector('.liveview');
       this.bar = this.root.querySelector('.live-bar');
       this.wall = null;
       this.renderBar();
+      this._attachNotice();
     };
     if (!s.connection.host && !s.connection.configured) {   // configured: the redacted form non-admins get
       if (this.ctx.can('admin')) {
@@ -125,7 +141,7 @@ export class LiveView {
         this.ctx.can('admin') ? '<div class="state-actions"><a class="btn primary" href="#/settings/channels">Manage channels</a></div>' : '');
       return;
     }
-    this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="wall"></div><div class="pager-row" hidden></div>
+    this.root.innerHTML = `<main class="liveview"><div class="live-bar"></div><div class="rec-notice-host" hidden></div><div class="wall"></div><div class="pager-row" hidden></div>
       <button class="viewer-exit" data-a="leavewall" aria-label="Exit expanded view">${icon('collapse')}<span>Exit view</span></button>
       <div class="tv-fs-controls">
         <button class="tv-fs-btn" data-a="pgprev" title="Previous page" aria-label="Previous page">${icon('left')}</button>
@@ -153,6 +169,7 @@ export class LiveView {
     }
     this.page = Math.min(this.page, this.pages() - 1);
     this.renderBar();
+    this._attachNotice();
     this.renderWall();
     if (this.tvMode) this._tvDefaultFocus();
     if (this.pendingFocusId) this.route(this.pendingFocusId);
@@ -300,9 +317,15 @@ export class LiveView {
     const all = total > 0 && n === total;
     // States board's three: connected, reconnecting, unreachable. "Unreachable" only once nothing has
     // come up for a while, so a normal cold start reads as connecting, not as an alarm.
-    const down = total > 0 && n === 0 && Date.now() - (this.wallSince || 0) > 20000 && this.tiles.every((t) => t.state !== 'live');
-    const label = all ? `${total} camera${total === 1 ? '' : 's'}<span class="all-note"> · all connected</span>` : down ? 'Recorder unreachable' : total && n ? `${n}/${total} live` : 'Connecting…';
-    const tip = all ? 'Every camera on this page is streaming' : down ? "No camera has connected — check the recorder's power and network" : 'Some cameras are still connecting or reconnecting';
+    // The server's view of the recorder (RecorderWatch) settles it sooner and says which: unreachable, or the
+    // saved sign-in rejected (nothing logs in until it's fixed).
+    const rec = this.recorderWatch?.state;
+    const rejected = rec === 'rejected' && !all;
+    const down = rejected || (!all && rec === 'unreachable')
+      || (total > 0 && n === 0 && Date.now() - (this.wallSince || 0) > 20000 && this.tiles.every((t) => t.state !== 'live'));
+    const label = all ? `${total} camera${total === 1 ? '' : 's'}<span class="all-note"> · all connected</span>` : rejected ? 'Recorder sign-in rejected' : down ? 'Recorder unreachable' : total && n ? `${n}/${total} live` : 'Connecting…';
+    const tip = all ? 'Every camera on this page is streaming' : rejected ? 'The recorder rejected the saved username or password — see Settings → Recorder connection'
+      : down ? "No camera has connected — check the recorder's power and network" : 'Some cameras are still connecting or reconnecting';
     return `<span class="pill health${all ? '' : ' degraded'}${down ? ' down' : ''}" title="${tip}"><span class="dot ${down ? 'off' : 'wait'}"${all ? ' hidden' : ''}></span><span class="livecount">${label}</span></span>`;
   }
 
@@ -915,6 +938,7 @@ export class LiveView {
   // just ended, and paints small badges onto each grid tile for its channel.
   async pollEvents() {
     this.countLive();   // also lets "Recorder unreachable" appear once its grace period passes
+    if (document.hidden) return;   // nothing to badge or announce on a hidden tab (onVis catches up)
     try {
       const since = new Date(Date.now() - 20000).toISOString();
       if (!this.ctx.can('operator')) return;   // the event index is review data: operator and up
@@ -1292,6 +1316,7 @@ export class LiveView {
     clearInterval(this.rotTimer);
     clearInterval(this.evTimer);
     clearInterval(this.clockTimer);
+    this.recorderWatch?.destroy();
     clearTimeout(this.tvHideTimer);
     clearTimeout(this.tvIdleTimer);
     document.removeEventListener('tvnav-edge', this.onTvEdge);

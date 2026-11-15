@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v33;
+  --shell-revision: adaptive-v34;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;
@@ -2555,3 +2555,94 @@ html.apple-touch-device:not(.tv-mode) .topbar.appbar .app-dest[data-locked]::aft
   border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
   transform: translateY(-68%) rotate(45deg); pointer-events: none;
 }
+
+/* ---------- Phases 3–4: recorder notice, roll-off, Skip empty, bookmarks panel, events paging, recorder health ---------- */
+:root { --tl-gone: rgba(127, 127, 127, .24); --warn-soft: rgba(255, 214, 10, .12); --warn-text: #ffd60a; }
+:root[data-theme="light"] { --tl-gone: rgba(0, 0, 0, .09); --warn-soft: rgba(179, 83, 9, .1); --warn-text: #8a4106; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --tl-gone: rgba(0, 0, 0, .09); --warn-soft: rgba(179, 83, 9, .1); --warn-text: #8a4106; } }
+
+/* A compact, dismissible row under the bar (Live) or above the transport (Playback). Solid chrome, never over
+   the picture; danger tone for the recorder being down, warn tone for footage about to be overwritten. */
+.inline-notice { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--panel); color: var(--text); font-size: 13px; line-height: 1.4; }
+.inline-notice > .i { width: 16px; height: 16px; flex: none; }
+.inline-notice.bad { border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--panel); }
+.inline-notice.bad > .i { color: var(--danger); }
+.inline-notice.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: linear-gradient(var(--warn-soft), var(--warn-soft)), var(--panel); }
+.inline-notice.warn > .i { color: var(--warn-text); }
+.inline-notice .in-text { flex: 1; min-width: 0; }
+.inline-notice .in-text b { font-weight: 600; }
+.inline-notice .in-acts { flex: none; display: flex; align-items: center; gap: 4px; }
+.inline-notice .btn.icon.sm { width: 28px; height: 28px; }
+.rec-notice-host { flex: none; padding: 8px 20px 0; }
+.rec-notice-host[hidden], .roll-notice-host[hidden] { display: none; }
+:is(.liveview:fullscreen, .liveview.immersive) .rec-notice-host { display: none; }
+.pb-notices { display: flex; flex-direction: column; gap: 6px; padding: 0 18px; }
+.pb-notices:has(> :not([hidden])) { padding-bottom: 8px; }
+.pb-notices .rec-notice-host { padding: 0; }
+@media (max-width: 640px) {
+  .inline-notice { flex-wrap: wrap; }
+  .inline-notice .in-text { flex-basis: calc(100% - 30px); }
+  .inline-notice .in-acts { margin-left: auto; }
+  .rec-notice-host { padding: 8px 12px 0; }
+  .pb-notices { padding: 0 12px; }
+}
+
+/* Timeline header: Skip empty (a toggle) and Bookmarks. */
+.tlp-head .tlp-skip, .tlp-head .tlp-bm { height: 28px; padding: 0 10px; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.tlp-head .tlp-skip .i, .tlp-head .tlp-bm .i { width: 15px; height: 15px; }
+.tlp-head .tlp-skip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
+@media (max-width: 900px) { .tlp-head .tlp-skip span, .tlp-head .tlp-bm span { display: none; } .tlp-head .tlp-skip, .tlp-head .tlp-bm { width: 28px; padding: 0; justify-content: center; } }
+.pb-timeline canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+/* Previous/next event flank the transport on wide screens; compact and short layouts reach them from More. */
+html.compact-ui:not(.tv-mode) .pb-ctrl-center :is([data-a=prevev],[data-a=nextev]),
+html.short-ui:not(.tv-mode) .pb-ctrl-center :is([data-a=prevev],[data-a=nextev]) { display: none; }
+.view-menu .pop-item[aria-pressed="true"] { color: var(--accent-text); }
+
+/* Bookmarks panel: a side sheet over Playback, with its own scrim (scoped like the Events filter sheet). */
+.pb-sheet-scrim { position: absolute; inset: 0; z-index: 40; background: var(--scrim, rgba(0, 0, 0, .55)); }
+.pb-sheet-scrim[hidden] { display: none; }
+.pb-sheet { position: absolute; z-index: 41; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); display: flex; flex-direction: column; gap: 12px; padding: 16px 16px calc(14px + var(--nav-footprint, 0px)); background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow-3); transform: translateX(104%); visibility: hidden; transition: transform var(--dur-base, .25s) var(--ease-out-expo, ease-out), visibility 0s linear var(--dur-base, .25s); }
+.pb-sheet.open { transform: none; visibility: visible; transition: transform var(--dur-base, .25s) var(--ease-out-expo, ease-out); }
+.pbs-head { display: flex; align-items: center; gap: 8px; }
+.pbs-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
+.pbs-head h2 .i { width: 17px; height: 17px; color: var(--muted); }
+.pbs-search { flex: none; }
+.pbs-filters { display: flex; flex-direction: column; gap: 10px; }
+.pbs-scope { align-self: flex-start; }
+.pbs-sevs { display: flex; flex-wrap: wrap; gap: 6px; }
+.pbs-sevs .ev-kind { height: 28px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; }
+.pbs-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -6px; display: flex; flex-direction: column; gap: 2px; }
+.pbs-item { display: flex; align-items: flex-start; gap: 4px; border-radius: var(--r-sm); }
+.pbs-item:hover { background: var(--panel-2); }
+.pbs-jump { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 9px 6px 9px 10px; border: 0; background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; border-radius: var(--r-sm); }
+.pbs-jump:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pbs-jump .sev-dot { margin-top: 6px; }
+.pbs-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pbs-main b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbs-main small { font-size: 12.5px; color: var(--muted); }
+.pbs-when { font-variant-numeric: tabular-nums; }
+.pbs-note { color: var(--text) !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pbs-by { font-size: 12px !important; color: var(--faint) !important; }
+.pbs-acts { flex: none; display: flex; gap: 2px; padding: 6px 6px 0 0; }
+.pbs-empty { padding: 28px 8px; text-align: center; color: var(--muted); font-size: 13px; }
+.pbs-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.pbs-count { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+html.role-viewer .pbs-foot [data-b=add] { display: none; }
+
+/* Export: footage about to be overwritten. */
+.xp-roll { margin: 8px 2px 0; font-size: 12.5px; color: var(--warn-text); }
+.xp-roll[hidden] { display: none; }
+
+/* Events: footage overwritten / about to be; paging footer. */
+.ev-ret { align-self: flex-start; display: inline-flex; align-items: center; height: 20px; margin-top: 4px; padding: 0 8px; border-radius: var(--r-full); font-size: 11px; font-weight: 600; white-space: nowrap; background: var(--panel-2); color: var(--muted); }
+.ev-ret.soon { background: var(--warn-soft); color: var(--warn-text); }
+.ev-row .ev-ret { margin-top: 0; flex: none; }
+.ev-more { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 18px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ev-more [hidden] { display: none; }
+@media (max-width: 640px) { .ev-row .ev-ret { display: none; } }
+
+/* Settings → Status → Recorder */
+.rec-health .srow { min-height: 58px; }
+.rh-state { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rh-why { display: block; margin-top: 3px; color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .rec-health .srow { flex-wrap: wrap; gap: 8px; } .rec-health .srow-c { width: 100%; } }

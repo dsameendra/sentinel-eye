@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS ix_events_ch_time ON events(channel, start_utc);
 CREATE INDEX IF NOT EXISTS ix_events_kind ON events(kind);
+-- Events search pages newest-first by (start_utc, id) across every channel (server.timeline_events' keyset cursor).
+CREATE INDEX IF NOT EXISTS ix_events_start_id ON events(start_utc, id);
 
 CREATE TABLE IF NOT EXISTS coverage_days (
     channel INTEGER NOT NULL,
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     severity TEXT,
     author TEXT,
     created_utc TEXT NOT NULL
+    -- author_user_id, edited_by, edited_utc: added by _migrate_bookmarks() (older databases lack them)
 );
 """
 
@@ -113,9 +116,20 @@ def init():
     with _lock:
         c = _conn()
         c.executescript(SCHEMA)
+        _migrate_bookmarks(c)
         if c.execute("PRAGMA user_version").fetchone()[0] < _DEDUPE_VERSION:
             _dedupe_dvr_events(c)
             c.execute(f"PRAGMA user_version={_DEDUPE_VERSION}")
+
+
+def _migrate_bookmarks(c):
+    """Columns added after the first release (CREATE TABLE IF NOT EXISTS never alters an existing table):
+    author_user_id — the account that made it, which is what ownership is checked against (the author name is
+    a display label and can change or collide); edited_by / edited_utc — the last edit. Idempotent."""
+    have = {r[1] for r in c.execute("PRAGMA table_info(bookmarks)").fetchall()}
+    for col, decl in (("author_user_id", "INTEGER"), ("edited_by", "TEXT"), ("edited_utc", "TEXT")):
+        if col not in have:
+            c.execute(f"ALTER TABLE bookmarks ADD COLUMN {col} {decl}")
 
 
 def query(sql, params=()):
@@ -236,30 +250,113 @@ def _dedupe_dvr_events(c):
     return removed
 
 
-def create_bookmark(channels, time_utc, title, note, severity, author, now=None):
-    """channels: list of DVR channel numbers (ints) this bookmark applies to."""
+def _bookmark_attrs(b):
+    """What a bookmark's mirrored events rows carry (timeline tooltip, Events search) — kept in sync on edit."""
+    return {"title": b["title"] or "", "severity": b["severity"] or "info", "note": b["note"] or "",
+            "author": b["author"] or "", "bookmark_id": b["id"]}
+
+
+def _insert_bookmark_mirror(c, channel, time_utc, attrs):
+    """The bookmark's row in `events` for one channel. Its unique key is (source, channel, kind, start_utc), so a
+    second bookmark at the very same instant on the same camera used to be swallowed by the first one's row (and
+    never showed on the timeline): step it a microsecond on until it has a key of its own."""
+    t = datetime.datetime.fromisoformat(time_utc)
+    for _ in range(1000):
+        iso = t.isoformat()
+        try:
+            c.execute("INSERT INTO events(source, channel, kind, start_utc, end_utc, attrs_json, created_utc) "
+                      "VALUES ('manual', ?, 'bookmark', ?, ?, ?, ?)",
+                      (channel, iso, iso, json.dumps(attrs), datetime.datetime.now(datetime.timezone.utc).isoformat()))
+            return
+        except sqlite3.IntegrityError:
+            t += datetime.timedelta(microseconds=1)
+
+
+def create_bookmark(channels, time_utc, title, note, severity, author, now=None, author_user_id=None):
+    """channels: list of DVR channel numbers (ints) this bookmark applies to. Also writes its mirrored `events`
+    rows (kind 'bookmark', one per channel), in the same transaction."""
     now = now or datetime.datetime.now(datetime.timezone.utc).isoformat()
     with _lock:
-        cur = _conn().execute(
-            "INSERT INTO bookmarks(channels_json, time_utc, title, note, severity, author, created_utc) VALUES (?,?,?,?,?,?,?)",
-            (json.dumps(channels), time_utc, title, note, severity, author, now))
-        return cur.lastrowid
+        c = _conn()
+        c.execute("BEGIN")
+        try:
+            cur = c.execute(
+                "INSERT INTO bookmarks(channels_json, time_utc, title, note, severity, author, created_utc, author_user_id) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (json.dumps(channels), time_utc, title, note, severity, author, now, author_user_id))
+            bid = cur.lastrowid
+            attrs = _bookmark_attrs({"id": bid, "title": title, "note": note, "severity": severity, "author": author})
+            for ch in channels:
+                _insert_bookmark_mirror(c, ch, time_utc, attrs)
+            c.execute("COMMIT")
+        except Exception:
+            c.execute("ROLLBACK")
+            raise
+        return bid
+
+
+def _bookmark_row(r):
+    d = dict(r)
+    d["channels"] = json.loads(d.pop("channels_json"))
+    return d
+
+
+def get_bookmark(bookmark_id):
+    r = one("SELECT * FROM bookmarks WHERE id=?", (bookmark_id,))
+    return _bookmark_row(r) if r else None
 
 
 def list_bookmarks(channel=None, start_utc=None, end_utc=None, limit=500):
+    """Newest first. A `channel` filter is applied in SQL (before the limit), so a busy camera can't push another
+    camera's bookmarks out of the result."""
     q, params = "SELECT * FROM bookmarks WHERE 1=1", []
     if start_utc:
         q += " AND time_utc >= ?"; params.append(start_utc)
     if end_utc:
         q += " AND time_utc <= ?"; params.append(end_utc)
-    q += " ORDER BY time_utc DESC LIMIT ?"; params.append(limit)
+    if channel is not None:
+        q += " AND EXISTS (SELECT 1 FROM json_each(bookmarks.channels_json) WHERE json_each.value = ?)"
+        params.append(channel)
+    q += " ORDER BY time_utc DESC, id DESC LIMIT ?"; params.append(limit)
+    return [_bookmark_row(r) for r in query(q, tuple(params))]
+
+
+def bookmarks_in_range(channels, start_utc, end_utc):
+    """Every bookmark on any of `channels` (DVR channel numbers) whose time falls in [start_utc, end_utc] — for an
+    export's signed manifest. Times compared as instants, not strings (stored strings may differ in form)."""
+    t0, t1 = _epoch(start_utc), _epoch(end_utc)
+    lo = datetime.datetime.fromtimestamp(t0 - 1, datetime.timezone.utc).isoformat()
+    hi = datetime.datetime.fromtimestamp(t1 + 1, datetime.timezone.utc).isoformat()
+    want = set(channels)
     out = []
-    for r in query(q, tuple(params)):
-        d = dict(r)
-        d["channels"] = json.loads(d.pop("channels_json"))
-        if channel is None or channel in d["channels"]:
-            out.append(d)
+    for r in query("SELECT * FROM bookmarks WHERE time_utc >= ? AND time_utc <= ? ORDER BY time_utc, id", (lo, hi)):
+        b = _bookmark_row(r)
+        if t0 <= _epoch(b["time_utc"]) <= t1 and want.intersection(b["channels"]):
+            out.append(b)
     return out
+
+
+def update_bookmark(bookmark_id, title, note, severity, edited_by, now=None):
+    """Edit title/note/severity (never time or cameras) and the mirrored events rows' attrs with it, in one
+    transaction. Returns the updated bookmark, or None when there's no such bookmark."""
+    now = now or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with _lock:
+        c = _conn()
+        c.execute("BEGIN")
+        try:
+            cur = c.execute("UPDATE bookmarks SET title=?, note=?, severity=?, edited_by=?, edited_utc=? WHERE id=?",
+                            (title, note, severity, edited_by, now, bookmark_id))
+            if cur.rowcount == 0:
+                c.execute("ROLLBACK")
+                return None
+            b = _bookmark_row(c.execute("SELECT * FROM bookmarks WHERE id=?", (bookmark_id,)).fetchone())
+            c.execute("UPDATE events SET attrs_json=? WHERE kind='bookmark' AND json_extract(attrs_json,'$.bookmark_id')=?",
+                      (json.dumps(_bookmark_attrs(b)), bookmark_id))
+            c.execute("COMMIT")
+        except Exception:
+            c.execute("ROLLBACK")
+            raise
+    return b
 
 
 def delete_bookmark(bookmark_id):
@@ -267,6 +364,44 @@ def delete_bookmark(bookmark_id):
         c = _conn()
         c.execute("DELETE FROM bookmarks WHERE id=?", (bookmark_id,))
         c.execute("DELETE FROM events WHERE kind='bookmark' AND json_extract(attrs_json,'$.bookmark_id')=?", (bookmark_id,))
+
+
+# ------------------------------------------------------------------ pruning (PlaybackService._prune_pass)
+
+def prune_dvr_events(channel, cutoff_utc):
+    """Delete this channel's recorder events (dvr-live / dvr-log only — never bookmarks or any other source) that
+    ended before `cutoff_utc` (aware datetime): their footage has been overwritten, so they can't be played.
+    Returns (rows deleted, [their thumbnail paths])."""
+    cut = cutoff_utc.timestamp()
+    # Candidates by string on the index, with a day of slack for differently-formed strings; exact test numeric.
+    hi = datetime.datetime.fromtimestamp(cut + 86400, datetime.timezone.utc).isoformat()
+    with _lock:
+        c = _conn()
+        rows = c.execute(
+            f"SELECT id, end_utc, snapshot_path FROM events WHERE channel=? AND source IN ({','.join('?' * len(DVR_SOURCES))})"
+            " AND start_utc < ?", (channel, *DVR_SOURCES, hi)).fetchall()
+        doomed = [r for r in rows if _epoch(r["end_utc"]) < cut]
+        if not doomed:
+            return 0, []
+        c.execute("BEGIN")
+        try:
+            c.executemany("DELETE FROM events WHERE id=?", [(r["id"],) for r in doomed])
+            c.execute("COMMIT")
+        except Exception:
+            c.execute("ROLLBACK")
+            raise
+    return len(doomed), [r["snapshot_path"] for r in doomed if r["snapshot_path"]]
+
+
+def prune_coverage(channel, before_day):
+    """Delete this channel's cached coverage for DVR-local days before `before_day` (a date). Returns the count."""
+    with _lock:
+        cur = _conn().execute("DELETE FROM coverage_days WHERE channel=? AND day < ?", (channel, before_day.isoformat()))
+        return cur.rowcount
+
+
+def event_ids():
+    return {r[0] for r in query("SELECT id FROM events")}
 
 
 def get_watermark(log_type):

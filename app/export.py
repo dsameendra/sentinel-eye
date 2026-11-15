@@ -17,8 +17,8 @@ anchored to the request and declared approximate (playback_session / timebase.ch
 Package "signed evidence" (recommended, option 1): clip(s) + manifest.json (manifest_version 2: camera, codec,
 picture size, the first and last frame's recorded time in UTC and DVR-local time with the recorder's UTC offset,
 where those times come from and how accurate they are, the clock-calibration value used, operator, per-file
-SHA-256, this app's version, the recorder's model/serial/firmware when it answers, and the signing key's
-fingerprint) + an Ed25519 signature over manifest.json's raw bytes + the public key + an offline verify.html
+SHA-256, this app's version, the recorder's model/serial/firmware when it answers, the signing key's
+fingerprint, and — when there are any — the bookmarks on those cameras inside the range) + an Ed25519 signature over manifest.json's raw bytes + the public key + an offline verify.html
 (WebCrypto, no server, no bundled crypto library — works from file:// as verified directly). The signature
 attests that the manifest (and therefore the clip bytes it hashes) is exactly what this install exported and
 hasn't been altered since; it does NOT independently prove the DVR's footage itself is authentic — verify.html
@@ -48,6 +48,7 @@ from pathlib import Path
 import av
 
 import coverage
+import db
 import hikrelay as h
 import isapi
 import playback_session as psess
@@ -242,7 +243,8 @@ def _run_export(job_id, channels, start_utc, end_utc, package, operator, connect
         _set(job_id, progress=f"{len(channels)}/{len(channels)} cameras — packaging")
 
         if package == "signed":
-            out_path = _package_signed(job_dir, job_id, clips, operator, start_utc, end_utc, connection_dict)
+            out_path = _package_signed(job_dir, job_id, clips, operator, start_utc, end_utc, connection_dict,
+                                       bookmarks=bookmarks_for_manifest(channels, start_utc, end_utc))
         else:
             out_path = _package_plain(job_dir, job_id, clips)
         with _jobs_lock:   # atomically with the cancel flag: a cancel that lands now still wins
@@ -528,7 +530,28 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id
 VERIFY_HTML = (Path(__file__).parent / "export_assets" / "verify.html")
 
 
-def _package_signed(job_dir, job_id, clips, operator, start_utc, end_utc, connection_dict=None):
+def bookmarks_for_manifest(channels, start_utc, end_utc):
+    """The bookmarks on these cameras (channel dicts, as passed to start_export) inside the exported range, for
+    the signed manifest — what the operators noted about this footage, attested with it. Additive to manifest
+    v2: a package without bookmarks simply has no "bookmarks" key."""
+    names = {c["channel"]: c.get("name") or f"Camera {c['channel']}" for c in channels}
+    offset = channels[0].get("_tz_offset_min") if channels else None
+    out = []
+    for b in db.bookmarks_in_range(list(names), start_utc, end_utc):
+        t = datetime.datetime.fromisoformat(b["time_utc"])
+        item = {"id": b["id"], "time_utc": b["time_utc"], "cameras": [names[c] for c in b["channels"] if c in names],
+                "title": b["title"] or "", "severity": b["severity"] or "info", "note": b["note"] or "",
+                "author": b["author"] or "", "created_utc": b["created_utc"]}
+        if offset is not None:
+            local = t.astimezone(datetime.timezone(datetime.timedelta(minutes=offset)))
+            item["time_local"] = local.isoformat(timespec="milliseconds")
+        if b.get("edited_utc"):
+            item["edited_by"], item["edited_utc"] = b.get("edited_by") or "", b["edited_utc"]
+        out.append(item)
+    return out
+
+
+def _package_signed(job_dir, job_id, clips, operator, start_utc, end_utc, connection_dict=None, bookmarks=None):
     key = signing_key_info()
     manifest = {
         "manifest_version": MANIFEST_VERSION,
@@ -546,6 +569,8 @@ def _package_signed(job_dir, job_id, clips, operator, start_utc, end_utc, connec
     rec = recorder_info(connection_dict) if connection_dict else None
     if rec:
         manifest["recorder"] = rec
+    if bookmarks:
+        manifest["bookmarks"] = bookmarks
     manifest_path = job_dir / "manifest.json"
     manifest_path.write_bytes(json.dumps(manifest, indent=2, sort_keys=True).encode())
 

@@ -401,8 +401,75 @@ export class SettingsView {
   }
 
   statusTab() {
-    return `<header class="pane-head"><h1>Status</h1><p>What the video engine is doing right now. Updates every few seconds.</p></header><div class="rec-blocked"></div><section class="card" id="status-card"><p class="muted">Loading…</p></section>
+    return `<header class="pane-head"><h1>Status</h1><p>What the recorder and the video engine are doing right now. Updates every few seconds.</p></header><div class="rec-blocked"></div>
+    <section class="sgroup"><h2>Recorder</h2><div class="srows rec-health" id="rec-health"><p class="muted" style="padding:16px 20px;margin:0">Loading…</p></div></section>
+    <section class="sgroup"><h2>Video engine</h2><section class="card" id="status-card"><p class="muted">Loading…</p></section></section>
     ${this.signingKeyHTML()}`;
+  }
+
+  /** Settings → Status → Recorder: /api/status's recorder health (app/playback_service.py health()) in plain
+   * words — reachable, sign-in, live events, event history, the recording index, each camera's clock, how far
+   * back recordings go and the daily clean-up. Errors are shown as the server words them. */
+  recorderHealthHTML(st) {
+    const r = st.recorder || {};
+    if (!r.configured) return this.srow('Not set up', 'Add the recorder in Recorder connection first.', '');
+    const off = r.utc_offset_minutes;
+    const ago = (iso) => {
+      if (!iso) return '';
+      const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+      return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`;
+    };
+    const local = (iso) => {
+      if (!iso) return '';
+      const d = new Date(Date.parse(iso) + (off ?? 0) * 60000);
+      const p2 = (n) => String(n).padStart(2, '0');
+      return `${d.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })}, ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+    };
+    const state = (cls, text) => `<span class="rh-state"><span class="dot ${cls}"></span>${esc(text)}</span>`;
+    const why = (t) => (t ? `<span class="rh-why">${esc(t)}</span>` : '');
+    const rows = [];
+    // Reachable / sign-in
+    if (st.recorder_auth_failed) rows.push(this.srow('Connection', 'The recorder rejected the saved username or password — nothing logs in until it is fixed (see above).', state('off', 'Sign-in rejected')));
+    else if (r.reachable === false) rows.push(this.srow('Connection', `Can't reach the recorder.${why(r.error)}`, state('off', 'Not reachable')));
+    else if (r.reachable === true) rows.push(this.srow('Connection', 'Answering normally.', state('armed', 'Reachable')));
+    else rows.push(this.srow('Connection', r.error ? why(r.error) : 'Waiting for the first answer.', state('wait', 'Checking')));
+    // Clock
+    const sign = off < 0 ? '−' : '+';
+    const offTxt = off == null ? '' : `UTC${sign}${String(Math.floor(Math.abs(off) / 60)).padStart(2, '0')}:${String(Math.abs(off) % 60).padStart(2, '0')}`;
+    rows.push(this.srow("Recorder's clock", off == null ? "Not read yet — Playback and Events wait for it." : `Every time in the app is shown in the recorder's time.${why(r.clock_error && `Last re-check failed: ${r.clock_error}`)}`,
+      off == null ? state('wait', 'Unknown') : state(r.clock_error ? 'wait' : 'armed', offTxt)));
+    // Live events
+    const le = r.live_events || {};
+    rows.push(this.srow('Live events', le.connected ? `Motion and alarms arrive as they happen.${le.last_event_utc ? ` Last one ${ago(le.last_event_utc)}.` : ''}` : `Not connected — new events show up only after the hourly history sync.${why(le.error)}`,
+      state(le.connected ? 'armed' : 'off', le.connected ? 'Connected' : 'Not connected')));
+    // Event history (log backfill)
+    const h = r.history || {};
+    const through = h.through_day ? new Date(`${h.through_day}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' }) : '';
+    rows.push(this.srow('Event history', `${h.running ? 'Reading the recorder\'s event log now.' : h.waiting ? esc(h.waiting) : through ? `Read from the recorder's log through ${esc(through)}; today is re-checked hourly.` : 'Not read yet.'}${why(h.last_error && `Last attempt failed: ${h.last_error}`)}`,
+      h.last_error ? state('off', 'Error') : h.running ? state('wait', 'Syncing') : through ? state('armed', 'Up to date') : state('', 'Pending')));
+    // Recording index (coverage)
+    const c = r.coverage || {};
+    rows.push(this.srow('Recording index', `${c.running ? 'Checking which times have recordings now.' : c.waiting ? esc(c.waiting) : c.last_pass_utc ? `Which times have recordings — checked ${ago(c.last_pass_utc)}.` : 'Not built yet.'}${c.failed_days ? ` ${c.failed_days} day(s) will be retried.` : ''}${why(c.last_error)}`,
+      c.last_error ? state('wait', 'Partly') : c.running ? state('wait', 'Indexing') : c.last_pass_utc ? state('armed', 'Up to date') : state('', 'Pending')));
+    // Oldest recording
+    const oldest = r.oldest_recording_utc;
+    rows.push(this.srow('Oldest recording', oldest ? `The recorder overwrites its oldest footage as its disk fills — footage this old is next.` : 'Known once the recording index has run.',
+      oldest ? `<span class="rh-state">${esc(local(oldest))} · ${esc(ago(oldest).replace(' ago', ''))} back</span>` : state('', 'Unknown')));
+    // Clean-up
+    const pr = r.prune || {};
+    rows.push(this.srow('Daily clean-up', pr.last_run_utc ? `Removes events, thumbnails and index entries for footage the recorder no longer has. Last run ${ago(pr.last_run_utc)}: ${pr.events_removed || 0} event(s), ${pr.thumbnails_removed || 0} thumbnail(s).${why(pr.last_error)}`
+      : pr.waiting ? `${esc(pr.waiting)}.${why(pr.last_error)}` : 'Not run yet.', state(pr.last_error ? 'off' : pr.last_run_utc ? 'armed' : '', pr.last_run_utc ? 'Done' : 'Waiting')));
+    // Per-camera clock calibration
+    const names = Object.fromEntries(this.base.channels.map((ch) => [ch.channel, ch.name || `Camera ${ch.channel}`]));
+    const CAL = { ok: ['armed', 'Accurate'], approximate: ['wait', 'Approximate'], failed: ['off', 'Failed'], pending: ['', 'Not measured yet'] };
+    const cal = Object.entries(r.calibration || {}).map(([ch, v]) => {
+      const [cls, label] = CAL[v.state] || CAL.pending;
+      const sub = v.state === 'ok' ? `Recorded times are exact to within a second or two. Measured ${ago(v.measured_utc)}.`
+        : v.state === 'approximate' ? `Measured ${ago(v.measured_utc)}, but only roughly — times may be a few seconds off.`
+        : v.state === 'failed' ? `Couldn't measure it lately — times may drift.${why(v.error)}` : `Measured within a few minutes of start-up.${why(v.error)}`;
+      return this.srow(`Clock · ${esc(names[ch] || `Channel ${ch}`)}`, `${sub}${v.clock_reset ? ' The camera\'s stream clock was reset since the last check; older footage keeps its own measurement.' : ''}`, state(cls, label));
+    });
+    return rows.concat(cal).join('');
   }
 
   /** The export-signing key's fingerprint (app/export.py key_fingerprint), once per visit to the tab. */
@@ -429,6 +496,8 @@ export class SettingsView {
       if (!card) return;
       try {
         const st = await api.status();
+        const rh = this.pane.querySelector('#rec-health');
+        if (rh) rh.innerHTML = this.recorderHealthHTML(st);
         if (!!st.recorder_auth_failed !== !!this.recorderBlocked || (st.recorder_auth_failed && !this.pane.querySelector('.rec-blocked [data-a=rec-retry]'))) this.checkRecorder(st);
         const names = Object.fromEntries(this.base.channels.map((c) => [c.id, c.name || `Camera ${c.channel}`]));
         const rows = Object.entries(st.streams).sort().map(([n, v]) => {

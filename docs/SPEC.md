@@ -278,9 +278,27 @@ this hardware; faster reverse uses keyframe-stride "scan" mode.
 ### 7.6 Rewind macros
 Default −5 s / −10 s / −30 s (`1`/`2`/`3` with Shift), fully configurable, plus "jump to previous/next event".
 
+**Status (2026-11):** −5/−10/−30 and +5/+10/+30 are built (not yet configurable). Previous/next event is built
+(transport buttons and `[` / `]`): one indexed query (`GET /api/timeline/events?order=asc&after=…&limit=1`, or
+newest-first with `before=`) across the selected cameras, any kind, bookmarks included; it seeks to 3 s before the
+event's start. Because a seek starts at the keyframe before the target (up to ~a minute early, 2.2), the next press
+steps from the event it last jumped to, not from the pre-rolled playhead (`web/js/eventspans.js eventJumpRef`).
+
 ### 7.7 Skip-empty
 Toggle. Uses the unified event index (section 8); "not empty" = any motion/AI/alarm span, padded by a configurable
 pre/post-roll (default 3 s / 5 s), merged if closer than 10 s. The jump itself is visible on the timeline, never silent.
+
+**Status (2026-11): built** (Playback's timeline header, More menu, `S`; remembered per device). "Not empty" =
+motion, line-crossing, intrusion, tamper or bookmark on any selected camera, padded 3 s / 5 s (not yet
+configurable), merged under 10 s — a pure module, `web/js/eventspans.js`, tested by `tools/test_eventspans.mjs`.
+Events are fetched oldest-first from just before the playhead to the present (a newest-first capped fetch would
+drop the rows nearest the playhead); a fetch cut short by its 5,000-row limit is extended as the playhead nears
+its end. A gap is skipped only when it is longer than 30 s × max(1, speed) — a seek reconnects the recorder and
+replays up to a minute of keyframe pre-roll, so shorter gaps are faster to play through. Every skip flashes the
+skipped stretch on the timeline (and a toast, at most every few seconds). It never acts within 8 s of a deliberate
+seek, while scrubbing, during a segment's keyframe pre-roll, or before the playhead reaches its last skip's
+target; with no events ahead (or none at all) it says so once and plays on rather than jumping to the end. It
+relies on the recorder's own motion/alarm log — no AI index exists yet (M3).
 
 ### 7.8 AI frame enhancer (tier L2)
 
@@ -579,6 +597,22 @@ One table, one search box:
 | `scan-ai` | same kinds, for a chosen historical window | On-demand background job, reads DVR history through the session queue (7.3), decodes and runs the same detector; used for "search before the index existed" or explicit re-analysis of a specific window. |
 | `manual` | bookmark, incident | Operators (section 9). |
 
+**Status (2026-11):** `dvr-live`, `dvr-log` and `manual` are built. The recorder reports each event twice (live,
+then in its log); rows of either source whose starts are within 2 s are one event (`db.upsert_event`; a one-time
+clean-up merged the duplicates stored before). Backfill runs at start and hourly, re-reading today each time, and a
+day is only marked complete once fully fetched; events still open at midnight stay one span. A live event that
+stops sending "active" closes 120 s after the last one. Search pages newest first with a keyset cursor
+(`before=<start_utc>,<id>`; `order=asc` + `after=` for looking forward), `channel` and `kind` may repeat, at most
+5,000 rows a request; `GET /api/timeline/events.csv` streams every matching row as CSV (recorder-local and UTC
+times, camera, kind, source, duration, bookmark fields; formula-like cells prefixed with `'`; capped at 100,000
+rows with a closing note; operator role; audited `events.export_csv`). A daily clean-up
+(`PlaybackService.prune_pass`) deletes `dvr-live`/`dvr-log` rows, their thumbnails and cached coverage from before
+the oldest recorded day minus 2 days — per channel, only once a full coverage pass has established that day for
+certain (every month probe answered, and the first day not in the oldest month probed); never `manual` rows or
+`calibration_history`, which `timebase.regimes` needs whole. `GET /api/timeline/retention` reports, per channel,
+the oldest recording still on the recorder (from the oldest day's own spans, re-read every coverage pass) — the
+basis of Playback's roll-off warning and the Events "overwritten" tags.
+
 Search = filters (channel(s), time range, kind, attribute, region box, minimum duration) → ranked, grouped clips
 (adjacent events merged with pre/post-roll) → click opens the player at that clip. Results also draw as a dedicated
 lane on the timeline, and every result is labelled with which of the five sources produced it.
@@ -595,6 +629,14 @@ lane on the timeline, and every result is labelled with which of the five source
   your own cert/reverse proxy if you have one). An **audit log** records who viewed or exported what, when.
 * **Live sync:** one WebSocket carries `bookmark.created`, `incident.note`, and lightweight presence ("Operator X
   is reviewing CH3 at 21:05") to every connected browser.
+
+**Status (2026-11):** bookmarks are built — created from Live or Playback, listed in Playback's Bookmarks panel
+(this day or all, search, severity filter, jump-to that adds the bookmark's cameras, edit, delete) and in Events.
+`PATCH /api/bookmarks/{id}` edits title/note/severity (same validation as create; the mirrored `events` rows
+follow; `edited_by`/`edited_utc` kept; audited `bookmark.update`). With sign-in on, operators may edit or delete
+their own bookmarks (matched by account id, `author_user_id`) and admins anyone's; bookmarks from before account
+ids were recorded are admin-only; sign-in off allows everything as before. Bookmarks on the exported cameras inside
+an export's range go into its signed manifest (10). Incidents and live sync are not built.
 
 ---
 
@@ -629,7 +671,10 @@ when it answers, and the signing key's fingerprint (SHA-256 of the raw public ke
 fingerprint and asks the recipient to compare it with "Evidence signing key" in the exporting install's Settings
 (Status for admins, This device for operators). H.264 recordings export, play and thumbnail like H.265 ones. Clips are muxed as frames arrive (memory
 stays flat) and stored uncompressed in the zip. A queued or running export can be cancelled
-(`DELETE /api/export/{id}`), which releases its recorder session and removes its partial files.
+(`DELETE /api/export/{id}`), which releases its recorder session and removes its partial files. Bookmarks on the
+exported cameras inside the range are listed in the manifest (`bookmarks: [{id, time_utc, time_local, cameras,
+title, severity, note, author, created_utc, edited_by?, edited_utc?}]`, additive — absent when there are none) and
+shown by `verify.html`. Export refuses a range with no recording.
 
 ---
 
@@ -681,8 +726,9 @@ to build as written.
 | **M6 AI depth + L2** | Attribute model, loitering/counter-flow, ML enhancement (super-resolution, low-light, denoise) | Precision/recall reported on a hand-labelled 1-hour sample from your cameras; every L2 output is tagged "ENHANCED" and ships with the untouched original |
 
 **Status:** M0-M2 complete and verified. **M3 is only partially built** — the alarm/log event search UI
-(camera/kind/date-range filters, deep-links into playback, a thumbnail per event) is done; live-forward AI
-indexing, region/attribute search, and skip-empty are not started (they need a detector/tracker choice and
+(camera/kind/date-range filters, deep-links into playback, a thumbnail per event, server-side paging and CSV
+export) is done, and skip-empty and previous/next event are built on the recorder's own event log (7.6, 7.7);
+live-forward AI indexing and region/attribute search are not started (they need a detector/tracker choice and
 per-channel CPU budget decisions, section 12.1, before code); the background scan job is not built; **the
 `smartSearch` spike ran and is closed, inconclusive** (2.3) — the endpoint is real but its schema couldn't
 be recovered by black-box probing, so region/motion search over pre-AI-index history will go through the
@@ -704,6 +750,19 @@ need the live-forward AI index from M3 as their input, which isn't built. M5's L
 fusion/denoise, no ML) is also not built; the multi-frame handling that exists now is the enhancer's own
 classical align-and-fuse pre-step (7.8.2d), not a general-purpose L1 tier. The live L0 filter chain has since
 grown noise reduction and auto white balance beyond its original set, still real-time and zero-cost when off.
+
+**Operations (2026-11).** A recorder-lockout breaker (`app/recorder_guard.py`): the first rejection of credentials
+actually sent stops every automatic login — background loops, the alertStream, live relays, playback, thumbnails —
+until Settings are saved or an admin calls `POST /api/recorder/retry` (marker `data/recorder_auth_failed.json`,
+holding only a short fingerprint of the rejected credentials; `/api/status` reports `recorder_auth_failed`). Logins
+are serialised across processes so the first rejection stops the rest. Connection and channel changes apply without
+a restart. Nothing guesses the recorder's time zone: playback, exports and thumbnails answer 503 until its UTC
+offset is read, and it is re-read hourly. Settings → Status shows the recorder's health in plain words (reachable,
+sign-in, live events, event-history sync, recording index, per-camera clock calibration ok/approximate/failed, UTC
+offset, oldest recording, daily clean-up) — `/api/status` gives viewers and operators only yes/no answers, since
+raw errors can name the recorder's address; Live and Playback show a dismissible notice when the recorder is
+unreachable or rejected the sign-in. The daily clean-up is described in section 8. go2rtc is pinned by version and
+SHA-256 in `run.sh` and the Dockerfile; logs keep one older generation past 10 MB; CI runs every recorder-free suite.
 
 ---
 

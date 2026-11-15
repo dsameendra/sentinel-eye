@@ -91,9 +91,17 @@ def refresh_all(api, channels, tz, day_from, day_to, stop_event=None):
 
 def earliest_recorded_day(api, channel, tz, probe_months=6):
     """Walk back month by month (dailyDistribution) to find the first day with any recording."""
+    return earliest_recorded_day_checked(api, channel, tz, probe_months)["day"]
+
+
+def earliest_recorded_day_checked(api, channel, tz, probe_months=6):
+    """{"day": first recorded day or None, "certain": bool}. `certain` only when every month asked about answered
+    (a refused month reads as "nothing recorded" and would make the answer too late) and the first day isn't in
+    the oldest month probed (recordings may go back further than the probe). Pruning and the roll-off estimate
+    act on a certain answer only — a too-late day would discard events whose footage still exists."""
     today = datetime.datetime.now(tz).date()
     y, m = today.year, today.month
-    earliest = None
+    earliest, all_ok, oldest_month = None, True, None
     for _ in range(probe_months):
         body = f'<?xml version="1.0" encoding="utf-8"?><trackDailyParam><year>{y}</year><monthOfYear>{m}</monthOfYear></trackDailyParam>'
         st, out = api.call(f"/ISAPI/ContentMgmt/record/tracks/{channel * 100 + 1}/dailyDistribution", "POST", body)
@@ -101,7 +109,11 @@ def earliest_recorded_day(api, channel, tz, probe_months=6):
             days = [int(d) for d, r in re.findall(r"<dayOfMonth>(\d+)</dayOfMonth>\s*<record>(\w+)</record>", out) if r == "true"]
             if days:
                 earliest = datetime.date(y, m, min(days))
+        else:
+            all_ok = False
+        oldest_month = (y, m)
         m -= 1
         if m == 0:
             m, y = 12, y - 1
-    return earliest
+    certain = bool(earliest and all_ok and (earliest.year, earliest.month) != oldest_month)
+    return {"day": earliest, "certain": certain}
