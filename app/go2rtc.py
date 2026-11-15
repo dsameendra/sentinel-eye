@@ -75,6 +75,19 @@ def render_config(s: Settings) -> str:
     return "\n".join(lines) + "\n"
 
 
+LOG_MAX_BYTES = 10 * 1024 * 1024
+
+
+def rotate_log(path, max_bytes=LOG_MAX_BYTES):
+    """Keeps one old generation (<path>.1) once the log passes max_bytes. Appending forever would fill the disk."""
+    path = Path(path)
+    try:
+        if path.stat().st_size > max_bytes:
+            os.replace(path, path.with_name(path.name + ".1"))
+    except OSError:
+        pass   # no log yet, or it can't be rotated: carry on and append to it
+
+
 class Go2rtc:
     def __init__(self, get_settings):
         self.get_settings = get_settings
@@ -86,8 +99,9 @@ class Go2rtc:
         DATA.mkdir(exist_ok=True)
         CONFIG.write_text(render_config(self.get_settings()))
         CONFIG.chmod(0o600)   # contains the recorder password when encryption is off
-        log = open(DATA / "go2rtc.log", "ab")
-        self.proc = subprocess.Popen([str(BIN), "-config", str(CONFIG)], stdout=log, stderr=subprocess.STDOUT)
+        rotate_log(DATA / "go2rtc.log")
+        with open(DATA / "go2rtc.log", "ab") as log:   # the child keeps its own copy of the fd
+            self.proc = subprocess.Popen([str(BIN), "-config", str(CONFIG)], stdout=log, stderr=subprocess.STDOUT)
         for _ in range(50):
             if self.up():
                 return

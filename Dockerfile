@@ -6,12 +6,18 @@
 # go2rtc is a single static binary per arch; fetch it on the build machine's own platform.
 FROM --platform=$BUILDPLATFORM alpine:3.22 AS go2rtc
 ARG TARGETARCH
+# Version and hashes go together: update both (and run.sh) when bumping go2rtc.
 ARG GO2RTC_VERSION=v1.9.14
+ARG GO2RTC_SHA256_AMD64=32d616af226bd731678ffde328b94cfb94e30339bfefc469cfb76323144615a6
+ARG GO2RTC_SHA256_ARM64=359fabade8a7a51e81a55fe6df6b0ef81764a5e1d63179577534eaaa71904b50
 RUN apk add --no-cache curl \
  && case "$TARGETARCH" in amd64|arm64) ;; \
       *) echo "go2rtc: unsupported TARGETARCH '$TARGETARCH' (amd64, arm64)" >&2; exit 1 ;; esac \
  && curl -fsSL -o /go2rtc \
       "https://github.com/AlexxIT/go2rtc/releases/download/${GO2RTC_VERSION}/go2rtc_linux_${TARGETARCH}" \
+ && if [ "$TARGETARCH" = amd64 ]; then want="$GO2RTC_SHA256_AMD64"; else want="$GO2RTC_SHA256_ARM64"; fi \
+ && echo "$want  /go2rtc" | sha256sum -c - \
+ || { echo "go2rtc: download or SHA-256 check failed for $GO2RTC_VERSION ($TARGETARCH); refusing to install it" >&2; exit 1; } \
  && chmod 755 /go2rtc
 
 FROM python:3.14-slim
