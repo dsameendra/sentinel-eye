@@ -1,6 +1,9 @@
-// WebCodecs-based DVR playback player. Connects to /api/playback/ws, decodes H.265 Annex-B access units
-// with WebCodecs VideoDecoder (verified directly against this DVR's footage — see docs/SPEC.md
-// section 2.6/7.2), and paints decoded frames to a <canvas>. No <video> element: WebCodecs frames are
+// WebCodecs-based DVR playback player. Connects to /api/playback/ws, decodes H.265 or H.264 Annex-B access
+// units with WebCodecs VideoDecoder (H.265 verified directly against this DVR's footage — see docs/SPEC.md
+// section 2.6/7.2; the codec comes from the server's "playing" message, and H.264's codec string from the SPS
+// in the first keyframe — codecs.js), and paints decoded frames to a <canvas>. Frame times are the recorded
+// times the server labelled them with; a session starts at the keyframe before the requested instant, so the
+// first frames can be earlier than asked (`displayFrom` says where the request was). No <video> element: WebCodecs frames are
 // painted directly, which is what lets us do exact frame-stepping and report a real decoded-frame clock.
 //
 // Frame stepping: keeps a rolling ring buffer of already-decoded frames (spec 7.5's "decode the preceding
@@ -13,6 +16,7 @@
 // falls back to the slower one-shot DVR fetch — rare in a normal review session, not the common case.
 
 import { signInAgain } from './api.js';
+import { decoderConfig } from './codecs.js';
 
 const wsUrl = (channel, startIso, speed) => {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -49,6 +53,10 @@ export class WCPlayer {
     this.bufIndex = -1;     // index of the frame currently on screen
     this.following = true;  // true = auto-advance/paint every new decoded frame (normal play); false = held at bufIndex (paused/stepping), still decoding into the buffer in the background
     this._pendingTimes = []; // FIFO of absTime per queued decode() call, matched to decoder output order
+    this.codec = 'hevc';    // from the server's "playing" message; an older server never says, and only served H.265
+    this.displayFrom = null; // the requested instant of the current segment (frames before it are keyframe pre-roll)
+    this.segment = null;    // the server's latest "playing"/"segment" message: time_source, approx, bound_s, …
+    this._decoderConfig = null;
   }
 
   get supported() {
@@ -88,6 +96,7 @@ export class WCPlayer {
    * than visibly replaying whatever arrived while paused) and reconnects only if the session had actually
    * been closed (e.g. after a seek elsewhere). */
   resumeFollow() {
+    this._landAt = null;
     this._playout = 0;
     this.following = true;
     if (this.buffer.length) {
@@ -101,6 +110,7 @@ export class WCPlayer {
    * arriving while paused), rather than jumping to the newest one — Instant replay's play after a pause or a
    * skip. Hands back to following the incoming stream if it ever catches up with it. */
   playFromHere() {
+    this._landAt = null;
     if (this.bufIndex < 0 || this.bufIndex >= this.buffer.length - 1) { this.resumeFollow(); return; }
     const id = this._playout = this._playoutSeq = (this._playoutSeq || 0) + 1;   // never reused, so an older loop always stops
     const t0 = performance.now(), a0 = this.buffer[this.bufIndex].absTime, rate = Number(this.speed) || 1;
@@ -138,6 +148,16 @@ export class WCPlayer {
     this.buffer = [];
     this.bufIndex = -1;
     this._pendingTimes = [];
+    this._landAt = null;
+  }
+
+  /** While paused: jump to the frame at `absTime` as soon as it has been decoded into the buffer (a paused seek
+   * holds the session's first frame — the keyframe before the requested instant — until the requested one
+   * arrives, rather than playing the pre-roll while the UI says paused). */
+  landAt(absTime) {
+    this._landAt = absTime;
+    const b = this.buffer;
+    if (b.length && b[b.length - 1].absTime >= absTime - 0.05) { this._landAt = null; this.showTime(absTime); }
   }
 
   _setupDecoder() {
@@ -147,7 +167,74 @@ export class WCPlayer {
       output: (frame) => this._onDecodedFrame(frame),
       error: (e) => { this._decodeErrors++; if (this._decodeErrors > 5) this.opts.onError?.('Video decoding failed: ' + e.message); },
     });
-    this.decoder.configure({ codec: 'hvc1.1.6.L153.B0', hardwareAcceleration: 'no-preference' });
+    // Configured on the first keyframe (_submit): H.264's codec string comes from its SPS, and
+    // isConfigSupported is asynchronous — chunks arriving meanwhile wait in _cfgQueue instead of being dropped
+    // (dropping them lost the opening keyframe, and nothing showed until the next one, up to ~50 s later).
+    this._cfg = 'new';
+    this._cfgQueue = [];
+  }
+
+  /** Decode one access unit, configuring the decoder first if this is the first keyframe. */
+  _submit(isKey, absTime, nal) {
+    if (this._cfg === 'ready') { this._decodeNow(isKey, absTime, nal); return; }
+    if (this._cfg === 'failed') return;
+    if (this._cfg === 'new') {
+      if (!isKey) return;   // nothing decodes before a keyframe
+      this._cfg = 'pending';
+      this._cfgQueue.push([isKey, absTime, nal]);
+      this._configure(nal);
+      return;
+    }
+    this._cfgQueue.push([isKey, absTime, nal]);
+  }
+
+  async _configure(keyNal) {
+    const dec = this.decoder;
+    const name = this.codec === 'h264' ? 'H.264' : 'H.265';
+    const fail = (why) => {
+      if (dec !== this.decoder) return;
+      this._cfg = 'failed';
+      this._cfgQueue = [];
+      this._setState('error');
+      this.opts.onError?.(why);
+    };
+    const config = decoderConfig(this.codec, keyNal);
+    if (!config) { fail(`This camera's ${name} recording couldn't be read (no codec settings in its first frame).`); return; }
+    try {
+      const r = typeof VideoDecoder.isConfigSupported === 'function' ? await VideoDecoder.isConfigSupported(config) : { supported: true };
+      if (dec !== this.decoder || dec.state === 'closed') return;   // replaced (reconnect/destroy) while checking
+      if (!r.supported) { fail(`This browser can't decode this camera's ${name} recordings (${config.codec}).`); return; }
+      dec.configure(config);
+    } catch (e) {
+      fail(`This browser can't decode this camera's ${name} recordings (${config.codec}): ${e.message || e}`);
+      return;
+    }
+    this._decoderConfig = config;
+    this._cfg = 'ready';
+    const q = this._cfgQueue;
+    this._cfgQueue = [];
+    for (const [k, t, n] of q) this._decodeNow(k, t, n);
+  }
+
+  _decodeNow(isKey, absTime, nal) {
+    try {
+      this._pendingTimes.push(absTime);
+      this.decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: Math.round(absTime * 1e6), data: nal }));
+    } catch (e) {
+      this._pendingTimes.pop();
+      this._decodeErrors++;
+    }
+  }
+
+  /** The server's per-segment metadata ("playing" once, then "segment" after each seek). */
+  _applySegment(msg) {
+    if (msg.codec === 'hevc' || msg.codec === 'h264') {
+      if (msg.codec !== this.codec && this._cfg !== 'new') { this.codec = msg.codec; this._setupDecoder(); }
+      this.codec = msg.codec;
+    }
+    this.displayFrom = typeof msg.display_from === 'number' ? msg.display_from : null;
+    this.segment = msg;
+    this.opts.onSegment?.(msg);
   }
 
   _onDecodedFrame(frame) {
@@ -176,6 +263,11 @@ export class WCPlayer {
       }
     }
     // else: paused — the frame just sits buffered ahead of bufIndex until a step or resume reaches it
+    else if (this._landAt != null && absTime != null && absTime >= this._landAt - 0.05) {
+      const t = this._landAt;
+      this._landAt = null;
+      this.showTime(t);
+    }
   }
 
   /** Up to `n` consecutive frames centred on the current paused position (oldest -> newest), for the AI
@@ -209,7 +301,8 @@ export class WCPlayer {
   _onMessage(ev) {
     if (typeof ev.data === 'string') {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.type === 'playing') this._setState('playing');
+      if (msg.type === 'playing') { this._applySegment(msg); this._setState('playing'); }
+      else if (msg.type === 'segment') this._applySegment(msg);
       else if (msg.type === 'queued') { this._setState('queued'); this.opts.onQueued?.(msg); }
       else if (msg.type === 'error') { this._setState('error'); this.opts.onError?.(msg.message); }
       return;
@@ -219,14 +312,8 @@ export class WCPlayer {
     const dv = new DataView(ev.data);
     const absTime = dv.getFloat64(1, false);
     const nal = buf.subarray(9);
-    if (this.decoder.state !== 'configured') return;
-    try {
-      this._pendingTimes.push(absTime);
-      this.decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: Math.round(absTime * 1e6), data: nal }));
-    } catch (e) {
-      this._pendingTimes.pop();
-      this._decodeErrors++;
-    }
+    if (!this.decoder || this.decoder.state === 'closed') return;
+    this._submit(isKey, absTime, nal);
   }
 
   _setState(s) {
@@ -239,6 +326,7 @@ export class WCPlayer {
    * through this point); otherwise waits briefly for one more frame to arrive on the still-open
    * connection — never a fresh DVR session, unlike the old implementation. */
   async stepForward() {
+    this._landAt = null;
     this._playout = 0;
     this.following = false;
     if (this.bufIndex < this.buffer.length - 1) {
@@ -268,6 +356,7 @@ export class WCPlayer {
   /** Previous frame. Instant when still within the buffered window (the common case); falls back to a
    * one-shot DVR fetch only once stepping back past the oldest frame still held in memory. */
   async stepBackward(beforeEpoch, channel) {
+    this._landAt = null;
     this._playout = 0;
     this.following = false;
     if (this.bufIndex > 0) {
@@ -284,16 +373,28 @@ export class WCPlayer {
   _fetchPriorGop(beforeEpoch, channel) {
     this._setState('connecting'); // the one step-backward case that's genuinely slow — let the pane's veil show it
     return new Promise((resolve, reject) => {
-      const start = new Date((beforeEpoch - 9) * 1000).toISOString();
+      // Asking for just before the target is enough: the recorder starts at the keyframe before whatever is
+      // asked (measured 14-50 s apart on this recorder, not the ~9 s once assumed here), so the window from
+      // that keyframe up to the target is exactly what arrives first. At 4x or more, so a long keyframe interval
+      // arrives in seconds; this pane's own session (closed just below) leaves at least its own speed free.
+      const start = new Date((beforeEpoch - 1) * 1000).toISOString();
+      const speed = String(Math.max(4, Number(this.speed) || 1));
       this.disconnectSocket();
       const newBuf = [];
+      const times = [];
       const dec = new VideoDecoder({
-        output: (frame) => { newBuf.push({ frame, absTime: pendingAbs }); },
+        output: (frame) => {
+          newBuf.push({ frame, absTime: times.length ? times.shift() : null });
+          // A keyframe interval here is up to ~a minute of 1080p frames: keep the newest BUFFER_CAP (the ones
+          // just before the target), like the main buffer, instead of holding gigabytes of decoded pictures.
+          if (newBuf.length > BUFFER_CAP) { try { newBuf.shift().frame.close(); } catch { /* already closed */ } }
+        },
         error: () => {},
       });
-      dec.configure({ codec: 'hvc1.1.6.L153.B0', hardwareAcceleration: 'no-preference' });
-      let pendingAbs = null, settled = false;
-      const ws = new WebSocket(wsUrl(channel, start, '1'));
+      let cfg = this._decoderConfig;   // the stream's own config from the main session, when it had one
+      if (cfg) dec.configure(cfg);
+      let settled = false, reached = false;
+      const ws = new WebSocket(wsUrl(channel, start, speed));
       ws.binaryType = 'arraybuffer';
       this.ws = ws;
       this.decoder = dec;
@@ -321,15 +422,20 @@ export class WCPlayer {
         const buf = new Uint8Array(ev.data);
         const isKey = buf[0] === 1;
         const dv = new DataView(ev.data);
-        pendingAbs = dv.getFloat64(1, false);
+        const abs = dv.getFloat64(1, false);
         const nal = buf.subarray(9);
-        if (pendingAbs >= beforeEpoch - 1e-6) { finish(); return; } // reached the target — stop, we have enough
+        if (abs >= beforeEpoch - 1e-6) { // reached the target — let the decoder emit what it holds, then stop
+          if (!reached) { reached = true; (dec.state === 'configured' ? dec.flush() : Promise.resolve()).catch(() => {}).finally(finish); }
+          return;
+        }
+        if (!cfg && isKey) { cfg = decoderConfig(this.codec, nal); if (cfg) { try { dec.configure(cfg); } catch { cfg = null; } } }
         if (dec.state === 'configured') {
-          try { dec.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: Math.round(pendingAbs * 1e6), data: nal })); } catch { /* skip a bad chunk */ }
+          try { times.push(abs); dec.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: Math.round(abs * 1e6), data: nal })); } catch { times.pop(); /* skip a bad chunk */ }
         }
       });
       ws.addEventListener('close', () => finish());
-      setTimeout(finish, 8000);
+      // Up to a 60 s keyframe interval at `speed`, plus connecting.
+      setTimeout(finish, 8000 + (60 / Number(speed)) * 1000);
     });
   }
 

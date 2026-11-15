@@ -5,7 +5,7 @@ import { barHTML, wireBar } from './bar.js';
 import { compactLayout } from './adaptive.js';
 import { api } from './api.js';
 import { SecurityPanel } from './security.js';
-import { AccountView } from './account.js';
+import { AccountView, wireCopy } from './account.js';
 import { LAYOUTS, layoutIds, layoutIcon } from './layouts.js';
 import { PRESETS as ENHANCE_PRESETS } from './enhance.js';
 import { confirmDialog, esc, icon, shortcutsDialog, toast } from './ui.js';
@@ -126,6 +126,7 @@ export class SettingsView {
     this.wire();
     this.refresh();
     if (this.tab === 'status') this.startStatus();
+    if (this.tab === 'device' && this.ctx.can('operator')) this.loadSigningKey();
     if (this.tab === 'connection') this.checkRecorder();
   }
 
@@ -317,7 +318,15 @@ export class SettingsView {
       ${this.srow('TV mode', 'A remote-friendly layout for watching from across the room — starts on the Overview, keeps the screen awake.', this.switchHTML('', this.ctx.tvMode(), 'TV mode', 'f-tv'))}
       ${this.ctx.tvMode() ? this.srow('TV appearance', 'This TV only. Dark keeps the room dim and the picture the brightest thing on screen.', `<div class="seg" role="group" aria-label="TV appearance">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']].map(([v, l]) => `<button data-tvtheme="${v}" aria-pressed="${this.ctx.tvTheme?.() === v}">${l}</button>`).join('')}</div>`) : ''}
       ${this.srow('Keyboard shortcuts', 'Every shortcut, on every screen. Press ? anywhere.', '<button class="btn glass-btn" data-a="keys">Show</button>')}
-    </div></section>`;
+    </div></section>${this.ctx.can('operator') ? this.signingKeyHTML() : ''}`;
+  }
+
+  /** Shown to anyone who can export (Status for admins, This device for operators): the recipient of a signed
+   * export compares this with the fingerprint its verify.html shows. */
+  signingKeyHTML() {
+    return `<section class="sgroup"><h2>Evidence signing key</h2>
+      <p class="sgroup-note">Every signed export is signed with this installation's key. Whoever receives one should see this same fingerprint in its verify.html — read it to them, or send it separately from the export.</p>
+      <div class="card" id="signing-key"><p class="muted">Loading…</p></div></section>`;
   }
 
   enhancementTab() {
@@ -392,10 +401,29 @@ export class SettingsView {
   }
 
   statusTab() {
-    return `<header class="pane-head"><h1>Status</h1><p>What the video engine is doing right now. Updates every few seconds.</p></header><div class="rec-blocked"></div><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
+    return `<header class="pane-head"><h1>Status</h1><p>What the video engine is doing right now. Updates every few seconds.</p></header><div class="rec-blocked"></div><section class="card" id="status-card"><p class="muted">Loading…</p></section>
+    ${this.signingKeyHTML()}`;
+  }
+
+  /** The export-signing key's fingerprint (app/export.py key_fingerprint), once per visit to the tab. */
+  async loadSigningKey() {
+    const box = this.pane.querySelector('#signing-key');
+    if (!box) return;
+    try {
+      const k = await api.signingKey();
+      const groups = k.fingerprint.split(' ');
+      const lines = [];
+      for (let i = 0; i < groups.length; i += 4) lines.push(groups.slice(i, i + 4).join(' '));
+      box.innerHTML = `<div class="codes" aria-label="SHA-256 fingerprint">${lines.map((l) => `<span>${esc(l)}</span>`).join('')}</div>
+        <div class="row-actions" style="margin-top:8px;justify-content:space-between;align-items:center"><span class="muted" style="font-size:12.5px">SHA-256 of the Ed25519 public key</span><button class="btn sm" data-copy="${esc(k.fingerprint)}">Copy</button></div>`;
+      wireCopy(box);
+    } catch (e) {
+      box.innerHTML = `<p class="muted">Couldn't read the signing key: ${esc(e.message || e)}</p>`;
+    }
   }
 
   async startStatus() {
+    this.loadSigningKey();
     const paint = async () => {
       const card = this.pane.querySelector('#status-card');
       if (!card) return;

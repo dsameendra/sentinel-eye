@@ -337,6 +337,14 @@ def set_calibration(channel, a_const, error_estimate, method, now=None):
     return discontinuity
 
 
+def get_calibration_history(channel):
+    """Every calibration measurement stored for `channel` (a_const, measured_utc, error_estimate, method), oldest
+    first — timebase.choose_label decides which of them, if any, applies to a piece of footage."""
+    return [dict(r) for r in query(
+        "SELECT a_const, measured_utc, error_estimate, method FROM calibration_history WHERE channel=? ORDER BY measured_utc",
+        (channel,))]
+
+
 def get_calibration_near(channel, target_utc):
     """The historical calibration measurement closest to target_utc (an ISO 8601 string or datetime) — old
     footage should use whichever a_const was valid when it was recorded, not necessarily the latest one

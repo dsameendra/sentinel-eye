@@ -458,6 +458,26 @@ async def create_export(req: ExportRequest, request: Request):
     return {"job_id": job_id}
 
 
+@app.get("/api/export/signing-key")
+async def export_signing_key():
+    """This install's export-signing public key and its fingerprint (operator+, like exporting itself): what a
+    recipient of a signed package compares with the fingerprint verify.html shows. Declared before
+    /api/export/{job_id}, which would otherwise swallow it as a job id."""
+    return await run_in_threadpool(exportmod.signing_key_info)
+
+
+@app.delete("/api/export/{job_id}")
+async def export_cancel(job_id: str, request: Request):
+    """Cancel a queued or running export: its recorder session is released and its partial files removed."""
+    state = await run_in_threadpool(exportmod.cancel_job, job_id)
+    if state is None:
+        raise HTTPException(404, "Unknown export job")
+    if state not in ("cancelling", "cancelled"):
+        raise HTTPException(409, f"That export has already finished ({state})")
+    _audit(request, "export.cancel", job_id)
+    return {"ok": True, "state": state}
+
+
 @app.get("/api/export/{job_id}")
 async def export_status(job_id: str):
     job = await run_in_threadpool(exportmod.get_job, job_id)
@@ -638,8 +658,10 @@ async def timeline_tz():
 #
 # Binary frame format sent to the browser (one per NAL access unit):
 #   byte 0      : 1 = keyframe, 0 = delta
-#   bytes 1-8   : absolute UTC time, float64 big-endian, seconds
+#   bytes 1-8   : recorded time (UTC epoch seconds), float64 big-endian — see playback_session's segment labels
 #   bytes 9+    : Annex-B NAL bytes (start code included), fed straight into WebCodecs VideoDecoder
+# Before each segment's first frame a JSON text message: {"type":"playing"|"segment", "codec":"hevc"|"h264",
+# "time_source":"calibration"|"anchor", "approx":bool, "display_from":epoch, "first_utc":epoch, "bound_s":…}.
 # Control messages from the browser are JSON text: {"type":"seek","t":"<iso>"} or {"type":"speed","scale":"2"}.
 # Speeds are only ever one of playback_session.NICE_SPEEDS and times only ever ISO 8601 instants: both end up in
 # the recorder's RTSP request text (`Scale:` / `Range:`), so anything else is refused at connect (close 1008) or
@@ -734,7 +756,7 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
             import struct
             if reader.waiting_for_slot:
                 await ws.send_json({"type": "queued", "busy": psess.pool.busy, "limit": psess.pool.limit})
-            first = True
+            seg = None
             while True:
                 item = await run_in_threadpool(reader.q.get)
                 if item is None:
@@ -742,12 +764,14 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
                 if item[0] == "error":
                     await ws.send_json({"type": "error", "message": item[1]})
                     return
-                if first:
-                    await ws.send_json({"type": "playing"})
-                    first = False
-                abs_t, is_key, nal = item
-                header = bytes([1 if is_key else 0]) + struct.pack(">d", abs_t)
-                await ws.send_bytes(header + nal)
+                if item.seg is not seg:
+                    # Before the segment's first frame, on the same ordered socket: "playing" once, then "segment"
+                    # after each seek. Codec, where the times come from (approx when anchored), and display_from
+                    # — frames before it are the keyframe pre-roll, truthfully labelled.
+                    await ws.send_json({"type": "playing" if seg is None else "segment", **psess.public_segment(item.seg)})
+                    seg = item.seg
+                header = bytes([1 if item.key else 0]) + struct.pack(">d", item.t)
+                await ws.send_bytes(header + item.data)
 
         recv_task = asyncio.create_task(from_client())
         send_task = asyncio.create_task(to_client())

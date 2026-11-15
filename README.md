@@ -92,10 +92,19 @@ involved.
 ![Event search with synthetic event cards, camera and type filters, and date-range controls](docs/screenshots/events.jpg)
 
 ### Export
-- Every export is a stream copy of the original footage — no re-encoding, no quality loss.
-- **Signed evidence package** (recommended): the clip, a `manifest.json` covering every file's SHA-256 hash,
-  the exact camera and DVR/NVR time range, and an Ed25519 signature over that manifest, plus an offline
-  `verify.html` that checks it all in a browser with nothing installed and no server involved.
+- Every export is a stream copy of the original footage — no re-encoding, no quality loss — of H.265 or
+  H.264 recordings alike. Clips are written as they arrive, so a long export doesn't fill memory.
+- A clip starts at the keyframe just before the requested start (a stream copy can't start anywhere else),
+  so it can include up to a keyframe interval of extra footage; the manifest says how much.
+- **Signed evidence package** (recommended): the clip, a `manifest.json` (version 2) covering every file's
+  SHA-256 hash, the camera, codec and picture size, the recorded time range in UTC and DVR/NVR-local time,
+  where those times come from and how accurate they are, the app version and the recorder's model and
+  firmware, and an Ed25519 signature over that manifest, plus an offline `verify.html` that checks it all in a
+  browser with nothing installed and no server involved. Older (version 1) packages still verify.
+- **Signing key fingerprint**: Settings → Status (admins) or Settings → This device (operators) shows this
+  installation's key fingerprint under "Evidence signing key"; `verify.html` shows the fingerprint of the key that signed a package. A recipient should
+  compare the two — a valid signature only proves the files match the key that signed them.
+- **Cancel**: a running export (or the rest of a batch) can be cancelled; its partial files are removed.
 - **Plain MP4/MKV**: just the clip, for a quick look.
 
 ![Export clip dialog with signed evidence package option and interactive trimming](docs/screenshots/export-landscape.jpg)

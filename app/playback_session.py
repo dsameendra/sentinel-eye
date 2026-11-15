@@ -1,20 +1,23 @@
 """DVR playback sessions for the browser player: one background reader per open pane, all sharing a
 4-slot pool (the DVR's hard session cap — docs/SPEC.md section 2.2/7.3).
 
-Each reader opens an RTSP playback session (`Range: clock=...`), decrypts, depacketizes to NAL units,
-converts each frame's RTP timestamp to an absolute UTC time via the channel's stored calibration, and
-pushes (abs_time, is_keyframe, annexb_bytes) tuples into a thread-safe queue that the WebSocket handler
-drains. Seeking and speed changes reissue PLAY on the same RTSP session (cheap: ~70-100ms, no reconnect).
+Each reader opens an RTSP playback session (`Range: clock=...`), decrypts, depacketizes to access units,
+labels each frame with its recorded time (timebase.choose_label: the calibration that was in force when the
+footage was recorded when one can be trusted, otherwise anchored to the request and flagged approximate), and
+pushes Frame tuples into a thread-safe queue that the WebSocket handler, exports and thumbnails drain. A
+session starts at the keyframe before the requested instant (up to a keyframe interval — measured up to ~50 s
+— early); those frames are kept, truthfully labelled and flagged `pre`, because decoding needs them.
+Seeking and speed changes reissue PLAY on the same RTSP session (cheap: ~70-100ms, no reconnect).
 """
+import collections
 import datetime
 import queue
-import re
 import threading
-import time
 
 import db
 import hikrelay as h
 import recorder_guard
+import timebase
 
 MAX_SESSIONS = 4
 # The recorder's playback bandwidth budget, in "real-time streams": measured directly against it, the sum of
@@ -24,6 +27,35 @@ MAX_SESSIONS = 4
 SPEED_BUDGET = 16
 NICE_SPEEDS = ("0.125", "0.25", "0.5", "1", "2", "4", "8", "16")
 BANDWIDTH_MSG = "The recorder can't play this many cameras this fast — lower the speed, or show fewer cameras."
+
+# One picture from a reader: t = its recorded time (epoch s), key = keyframe, data = Annex-B access unit,
+# seg = the segment's shared metadata dict (see PlaybackReader._new_segment), pre = recorded before the requested
+# instant (only there because the session starts at the previous keyframe: decode it, don't show it as "the
+# requested moment"). Error items stay ("error", message) tuples — every consumer checks item[0] == "error".
+Frame = collections.namedtuple("Frame", "t key data seg pre")
+
+
+class AccessUnits:
+    """Groups NAL units into access units (one picture each) for WebCodecs and the MP4 muxer. WebCodecs decodes
+    one access unit per chunk, not one raw NAL per chunk: a leading VPS/SPS/PPS sent as its own "delta" chunk
+    breaks it ("a key frame is required after configure()") because that first chunk isn't type 'key'. So
+    non-picture NALs are buffered and emitted together with the slice NAL that follows — this DVR sends one
+    slice NAL per picture (verified on its captures — no multi-slice pictures seen)."""
+
+    def __init__(self, codec):
+        self.codec = codec
+        self.buf = bytearray()
+
+    def feed(self, nal):
+        """None while buffering, else (is_key, access_unit_bytes) once a picture NAL completes one."""
+        hevc = self.codec == "hevc"
+        t = (nal[0] >> 1 & 0x3F) if hevc else (nal[0] & 0x1F)
+        self.buf += h.START + nal
+        if not (t <= 31 if hevc else 1 <= t <= 5):
+            return None
+        out = (16 <= t <= 23) if hevc else t == 5, bytes(self.buf)
+        self.buf = bytearray()
+        return out
 
 
 def valid_speed(v):
@@ -151,11 +183,19 @@ class PlaybackReader:
         self._new_speed = None
         self.client = None
         self.error = None
+        self.segment = None        # the current segment's metadata (see _new_segment), for callers that poll
+        self._last_label = None    # recorded time of the newest frame handed out: where a speed change resumes
         self.waiting_for_slot = False
         self.thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
         self.thread.start()
+
+    @property
+    def codec(self):
+        """"hevc" or "h264" once the session is open (from the recorder's SDP), else None."""
+        c = self.client
+        return c.codec if c is not None else None
 
     def seek(self, start_utc, speed=None):
         """Ignored when `start_utc` isn't an ISO 8601 instant; an invalid `speed` keeps the current one (the
@@ -212,6 +252,10 @@ class PlaybackReader:
             return
         self.waiting_for_slot = False
         self._held = self.speed
+        if self._stop.is_set():
+            # Stopped while queued for a slot (a pane closed, an export cancelled): don't log in at all.
+            pool.release(self._held)
+            return
         try:
             # A seek the recorder refuses leaves its session unusable, so the loop hands back "reopen" and
             # starts a fresh session at that time (see the seek branch in _play_loop).
@@ -236,13 +280,30 @@ class PlaybackReader:
             pool.release(self._held)
 
     def _a_const_for(self, dt):
-        """The calibration valid when this moment was recorded, not necessarily the one this reader was
-        constructed with (which is only right for start_utc) — a channel's RTP clock drifts across
-        calibration cycles, so re-deriving on every seek is what keeps old-footage playback (and multi-pane
-        sync against other channels doing the same) accurate across the whole timeline, not just near
-        wherever playback happened to begin (docs/SPEC.md section 2.4)."""
+        """A calibration near this moment, only for the anchored fallback's frame-to-frame spacing (any a_const
+        gives the same spacing within a segment) — which calibration really applies is _new_segment's job."""
         r = db.get_calibration_near(self.channel, dt)
         return r["a_const"] if r else self.a_const
+
+    def _new_segment(self, target_utc, rtp_first):
+        """Metadata shared by every frame of one PLAY segment, decided from its first frame (timebase.choose_label).
+        `display_from` is the requested instant: frames before it are the keyframe pre-roll."""
+        try:
+            history = db.get_calibration_history(self.channel)
+        except Exception:
+            history = []
+        lab = timebase.choose_label(rtp_first, target_utc, history, self.a_const)
+        if lab.get("a_const") is None:   # no calibration at all: the anchor needs only relative spacing
+            lab["a_const"] = target_utc - rtp_first / timebase.RTP_HZ
+            lab["offset"] = target_utc - timebase.abs_time(lab["a_const"], rtp_first, target_utc)
+        first = timebase.abs_time(lab["a_const"], rtp_first, target_utc) + lab.get("offset", 0.0)
+        seg = {"codec": self.codec or "hevc", "time_source": lab["time_source"], "approx": lab["time_source"] != "calibration",
+               "target": target_utc, "display_from": target_utc, "first_utc": first, "bound_s": lab["bound_s"],
+               "_a": lab["a_const"], "_offset": lab.get("offset", 0.0),
+               "_cal": {k: lab.get(k) for k in ("a_const", "measured_utc", "method", "error_estimate")}
+               if lab["time_source"] == "calibration" else {}}
+        self.segment = seg
+        return seg
 
     def _play_loop(self):
         start_dt = parse_utc(self._seek_to or self.start_utc)
@@ -281,16 +342,20 @@ class PlaybackReader:
         aes = h.make_aes(self.conn["key"]) if self.conn["encrypted"] else None
         dp = h.Depacketizer(self.client.codec, aes)
         gate = h.StartGate(self.client.codec, self.client.sdp)
-        near_utc = start_dt.timestamp()
         target_utc = start_dt.timestamp()
-        anchor = None  # learned from this segment's first frame — see _anchor_correction's docstring
-        au_buf = bytearray()
+        seg = None        # decided from this segment's first frame — see _new_segment
+        near_raw = target_utc
+        aus = AccessUnits(self.client.codec)
         for p in self.client.packets():
             if self._stop.is_set():
                 return
             if self._seek_to is not None or self._new_speed is not None:
+                # A speed change alone resumes from the newest frame handed out, by its *label* — the raw a_const
+                # answer can be hours off for old footage (a calibration from across an RTP reset), and PLAYing at
+                # that would jump to different footage.
+                resume = self._last_label if self._last_label is not None else target_utc
                 seek_dt = (parse_utc(self._seek_to) if self._seek_to else None) or \
-                    datetime.datetime.fromtimestamp(near_utc, datetime.timezone.utc)
+                    datetime.datetime.fromtimestamp(resume, datetime.timezone.utc)
                 speed = self._new_speed or self.speed
                 self._seek_to, self._new_speed = None, None
                 if speed != self._held:
@@ -318,36 +383,28 @@ class PlaybackReader:
                         self._seek_to = seek_dt.isoformat()
                     self._flush_queue()
                     return "reopen"
-                near_utc = seek_dt.timestamp()
                 target_utc = seek_dt.timestamp()
-                anchor = None  # re-learn for the new segment — see _anchor_correction's docstring
+                near_raw = target_utc
+                seg = None   # re-decided for the new segment
+                self._last_label = None   # until it delivers a frame, a speed change resumes at this target
                 dp = h.Depacketizer(self.client.codec, aes)
                 gate = h.StartGate(self.client.codec, self.client.sdp)
-                au_buf = bytearray()
+                aus = AccessUnits(self.client.codec)
                 self._flush_queue()
                 continue
             for ts, nal in dp.feed(p):
                 for n in gate.feed(nal):
-                    # WebCodecs decodes one access unit (picture) per chunk, not one raw NAL per chunk: a
-                    # leading VPS/SPS/PPS sent as its own "delta" chunk breaks it ("a key frame is required
-                    # after configure()") because that first chunk isn't type 'key'. Buffer non-picture NALs
-                    # and emit them together with the slice NAL that follows, as this DVR sends one slice
-                    # NAL per picture (verified on its captures — no multi-slice pictures seen).
-                    t = (n[0] >> 1 & 0x3F) if self.client.codec == "hevc" else (n[0] & 0x1F)
-                    is_vcl = t <= 31 if self.client.codec == "hevc" else 1 <= t <= 5
-                    au_buf += h.START + n
-                    if not is_vcl:
+                    au = aus.feed(n)
+                    if au is None:
                         continue
-                    is_key = (16 <= t <= 23) if self.client.codec == "hevc" else t == 5
-                    abs_t = _abs_time(self.a_const, ts, near_utc)
-                    near_utc = abs_t
-                    if anchor is None:
-                        anchor = _anchor_correction(target_utc, abs_t)
+                    if seg is None:
+                        seg = self._new_segment(target_utc, ts)
+                    t, near_raw = _label(seg, ts, near_raw)
+                    self._last_label = t
                     try:
-                        self.q.put((abs_t + anchor, is_key, bytes(au_buf)), timeout=2)
+                        self.q.put(Frame(t, au[0], au[1], seg, t < seg["display_from"] - 0.02), timeout=2)
                     except queue.Full:
                         pass  # slow consumer: drop rather than stall the DVR session
-                    au_buf = bytearray()
 
     def _flush_queue(self):
         try:
@@ -358,33 +415,20 @@ class PlaybackReader:
 
 
 def _abs_time(a_const, rtp_ts, near_utc):
-    WRAP, RTP_HZ = 2 ** 32, 90000
-    t = a_const + rtp_ts / RTP_HZ
-    period = WRAP / RTP_HZ
-    n = round((near_utc - t) / period)
-    return t + n * period
+    return timebase.abs_time(a_const, rtp_ts, near_utc)
 
 
-def _anchor_correction(target_utc, first_abs_t):
-    """How far a_const's own answer for this segment's first frame was from what was actually requested.
-    Even the closest available historical calibration (_a_const_for) is only ever a *measurement*, proven
-    accurate near when it was taken and not guaranteed beyond that (docs/SPEC.md section 2.4) — for a
-    channel with no calibration history predating this session's footage (any channel, until several days
-    of history have accumulated after this fix), or one whose clock drifted unusually between measurements,
-    a_const's own answer can still be off by anywhere from seconds to hours.
+def _label(seg, rtp_ts, near_raw):
+    """(recorded time, new near_raw) for one frame of a segment. near_raw tracks the un-offset answer so the
+    32-bit RTP wrap (every ~13.25 h) unwraps against the previous frame, not against the label."""
+    raw = timebase.abs_time(seg["_a"], rtp_ts, near_raw)
+    return raw + seg["_offset"], raw
 
-    The DVR's own answer to "give me content at this clock= time" is far more trustworthy: an RTSP `clock=`
-    playback request is served starting at (or within one keyframe interval of — commonly a few seconds)
-    the exact requested instant, independent of anything this app computes. So this segment's every frame
-    is re-anchored to target_utc using this one correction learned from its first frame, rather than trusting
-    a_const's absolute answer for the rest of the session. RTP timestamps remain a reliable *relative* clock
-    within the segment (docs/SPEC.md's "shared 90kHz clock" finding) — this only replaces the absolute
-    anchor, not the relative spacing between frames. Bounds the remaining error, for every consumer of
-    PlaybackReader (live playback, thumbnails, export), to roughly one keyframe interval instead of
-    a_const's potentially much larger and less predictable drift — and, with multiple panes each anchored
-    to their own request this way, is what actually makes "seek every camera to the same instant" mean the
-    same recorded moment across all of them, which a_const's absolute accuracy alone can't guarantee."""
-    return target_utc - first_abs_t
+
+def public_segment(seg):
+    """The part of a segment's metadata the browser gets (the "playing"/"segment" WebSocket messages)."""
+    return {"codec": seg["codec"], "time_source": seg["time_source"], "approx": seg["approx"],
+            "display_from": seg["display_from"], "first_utc": seg["first_utc"], "bound_s": seg["bound_s"]}
 
 
 def calibration_for(channel):
@@ -393,9 +437,9 @@ def calibration_for(channel):
 
 
 def calibration_for_time(channel, target_utc):
-    """Like calibration_for, but picks the calibration measurement closest to target_utc rather than always
-    the latest — see PlaybackReader._a_const_for for why. Falls back to calibration_for when there's no
-    history yet for this channel (e.g. it was only just calibrated for the first time)."""
+    """A calibration value for a reader's frame spacing (the one measured closest to target_utc), or None while
+    the channel has never been calibrated — callers treat None as "not ready yet". Which calibration (if any)
+    truly applies to the footage is decided per segment from the whole history (timebase.choose_label)."""
     r = db.get_calibration_near(channel, target_utc)
     if r:
         return r["a_const"]

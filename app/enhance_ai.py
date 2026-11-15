@@ -49,21 +49,26 @@ _device = None
 
 
 def _sweep_old_jobs():
-    if not ENHANCE_DIR.exists():
-        return
+    """Remove job folders older than JOB_TTL, and forget finished jobs that old (their files are gone), so _jobs
+    can't grow for as long as the server runs."""
     cutoff = time.time() - JOB_TTL
-    for d in ENHANCE_DIR.iterdir():
-        try:
-            if d.is_dir() and d.stat().st_mtime < cutoff:
-                shutil.rmtree(d, ignore_errors=True)
-        except OSError:
-            pass
+    if ENHANCE_DIR.exists():
+        for d in ENHANCE_DIR.iterdir():
+            try:
+                if d.is_dir() and d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
+    with _jobs_lock:
+        for jid in [j for j, v in _jobs.items() if v.get("state") in ("done", "error") and v.get("_created", 0) < cutoff]:
+            _jobs.pop(jid, None)
 
 
 # ------------------------------------------------------------------ job tracking (mirrors export.py)
 def get_job(job_id):
     with _jobs_lock:
-        return dict(_jobs.get(job_id, {})) if job_id in _jobs else None
+        j = _jobs.get(job_id)
+        return {k: v for k, v in j.items() if not k.startswith("_")} if j is not None else None
 
 
 def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.5, upscaler=None, face=None):
@@ -74,7 +79,7 @@ def start_enhance(job_id, images_b64, mode, channel, at_utc, roi=None, weight=0.
     identity-preservation knob (0=pure hallucinated reconstruction, 1=barely touched) — see section 2d."""
     _sweep_old_jobs()
     with _jobs_lock:
-        _jobs[job_id] = {"state": "queued", "progress": "Queued…", "error": None, "done": False}
+        _jobs[job_id] = {"state": "queued", "progress": "Queued…", "error": None, "done": False, "_created": time.time()}
     t = threading.Thread(target=_run, args=(job_id, images_b64, mode, channel, at_utc, roi, weight, upscaler, face), daemon=True)
     t.start()
 

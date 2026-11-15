@@ -83,13 +83,21 @@ export function openEventPreview(opts) {
   // single instant) — "what's shown on the video" is exactly the range this exports, not a separate,
   // possibly-different range the operator would have to re-figure-out in Playback's own export dialog.
   const exportBtn = root.querySelector('[data-x=export]');
-  let exporting = false;
+  let exporting = false, jobId = null, cancelled = false;
+  const original = exportBtn.innerHTML;
   exportBtn.addEventListener('click', async () => {
-    if (exporting || !cam) return;
-    exporting = true;
-    const original = exportBtn.innerHTML;
-    exportBtn.disabled = true;
+    if (!cam) return;
+    if (exporting) {
+      // A second click while it runs cancels it (the server releases the recorder session, removes the files).
+      if (cancelled) return;
+      cancelled = true;
+      exportBtn.innerHTML = `<span class="spin sm"></span> Cancelling…`;
+      if (jobId) api.cancelExport(jobId).catch(() => {});
+      return;
+    }
+    exporting = true; cancelled = false; jobId = null;
     exportBtn.innerHTML = `<span class="spin sm"></span> Preparing…`;
+    exportBtn.title = 'Click again to cancel';
     try {
       const { job_id } = await api.createExport({
         channels: [cam.id],
@@ -97,25 +105,30 @@ export function openEventPreview(opts) {
         end_utc: new Date(playToEpoch * 1000).toISOString(),
         package: 'plain',
       });
+      jobId = job_id;
+      if (cancelled) api.cancelExport(job_id).catch(() => {});
       const spanSec = playToEpoch - playFromEpoch;
-      const deadline = Date.now() + Math.max(60, (spanSec / EXPORT_SCALE) * 3 + 60) * 1000;
+      // Mirrors app/export.py's export_deadline_s: the span plus up to a minute of keyframe pre-roll before it.
+      const deadline = Date.now() + Math.max(60, ((spanSec + 60) / EXPORT_SCALE) * 3 + 60) * 1000;
       while (true) {
         if (Date.now() > deadline) throw new Error('Export is taking much longer than expected.');
         const job = await api.exportStatus(job_id);
         if (job.state === 'error') throw new Error(job.error || 'Export failed');
+        if (job.state === 'cancelled') throw Object.assign(new Error('Export cancelled'), { cancelled: true });
         if (job.state === 'done') break;
-        exportBtn.innerHTML = `<span class="spin sm"></span> ${esc(job.progress || 'Working…')}`;
+        if (!cancelled) exportBtn.innerHTML = `<span class="spin sm"></span> ${esc(job.progress || 'Working…')}`;
         await new Promise((r) => setTimeout(r, 1200));
       }
       const a = document.createElement('a');
       a.href = `/api/export/${job_id}/download`;
       a.click();
       exportBtn.innerHTML = `${icon('check')} Downloaded`;
-      setTimeout(() => { exportBtn.innerHTML = original; exportBtn.disabled = false; exporting = false; }, 2500);
+      exportBtn.disabled = true;
+      setTimeout(() => { exportBtn.innerHTML = original; exportBtn.disabled = false; exportBtn.title = ''; exporting = false; }, 2500);
     } catch (e) {
-      toast(e.message || 'Export failed', 'bad', 6000);
+      toast(e.cancelled ? 'Export cancelled.' : e.message || 'Export failed', e.cancelled ? 'ok' : 'bad', 6000);
       exportBtn.innerHTML = original;
-      exportBtn.disabled = false;
+      exportBtn.title = '';
       exporting = false;
     }
   });

@@ -13,6 +13,7 @@ import db
 import hikrelay as h
 import playback_session as psess
 import recorder_guard
+import timebase
 from settings import DATA
 
 THUMB_DIR = DATA / "thumbnails"
@@ -88,31 +89,44 @@ def _generate(event, connection_dict, playback_path_override, tz_offset_min):
     tz = datetime.timezone(datetime.timedelta(minutes=tz_offset_min))
     path = h.playback_path(ch, playback_path_override or "")
 
-    reader = psess.PlaybackReader(conn, ch, path, a_const, mid.isoformat(), tz, "1")
+    # The session starts at the keyframe before `mid` — measured up to ~50 s early on this recorder — so take every
+    # frame from there up to the first one at/after `mid` and keep the last decoded picture: the first frame
+    # alone could show the scene long before the event. Up to 4x when the recorder's speed budget allows, so the
+    # pre-roll arrives in seconds rather than a whole keyframe interval — not faster: while a thumbnail holds its
+    # share of the 16-unit budget, a Playback pane's speed change that no longer fits ends that pane.
+    reader = psess.PlaybackReader(conn, ch, path, a_const, mid.isoformat(), tz, "1", adaptive_speeds=("4", "2", "1"))
     reader.start()
-    nal = None
+    aus, codec = [], "hevc"
+    deadline = time.time() + 15 + timebase.PREROLL_MAX_S / 2   # connecting + the pre-roll at 4x, with room for a slower grant
     try:
-        for _ in range(5):  # the first access unit should already be a decodable keyframe (StartGate)
-            item = reader.q.get(timeout=15)
+        while time.time() < deadline:
+            try:
+                item = reader.q.get(timeout=15)
+            except Exception:
+                break
             if item is None:
                 break
             if item[0] == "error":
                 raise RuntimeError(item[1])
-            nal = item[2]
-            break
+            codec = item.seg["codec"]
+            aus.append(item.data)
+            if not item.pre:
+                break
     finally:
         reader.stop()
-    if nal is None:
+    if not aus:
         raise RuntimeError("No frame available at that time")
 
     THUMB_DIR.mkdir(parents=True, exist_ok=True)
     out_path = path_for(event["id"])
-    with tempfile.NamedTemporaryFile(suffix=".hevc", delete=False) as f:
-        f.write(nal)
+    fmt = "h264" if codec == "h264" else "hevc"
+    with tempfile.NamedTemporaryFile(suffix="." + fmt, delete=False) as f:
+        f.write(b"".join(aus))
         tmp = f.name
     try:
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "hevc", "-i", tmp, "-frames:v", "1",
-                         "-vf", "scale=320:-1", "-q:v", "5", str(out_path)], check=True, timeout=20)
+        # -update 1: every decoded frame overwrites the image, so the file ends up holding the last one.
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", fmt, "-i", tmp, "-vf", "scale=320:-1", "-q:v", "5",
+                        "-update", "1", str(out_path)], check=True, timeout=60)
     finally:
         Path(tmp).unlink(missing_ok=True)
 

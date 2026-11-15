@@ -476,10 +476,9 @@ export class PlaybackView {
     // rather than push — otherwise every camera toggle fills history with entries that all render this
     // same view, and Back becomes a several-times-in-a-row no-op.
     this.ctx.replace(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
-    // (re)connect only the panes that don't already have a live session at the current position — and, if
-    // any of them lands later than the cameras already playing (same keyframe-snap reality _alignPanes
-    // handles for a full seek), pull the rest forward to match rather than leaving the newly-added camera
-    // permanently a few seconds ahead of the ones already open.
+    // (re)connect only the panes that don't already have a live session at the current position. A newly
+    // added camera starts at its own keyframe before that position, so it plays the moments leading up to it
+    // with their true times (see _alignPanes on why panes are no longer re-seeked to "match" each other).
     const toConnect = this.panes.filter((pane) =>
       pane.player.ws?.readyState !== WebSocket.OPEN && pane.player.ws?.readyState !== WebSocket.CONNECTING);
     if (toConnect.length) {
@@ -769,67 +768,35 @@ export class PlaybackView {
     this._paintPlayIcon();
     // Always a fresh session, never the in-session "seek" WS message — measured directly (not assumed)
     // that reissuing PLAY with a new clock= range on an already-open RTSP session can land noticeably off
-    // target (observed: requested exact midnight, landed ~89 minutes later). A fresh connect for the same
-    // request did NOT reproduce that specific failure mode, so this removes one source of imprecision.
-    // Separately (see _alignPanes below): each channel's DVR session independently snaps the requested
-    // instant to that channel's own nearest available keyframe, so two cameras seeked to the exact same
-    // epoch can genuinely start from different real recorded moments — several seconds apart, confirmed
-    // directly against the cameras' own burned-in clocks, not just this app's computed label of them. A
-    // calibration error (docs/SPEC.md's timing notes) can compound this, but isn't the whole story: even
-    // with perfect per-channel calibration, independent sessions can still land on different keyframes.
+    // target (observed: requested exact midnight, landed ~89 minutes later — most likely the calibration-regime
+    // labelling error since found and fixed, docs/SPEC.md section 2.4, but a fresh connect costs little).
+    // Each camera's session starts at that camera's own keyframe before `epoch` (measured 5-13 s early, and the
+    // keyframe interval is 14-50 s here), and the server labels those frames with their true recorded time, so
+    // panes briefly show the moments leading up to `epoch`; a paused seek stops on `epoch` itself (_onFrame).
     for (const pane of this.panes) pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
     this._alignPanes(this.panes, epoch, this.speed, shouldPlay);
   }
 
-  /** Connects (or reconnects) every pane in `toConnect` (default: all of `panes`) to `epoch`, then pulls
-   * any pane — connecting or already playing — that sits on an earlier real moment than the latest of its
-   * siblings forward to match, so "the same seek" (or adding a camera mid-review) actually means the same
-   * recorded instant across every camera, not just the same request.
+  /** Connects (or reconnects) every pane in `toConnect` (default: all of `panes`) to `epoch`, and resolves
+   * once each has shown its first frame (or a 6 s timeout) — a newer seek or selection change supersedes it.
    *
-   * The real bug this fixes (found by testing directly against the DVR, not assumed): with an anchored
-   * PlaybackReader, a *single* channel lands exactly on its requested target every time — there is no
-   * meaningful DVR-side keyframe slop to correct for. The actual source of the gap was this function
-   * itself: an already-playing pane's "current position" was read as a synchronous snapshot at the moment
-   * connecting began, via `Promise.resolve(pane._lastAbsTime)` inside the same `Promise.all` that was still
-   * waiting on the newly-connecting pane's session to negotiate (RTSP setup, DVR queueing — real time, not
-   * instant). The already-playing pane keeps playing forward for that whole wait, so by the time the new
-   * pane's first (correctly-anchored) frame arrives, the "target" it was compared against was already
-   * stale — every pane looked aligned to the *value read before the wait*, not to where anyone actually was
-   * once it was over. Fixed by reading every pane's position fresh, after every connect has finished, not
-   * before it started. */
+   * There used to be a second pass here that re-seeked any pane which "landed" earlier than its siblings to
+   * the latest landing. It only ever aligned *labels*: the server used to stamp every session's first frame
+   * with the requested time, while each session really starts at its own camera's keyframe before it (two
+   * cameras both labelled 19:57:37 were really at :27.1 and :26.0 — tools/measure_playback_time.py). Now
+   * the labels are the recorded times, and re-seeking a pane to a sibling's landing just snaps it back to the
+   * same keyframe again, so the pass could never converge; it is gone. Every pane is asked for the same
+   * instant and plays from its own keyframe towards it. Holding panes on one master clock (docs/SPEC.md
+   * section 7.2) is what true frame-lock still needs. */
   async _alignPanes(panes, epoch, speed, shouldPlay, toConnect = panes) {
     const iso = new Date(epoch * 1000).toISOString();
-    const seq = ++this._alignSeq;
+    ++this._alignSeq;
     const connecting = new Set(toConnect);
     await Promise.all(panes.filter((pane) => connecting.has(pane)).map((pane) => new Promise((resolve) => {
       pane._alignResolve = (t) => { pane._alignResolve = null; resolve(t); };
       pane.player.connect(pane.cam.id, iso, speed);
       setTimeout(() => { if (pane._alignResolve) { const r = pane._alignResolve; pane._alignResolve = null; r(null); } }, 6000);
     })));
-    if (seq !== this._alignSeq) return; // superseded by a newer seek/selection change while we were waiting
-    // Fresh as of right now — an already-playing pane not in toConnect has kept advancing in real time for
-    // however long the connects above took, so this must be read after awaiting them, not before.
-    const landings = panes.map((pane) => pane._lastAbsTime ?? null);
-    const known = landings.filter((t) => t != null);
-    if (known.length < 2) return;
-    const target = Math.max(...known);
-    const targetIso = new Date(target * 1000).toISOString();
-    const corrected = [];
-    panes.forEach((pane, i) => {
-      if (landings[i] != null && landings[i] < target - 0.35) {
-        pane._pauseOnNextFrame = !shouldPlay; // _onFrame already consumed this once for the initial landing — re-arm for the correction
-        corrected.push(new Promise((resolve) => {
-          pane._alignResolve = (t) => { pane._alignResolve = null; resolve(); };
-          pane.player.seek(targetIso, speed);
-          setTimeout(() => { if (pane._alignResolve) { const r = pane._alignResolve; pane._alignResolve = null; r(); } }, 6000);
-        }));
-      }
-    });
-    // Waited on (not fire-and-forget) so a second, closely-spaced align (e.g. adding a 3rd camera right
-    // after a 2nd) reads *this* round's corrected positions instead of racing them — resolved via the same
-    // _alignResolve _onFrame already reports every landing through, so this is just confirming the
-    // correction actually happened, not issuing a second one.
-    await Promise.all(corrected);
   }
 
   setSpeed(s) {
@@ -859,8 +826,20 @@ export class PlaybackView {
   // ---------------------------------------------------------------- per-pane state -> shared UI
   _onFrame(pane, absTime) {
     pane.veil.hidden = true;
-    pane._lastAbsTime = absTime; // this pane's own last known real position — what _alignPanes compares an about-to-connect sibling against
+    pane._lastAbsTime = absTime; // this pane's own last known real position
     if (pane._alignResolve) pane._alignResolve(absTime); // reports this pane's actual landed position to _alignPanes, if a (re)connect is waiting on it
+    // Consumes the flag seekTo() set: this pane just reconnected for a seek that wasn't a play request, so hold
+    // here rather than letting WCPlayer's default post-connect "follow" keep streaming it forward while the rest
+    // of the UI says paused. The session starts at the keyframe before the requested instant (truthfully
+    // labelled, up to ~a minute early): hold that first picture — decoding carries on into the buffer — and jump
+    // to the requested frame once it's decoded, leaving the playhead on the requested time meanwhile.
+    let holding = false;
+    if (pane._pauseOnNextFrame) {
+      pane._pauseOnNextFrame = false;
+      pane.player.pauseHere();
+      const from = pane.player.displayFrom;
+      if (from != null && absTime < from - 0.05) { holding = true; pane.player.landAt(from); }
+    }
     // Keep the pane's --ar in sync with the decoded frame's real shape (tile.js does the same for live
     // view) — without this the canvas sizing CSS falls back to a fixed 16:9 guess, which is wrong for any
     // camera whose stream isn't 16:9 and produces the same "too much black" effect this was meant to fix.
@@ -869,15 +848,11 @@ export class PlaybackView {
       const ar = w / h;
       if (pane.ar !== ar) { pane.ar = ar; pane.el.style.setProperty('--ar', ar.toFixed(4)); }
     }
-    if (pane === this.panes[0]) {
+    if (pane === this.panes[0] && !holding) {
       this.currentEpoch = absTime;
       this._renderTime();
       this.timeline?.setPlayhead(absTime);
     }
-    // Consumes the flag seekTo() set: this pane just reconnected for a seek that wasn't a play request, so
-    // hold here at the frame that actually landed rather than letting WCPlayer's default post-connect
-    // "follow" behaviour keep streaming it forward in the background while the rest of the UI says paused.
-    if (pane._pauseOnNextFrame) { pane._pauseOnNextFrame = false; pane.player.pauseHere(); }
   }
 
   _onPaneState(pane, s, msg) {
@@ -926,7 +901,18 @@ export class PlaybackView {
     const p = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
     this.timeEl.textContent = `${pad2(p.hh)}:${pad2(p.mi)}:${pad2(p.ss)}`;
     if (this.dateEl) this.dateEl.textContent = `${MONTHS[p.mo]} ${p.da}, ${p.y}`;
-    for (const pane of this.panes) { const t = pane.el.querySelector('.pb-pane-time'); if (t) t.textContent = this.timeEl.textContent; }
+    // "≈" when the server couldn't place this footage with a clock calibration (time_source "anchor"): its
+    // times are the requested instant, and the picture can really be up to a keyframe interval earlier.
+    const approx = (pane) => !!pane?.player.segment?.approx;
+    const why = 'Approximate time — no clock calibration covers when this was recorded. The clock in the picture is the reference.';
+    if (approx(this.panes[0])) this.timeEl.textContent = '≈ ' + this.timeEl.textContent;
+    this.timeEl.title = approx(this.panes[0]) ? why : '';
+    for (const pane of this.panes) {
+      const t = pane.el.querySelector('.pb-pane-time');
+      if (!t) continue;
+      t.textContent = (approx(pane) ? '≈ ' : '') + this.timeEl.textContent.replace(/^≈ /, '');
+      t.title = approx(pane) ? why : '';
+    }
   }
 
   _paintPlayIcon() {
@@ -1046,6 +1032,7 @@ export class PlaybackView {
           <div class="xp-meta"><span class="k">Takes</span><span class="v"></span></div>
           <p class="xp-status" aria-live="polite" hidden></p>
           <button class="btn xp-add" data-x="add">${icon('plus')} Add to clips, keep trimming</button>
+          <button class="btn xp-add xp-cancel" data-x="cancel" hidden>${icon('close')} Cancel export</button>
           <button class="btn primary xp-go" data-x="go"></button>
         </div>
       </div></div>`;
@@ -1082,7 +1069,8 @@ export class PlaybackView {
       const go = $('.xp-go');
       if (!running) go.innerHTML = mode === 'clips' ? `Export all${n ? ` (${n})` : ''}` : 'Export clip';
       go.disabled = running || (mode === 'clips' ? !n : tooLong);
-      $('.xp-add').disabled = running || tooLong;
+      $('[data-x=add]').disabled = running || tooLong;
+      $('[data-x=cancel]').hidden = !running;
       $('[data-x=clear]').disabled = running || !n;
       if (mode === 'clips') renderClips();
     };
@@ -1165,19 +1153,28 @@ export class PlaybackView {
 
     const go = $('.xp-go');
     const busy = (txt) => { go.innerHTML = `<span class="spin sm"></span> ${esc(txt)}`; };
+    // Cancel: the running job is cancelled on the server (its recorder session released, partial files
+    // removed) and a batch stops before its next clip.
+    let ctl = null;
+    $('[data-x=cancel]').addEventListener('click', () => {
+      if (!ctl || ctl.cancelled) return;
+      ctl.cancelled = true;
+      busy('Cancelling…');
+      if (ctl.jobId) api.cancelExport(ctl.jobId).catch(() => {});
+    });
     go.addEventListener('click', async () => {
-      running = true; paint();
+      running = true; ctl = { cancelled: false, jobId: null }; paint();
       if (mode === 'single') {
         setStatus('');
         busy('Starting export…');
         try {
-          const jobId = await this._runExportOne(a, b, pkg, (msg) => busy(msg));
+          const jobId = await this._runExportOne(a, b, pkg, (msg) => { if (!ctl.cancelled) busy(msg); }, ctl);
           const link = document.createElement('a');
           link.href = `/api/export/${jobId}/download`; link.click();
           toast('Export ready — download started.', 'ok');
           setStatus(`${icon('checkcircle')} Exported. <a href="/api/export/${jobId}/download">Download again</a>${pkg === 'signed' ? ' · open verify.html inside to check it' : ''}`, 'ok');
         } catch (e) {
-          setStatus(esc(e.message || 'Export failed.'), 'bad');
+          setStatus(esc(e.cancelled ? 'Export cancelled.' : e.message || 'Export failed.'), e.cancelled ? '' : 'bad');
         }
       } else {
         const rows = [...el.querySelectorAll('.clip-row')];
@@ -1185,22 +1182,25 @@ export class PlaybackView {
         for (let i = 0; i < this.clips.length; i++) {
           const [x, y] = this.clips[i];
           const cell = rows[i]?.querySelector('.clip-status');
+          if (ctl.cancelled) { if (cell) cell.textContent = 'Cancelled'; continue; }
           busy(`Clip ${i + 1} of ${this.clips.length}…`);
           if (cell) cell.textContent = 'Starting…';
+          ctl.jobId = null;
           try {
-            const jobId = await this._runExportOne(x, y, pkg, (msg) => { if (cell) cell.textContent = msg; });
+            const jobId = await this._runExportOne(x, y, pkg, (msg) => { if (cell) cell.textContent = msg; }, ctl);
             if (cell) cell.innerHTML = `<a href="/api/export/${jobId}/download">Download</a>`;
             done.push(i);
           } catch (e) {
-            if (cell) cell.textContent = e.message || 'Failed';
+            if (cell) cell.textContent = e.cancelled ? 'Cancelled' : e.message || 'Failed';
           }
         }
         // Finished clips leave the pending list, but their rows (each with its download link) stay on screen
         // until the next change — redrawing now would drop the links before anyone could click them.
         this.clips = this.clips.filter((_, i) => !done.includes(i));
         this._syncClipUi();
-        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported.`, done.length === rows.length ? 'ok' : 'bad');
+        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported${ctl.cancelled ? ' — the rest were cancelled' : ''}.`, done.length === rows.length ? 'ok' : 'bad');
         running = false;
+        $('[data-x=cancel]').hidden = true;
         $('.xp-clips .count').textContent = this.clips.length ? String(this.clips.length) : '';
         go.innerHTML = `Export all${this.clips.length ? ` (${this.clips.length})` : ''}`;
         go.disabled = !this.clips.length;
@@ -1236,13 +1236,15 @@ export class PlaybackView {
   /** Runs one export job to completion (create + poll) and resolves to its job_id. Shared by the single-
    * clip dialog and the multi-cut clipper's batch export — a batch is just this, called once per clip,
    * in order (see _addClip's comment on why never in parallel). */
-  async _runExportOne(startEpoch, endEpoch, pkg, onProgress) {
+  async _runExportOne(startEpoch, endEpoch, pkg, onProgress, ctl = {}) {
     const { job_id } = await api.createExport({
       channels: this.panes.map((p) => p.cam.id),
       start_utc: new Date(startEpoch * 1000).toISOString(),
       end_utc: new Date(endEpoch * 1000).toISOString(),
       package: pkg,
     });
+    ctl.jobId = job_id;
+    if (ctl.cancelled) api.cancelExport(job_id).catch(() => {});   // cancelled while it was being created
     await this._pollExport(job_id, endEpoch - startEpoch, onProgress);
     return job_id;
   }
@@ -1253,7 +1255,9 @@ export class PlaybackView {
     // adds queueing, not just per-channel time, so scale by pane count too, with real margin on top.
     // The server exports as fast as the recorder's playback budget allows at that moment — 16x when nothing
     // else is playing, as slow as 1x alongside a busy review — so allow for the slow case here.
-    const perChannel = Math.max(90, spanSec * 3 + 60);
+    // The recorder starts at the keyframe before the clip (up to a minute of extra footage — app/export.py's
+    // export_deadline_s), so that pre-roll counts too.
+    const perChannel = Math.max(90, (spanSec + 60) * 3 + 60);
     const deadline = Date.now() + perChannel * this.panes.length * 1000;
     return new Promise((resolve, reject) => {
       const tick = async () => {
@@ -1261,8 +1265,9 @@ export class PlaybackView {
         let job;
         try { job = await api.exportStatus(jobId); } catch (e) { reject(e); return; }
         if (job.state === 'error') { reject(new Error(job.error || 'Export failed')); return; }
+        if (job.state === 'cancelled') { reject(Object.assign(new Error('Export cancelled'), { cancelled: true })); return; }
         if (job.state === 'done') { resolve(); return; }
-        onProgress?.(job.progress || 'Working…');
+        onProgress?.(job.state === 'cancelling' ? 'Cancelling…' : job.progress || 'Working…');
         setTimeout(tick, 1500);
       };
       tick();

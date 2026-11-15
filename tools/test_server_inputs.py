@@ -8,6 +8,7 @@ import datetime
 import json
 import os
 import queue
+import struct
 import sys
 import tempfile
 import time
@@ -156,6 +157,27 @@ def playback_ws_inputs():
         check("ws: no override -> the standard recording track", FakeReader.instances[0].args["path"] == "/Streaming/tracks/201",
               FakeReader.instances[0].args)
 
+        # Segment metadata: "playing" before the first frame (codec, where the times come from, display_from),
+        # "segment" before the first frame after a seek; frame headers unchanged (byte 0 = keyframe, then time).
+        FakeReader.instances.clear()
+        seg1 = {"codec": "h264", "time_source": "calibration", "approx": False, "display_from": 1000.0,
+                "first_utc": 990.5, "bound_s": 1.6, "target": 1000.0, "_a": 1.0, "_offset": 0.0}
+        seg2 = dict(seg1, time_source="anchor", approx=True, display_from=2000.0, first_utc=2000.0, bound_s=None)
+        with c.websocket_connect(f"/api/playback/ws?channel=c1&start={start}&speed=1") as ws:
+            q = FakeReader.instances[0].q
+            for f in (server.psess.Frame(990.5, True, b"\x00\x00\x00\x01\x65", seg1, True),
+                      server.psess.Frame(990.5 + 1 / 15, False, b"\x00\x00\x00\x01\x41", seg1, True),
+                      server.psess.Frame(2000.0, True, b"\x00\x00\x00\x01\x65", seg2, False)):
+                q.put(f)
+            m1, b1, b2, m2, b3 = ws.receive_json(), ws.receive_bytes(), ws.receive_bytes(), ws.receive_json(), ws.receive_bytes()
+        check("ws: 'playing' carries the segment (no private fields)",
+              m1 == {"type": "playing", "codec": "h264", "time_source": "calibration", "approx": False,
+                     "display_from": 1000.0, "first_utc": 990.5, "bound_s": 1.6}, m1)
+        check("ws: frame header unchanged (keyframe flag, then the recorded time)",
+              b1[0] == 1 and struct.unpack(">d", b1[1:9])[0] == 990.5 and b1[9:] == b"\x00\x00\x00\x01\x65" and b2[0] == 0, b1[:9])
+        check("ws: a new segment is announced before its first frame",
+              m2.get("type") == "segment" and m2.get("approx") is True and m2.get("display_from") == 2000.0 and b3[0] == 1, m2)
+
         recorder_guard.trip(recorder_guard.fingerprint("10.0.0.9", "admin", PW), "test")
         FakeReader.instances.clear()
         got = ws_close(f"/api/playback/ws?channel=c1&start={start}&speed=1")
@@ -281,6 +303,23 @@ def exports():
         check("audit: export downloaded", (last_audit("export.download") or {}).get("target") == "job1")
     finally:
         server.exportmod.get_job = orig_get
+
+    # Cancel: running -> 200 + audited; finished -> 409; unknown -> 404. The signing key route is not swallowed by
+    # /api/export/{job_id} (declared first).
+    orig_cancel = server.exportmod.cancel_job
+    server.exportmod.cancel_job = lambda jid: {"run1": "cancelling", "done1": "done"}.get(jid)
+    try:
+        r = c.delete("/api/export/run1")
+        check("export cancel: running job -> 200 cancelling", r.status_code == 200 and r.json()["state"] == "cancelling", r.text)
+        check("audit: export cancelled", (last_audit("export.cancel") or {}).get("target") == "run1")
+        check("export cancel: finished job -> 409", c.delete("/api/export/done1").status_code == 409)
+        check("export cancel: unknown job -> 404", c.delete("/api/export/nope").status_code == 404)
+    finally:
+        server.exportmod.cancel_job = orig_cancel
+    r = c.get("/api/export/signing-key")
+    k = r.json() if r.status_code == 200 else {}
+    check("export signing key: hex + fingerprint (not treated as a job id)", r.status_code == 200 and len(k.get("public_key_hex", "")) == 64
+          and k.get("fingerprint") == server.exportmod.key_fingerprint(k["public_key_hex"]), r.text[:200])
 
 
 def export_module_requires_offset():

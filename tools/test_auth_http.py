@@ -162,6 +162,8 @@ def role_matrix():
         ("GET", "/api/playback/pool", None, "operator"),
         ("GET", "/api/bookmarks", None, "operator"),
         ("POST", "/api/export", {"channels": ["zz"], "start_utc": "x", "end_utc": "y"}, "operator"),
+        ("GET", "/api/export/signing-key", None, "operator"),   # public key + fingerprint (Settings, verify.html)
+        ("DELETE", "/api/export/no-such-job", None, "operator"),   # cancel an export: 404 here, never 401/403
         ("GET", "/api/enhance/abc", None, "operator"),
         ("PUT", "/api/settings", {"connection": {"host": "not a host!"}}, "admin"),   # 422: never saved
         ("POST", "/api/test", {}, "admin"),
