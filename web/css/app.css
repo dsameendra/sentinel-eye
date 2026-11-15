@@ -207,6 +207,21 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .nitem small { display: block; color: var(--muted); font-size: 12px; }
 .notif-empty { padding: 22px 16px; color: var(--muted); font-size: 13px; text-align: center; display: grid; place-items: center; }
 .notif-all { display: block; text-align: center; padding: 11px; border-top: 1px solid var(--line); color: var(--accent-text); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+/* Exports panel (web/js/exportsTray.js): the queue of export jobs, from any page. Reuses the notifications popover. */
+.xj-count { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 10.5px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 1.5px var(--bg); }
+.xj-pop { width: 360px; max-width: calc(100vw - 24px); }
+.xj-item { display: flex; gap: 11px; padding: 12px 16px; align-items: flex-start; }
+.xj-item + .xj-item { border-top: 1px solid var(--line); }
+.xj-item .dot { margin-top: 5px; }
+.xj-main { flex: 1; min-width: 0; }
+.xj-main b { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xj-main small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.xj-item.bad .xj-state { color: var(--danger); }
+.xj-bar { height: 4px; margin-top: 7px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.xj-bar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); transition: width .4s ease; }
+.xj-act { flex: none; align-self: center; }
+.xj-foot { padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .xj-bar i { transition: none; } }
 .view-pop { width: 330px; padding: 12px; }
 .pop-label { font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: 4px 6px 8px; }
 .pop-sep { height: 1px; background: var(--line); margin: 10px 0; }

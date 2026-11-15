@@ -131,6 +131,12 @@ involved.
   installation's key fingerprint under "Evidence signing key"; `verify.html` shows the fingerprint of the key that signed a package. A recipient should
   compare the two — a valid signature only proves the files match the key that signed them.
 - **Cancel**: a running export (or the rest of a batch) can be cancelled; its partial files are removed.
+- **Exports panel**: exports run one at a time, in the order they were requested, on the server — so a long
+  batch keeps going after the tab that started it is closed. A button in the top bar (operators and admins)
+  lists every export from any page: what is running and how far along, what is waiting and its place in the
+  queue, and finished ones with a Download button until they expire (2 hours). Waiting and running exports
+  can be cancelled there. The list survives a server restart; an export that was still waiting or running
+  when the server stopped is shown as interrupted and has to be made again.
 - **Plain MP4/MKV**: just the clip, for a quick look.
 
 ![Export clip dialog with signed evidence package option and interactive trimming](docs/screenshots/export-landscape.jpg)
@@ -578,6 +584,7 @@ node tools/test_shell_update.mjs                    # shell imports, cache/updat
 node tools/test_pwa_bootstrap.mjs                   # installed Apple detection
 node tools/test_codecs.mjs                          # WebCodecs codec strings (H.265 / H.264)
 node tools/test_eventspans.mjs                      # Skip empty spans, previous/next event
+node tools/test_exportjobs.mjs                      # Exports panel wording and order
 .venv/bin/python tools/pwa_preview.py               # synthetic UI; no recorder or production writes
 ```
 

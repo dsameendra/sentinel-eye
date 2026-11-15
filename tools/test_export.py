@@ -344,6 +344,89 @@ def provenance():
     check("deadline covers pre-roll at the granted speed", export.export_deadline_s(3600, "16") == (3600 + 60) / 16 * 3 + 60 and export.export_deadline_s(3600, "1") == (3600 + 60) * 3 + 60)
 
 
+def job_queue(units):
+    """Jobs run one at a time in request order, are listed with their place in the queue and progress, a queued
+    one can be cancelled without ever reaching the recorder, and the list survives a restart."""
+    real_reader, real_info, real_ver = psess.PlaybackReader, export.recorder_info, export.app_version
+    psess.PlaybackReader = FakeReader
+    FakeReader.units, FakeReader.until, FakeReader.delay = units, None, 0.01
+    export.recorder_info = lambda c: None
+    export.app_version = lambda: "v-test"
+    start = datetime.datetime(2026, 11, 10, 8, 41, 47, tzinfo=UTC)
+    end = (start + datetime.timedelta(seconds=120)).isoformat()
+    short_end = (start + datetime.timedelta(seconds=4)).isoformat()
+    chan = lambda name: [{"id": "c1", "channel": 1, "name": name, "_tz_offset_min": 330}]
+    try:
+        n0 = len(FakeReader.instances)
+        export.start_export("q1", chan("First"), start.isoformat(), end, "plain", "opal", CONN_DICT)
+        export.start_export("q2", chan("Second"), start.isoformat(), short_end, "plain", "opal", CONN_DICT)
+        export.start_export("q3", chan("Third"), start.isoformat(), short_end, "plain", "ruby", CONN_DICT)
+        deadline = time.time() + 5
+        while export.get_job("q1")["state"] != "running" and time.time() < deadline:
+            time.sleep(0.02)
+        time.sleep(0.3)
+        jobs = {j["id"]: j for j in export.list_jobs()}
+        check("queue: first job runs, the others wait", (jobs["q1"]["state"], jobs["q2"]["state"], jobs["q3"]["state"]) == ("running", "queued", "queued"),
+              [jobs[k]["state"] for k in ("q1", "q2", "q3")])
+        check("queue: only one recorder session opened while others wait", len(FakeReader.instances) == n0 + 1, len(FakeReader.instances) - n0)
+        check("queue: positions count from the front", (jobs["q1"]["position"], jobs["q2"]["position"], jobs["q3"]["position"]) == (None, 1, 2))
+        ids = [j["id"] for j in export.list_jobs()]
+        check("list: newest first", ids.index("q3") < ids.index("q2") < ids.index("q1"), ids)
+        check("list: says what each job is", jobs["q3"]["cameras"] == ["Third"] and jobs["q3"]["operator"] == "ruby" and jobs["q3"]["package"] == "plain"
+              and jobs["q3"]["start_utc"] == start.isoformat() and jobs["q3"]["created_utc"])
+        check("list: no private fields", not any(k.startswith("_") for j in export.list_jobs() for k in j))
+        deadline = time.time() + 5
+        while not export.get_job("q1")["percent"] and time.time() < deadline:
+            time.sleep(0.05)
+        check("progress: a running job reports a percent", 0 < (export.get_job("q1")["percent"] or 0) < 100, export.get_job("q1")["percent"])
+        saved = json.loads((export.EXPORT_DIR / "jobs.json").read_text())
+        check("persisted: the list is written to exports/jobs.json", saved.get("q1", {}).get("state") == "running" and "q3" in saved)
+
+        check("cancel queued: cancelled on the spot", export.cancel_job("q2") == "cancelled" and export.get_job("q2")["state"] == "cancelled")
+        check("cancel queued: the job behind it moves up", {j["id"]: j["position"] for j in export.list_jobs()}["q3"] == 1)
+        check("cancel running: accepted", export.cancel_job("q1") == "cancelling")
+        check("cancel running: ends cancelled", wait_job("q1")["state"] == "cancelled")
+        j3 = wait_job("q3")
+        check("queue: the next waiting job then runs to the end", j3["state"] == "done" and j3["percent"] == 100, j3)
+        check("queue: a cancelled queued job never opened a recorder session", len(FakeReader.instances) == n0 + 2, len(FakeReader.instances) - n0)
+        check("done: size, finish time and expiry recorded", j3["size_bytes"] > 0 and j3["finished_utc"] and j3["expires_utc"] > j3["finished_utc"], j3)
+        check("done: nothing left waiting", all(j["position"] is None for j in export.list_jobs()))
+
+        # A restart: the saved list comes back; unfinished work is marked interrupted, missing files are dropped.
+        time.sleep(0.2)   # the worker's final save
+        saved = json.loads((export.EXPORT_DIR / "jobs.json").read_text())
+        saved["r-run"] = {"state": "running", "cameras": ["X"], "_created": time.time(), "percent": 40}
+        saved["r-wait"] = {"state": "queued", "cameras": ["Y"], "_created": time.time()}
+        saved["r-gone"] = {"state": "done", "download": "r-gone.zip", "_created": time.time()}
+        saved["../evil"] = {"state": "done", "download": "x", "_created": time.time()}
+        (export.EXPORT_DIR / "r-run").mkdir()
+        (export.EXPORT_DIR / "r-run" / "clip_X.mp4").write_bytes(b"partial")
+        (export.EXPORT_DIR / "jobs.json").write_text(json.dumps(saved))
+        with export._jobs_lock:
+            export._jobs.clear()
+            export._ctl.clear()
+        export.load_jobs()
+        back = {j["id"]: j for j in export.list_jobs()}
+        check("restart: a finished export is still listed and downloadable", back.get("q3", {}).get("state") == "done"
+              and (export.EXPORT_DIR / back["q3"]["download"]).exists())
+        check("restart: running and queued jobs come back as interrupted", back["r-run"]["state"] == "interrupted" and back["r-wait"]["state"] == "interrupted"
+              and "restarted" in back["r-run"]["error"])
+        check("restart: an interrupted job's partial clip is removed", not (export.EXPORT_DIR / "r-run").exists())
+        check("restart: a finished job whose file is gone is dropped", "r-gone" not in back)
+        check("restart: a job id that isn't one of ours is ignored", "../evil" not in back)
+        check("restart: an interrupted job can't be cancelled or downloaded", export.cancel_job("r-run") == "interrupted" and not back["r-run"]["download"])
+        (export.EXPORT_DIR / "jobs.json").write_text("{not json")
+        with export._jobs_lock:
+            export._jobs.clear()
+        export.load_jobs()
+        check("restart: a corrupt jobs.json is ignored, not fatal", export.list_jobs() == [])
+        export.start_export("q4", chan("After"), start.isoformat(), short_end, "plain", "opal", CONN_DICT)
+        check("queue: still works after a reload", wait_job("q4")["state"] == "done")
+    finally:
+        psess.PlaybackReader, export.recorder_info, export.app_version = real_reader, real_info, real_ver
+        FakeReader.delay = 0.0
+
+
 def sweep():
     old = time.time() - export.JOB_TTL - 60
     export.EXPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -377,8 +460,9 @@ def main():
             whole_export(units)
             signed_package(units)
             cancel(units)
+            job_queue(units)
         else:
-            skip("whole export / signed package / cancel", "needs an H.264 encoder for the synthetic clip")
+            skip("whole export / signed package / cancel / job queue", "needs an H.264 encoder for the synthetic clip")
         provenance()
         sweep()
     finally:

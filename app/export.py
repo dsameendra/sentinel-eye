@@ -29,7 +29,9 @@ verify the same way.
 Package "plain": just the clip file(s), no manifest, no signature.
 
 Several cuts at once: the Playback view's multi-cut clip list runs one export job per cut (web/js/playback.js).
-A queued or running job can be cancelled (cancel_job): its reader is stopped and its partial files removed.
+Jobs run one at a time in request order (see "job tracking" below) and are listed, with their place in the
+queue and progress, by list_jobs. A queued or running job can be cancelled (cancel_job): its reader is stopped
+and its partial files removed.
 Not implemented yet: package "original DVR file" (option 3, ISAPI native passthrough) — deferred, not stubbed.
 """
 import datetime
@@ -76,6 +78,7 @@ def _sweep_old_jobs():
     with _jobs_lock:
         # A long export (hours at 1x beside a busy review) writes its clip in place: never sweep a live one.
         live = {j for j, v in _jobs.items() if v.get("state") in ("queued", "running", "cancelling")}
+        before = len(_jobs)
     if EXPORT_DIR.exists():
         for d in EXPORT_DIR.iterdir():
             try:
@@ -89,9 +92,12 @@ def _sweep_old_jobs():
                 pass
     with _jobs_lock:
         for jid in [j for j, v in _jobs.items()
-                    if v.get("state") in ("done", "error", "cancelled") and v.get("_created", 0) < cutoff]:
+                    if v.get("state") in ("done", "error", "cancelled", "interrupted") and v.get("_created", 0) < cutoff]:
             _jobs.pop(jid, None)
             _ctl.pop(jid, None)
+        changed = len(_jobs) != before
+    if changed:
+        _save_jobs()
 
 
 # ------------------------------------------------------------------ signing key
@@ -182,26 +188,130 @@ def recorder_info(connection_dict):
 
 
 # ------------------------------------------------------------------ job tracking
+#
+# Jobs run one at a time, in the order they were requested, on a single worker thread. They used to each start
+# their own thread at once: several exports then competed for the recorder's four playback sessions (and its
+# speed budget) and any that waited longer than the pool's timeout simply failed. Queued here instead, each one
+# gets the recorder's full export speed in turn, a batch keeps going after the browser tab that started it is
+# closed, and the queue can be shown to the operator (list_jobs) with an honest position.
+#
+# The job list is also written to exports/jobs.json, so finished exports are still listed (and downloadable,
+# until JOB_TTL sweeps them) after a restart. A job that was queued or running when the server stopped can't be
+# resumed — its recorder session and partial clip are gone — so it comes back as "interrupted".
+ACTIVE = ("queued", "running", "cancelling")
+_PUBLIC = ("state", "progress", "percent", "error", "download", "package", "cameras", "start_utc", "end_utc",
+           "operator", "created_utc", "started_utc", "finished_utc", "size_bytes", "expires_utc")
+_queue = queue.Queue()
+_worker = None
+
+
+def _jobs_file():
+    return EXPORT_DIR / "jobs.json"   # read at call time: tests point EXPORT_DIR at a scratch dir
+
+
+def _now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _public(job_id, j):
+    d = {k: j.get(k) for k in _PUBLIC}
+    d["id"] = job_id
+    return d
+
+
 def get_job(job_id):
     with _jobs_lock:
         j = _jobs.get(job_id)
-        return {k: v for k, v in j.items() if not k.startswith("_")} if j is not None else None
+        return _public(job_id, j) if j is not None else None
+
+
+def list_jobs():
+    """Every export this install still knows about, newest first; queued ones carry their place in the queue
+    (1 = next). What the Exports panel shows."""
+    with _jobs_lock:
+        jobs = sorted(_jobs.items(), key=lambda kv: kv[1].get("_created", 0))
+        waiting = [jid for jid, j in jobs if j.get("state") == "queued"]
+        out = []
+        for jid, j in jobs:
+            d = _public(jid, j)
+            d["position"] = waiting.index(jid) + 1 if jid in waiting else None
+            out.append(d)
+    return out[::-1]
+
+
+def _save_jobs():
+    """Persist the job list (atomically; best effort — the list is a convenience, never the evidence)."""
+    with _jobs_lock:
+        data = {jid: {**{k: j.get(k) for k in _PUBLIC}, "_created": j.get("_created", 0)} for jid, j in _jobs.items()}
+    try:
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _jobs_file().with_suffix(".tmp")
+        tmp.write_text(json.dumps(data))
+        tmp.replace(_jobs_file())
+    except OSError:
+        pass
+
+
+def load_jobs():
+    """Once at start-up: bring back the saved job list. Finished exports whose file is still there stay
+    downloadable; anything that was still queued or running is marked interrupted and its partial files removed."""
+    try:
+        data = json.loads(_jobs_file().read_text())
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    with _jobs_lock:
+        for jid, j in data.items():
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(jid)) or not isinstance(j, dict) or jid in _jobs:
+                continue
+            if j.get("state") in ACTIVE:
+                j.update(state="interrupted", progress="", percent=None, download=None, finished_utc=_now_iso(),
+                         error="The server restarted before this export finished — export it again")
+                _remove_job_files(jid)
+            elif j.get("state") == "done" and not (j.get("download") and (EXPORT_DIR / j["download"]).exists()):
+                continue   # its file was swept or removed: nothing left to offer
+            _jobs[jid] = j
+    _save_jobs()
+
+
+def _ensure_worker():
+    global _worker
+    with _jobs_lock:
+        if _worker is None or not _worker.is_alive():
+            _worker = threading.Thread(target=_work, daemon=True)
+            _worker.start()
+
+
+def _work():
+    while True:
+        args = _queue.get()
+        try:
+            _run_export(*args)
+        finally:
+            _save_jobs()
 
 
 def start_export(job_id, channels, start_utc, end_utc, package, operator, connection_dict):
-    """channels: list of {id, channel, name} (our config's channel dicts). Runs in a background thread."""
+    """channels: list of {id, channel, name} (our config's channel dicts). Queued; the worker runs it in turn."""
     _sweep_old_jobs()
+    now = time.time()
     with _jobs_lock:
-        _jobs[job_id] = {"state": "queued", "progress": "", "error": None, "download": None, "package": package,
-                         "_created": time.time()}
+        _jobs[job_id] = {"state": "queued", "progress": "", "percent": None, "error": None, "download": None,
+                         "package": package, "operator": operator, "start_utc": start_utc, "end_utc": end_utc,
+                         "cameras": [c.get("name") or f"Channel {c['channel']}" for c in channels],
+                         "created_utc": _now_iso(), "started_utc": None, "finished_utc": None, "size_bytes": None,
+                         "expires_utc": None, "_created": now}
         _ctl[job_id] = {"cancel": threading.Event(), "reader": None}
-    t = threading.Thread(target=_run_export, args=(job_id, channels, start_utc, end_utc, package, operator, connection_dict), daemon=True)
-    t.start()
+    _save_jobs()
+    _queue.put((job_id, channels, start_utc, end_utc, package, operator, connection_dict))
+    _ensure_worker()
 
 
 def cancel_job(job_id):
-    """Cancel a queued or running export: its reader stops (releasing its recorder session) and the worker
-    removes the partial files. Returns the job's state afterwards, or None for an unknown job."""
+    """Cancel a queued or running export. A queued one is cancelled on the spot (the worker skips it when its
+    turn comes); a running one has its reader stopped (releasing its recorder session) and the worker removes
+    the partial files. Returns the job's state afterwards, or None for an unknown job."""
     with _jobs_lock:
         j, c = _jobs.get(job_id), _ctl.get(job_id)
         if j is None:
@@ -209,11 +319,17 @@ def cancel_job(job_id):
         if j["state"] not in ("queued", "running") or c is None:
             return j["state"]
         c["cancel"].set()
-        j["state"] = "cancelling"
-        reader = c["reader"]
+        if j["state"] == "queued":
+            j.update(state="cancelled", progress="cancelled", finished_utc=_now_iso())
+            reader = None
+        else:
+            j["state"] = "cancelling"
+            reader = c["reader"]
+        state = j["state"]   # as of this call: the worker may finish cancelling before we return
     if reader is not None:
         reader.stop()
-    return "cancelling"
+    _save_jobs()
+    return state
 
 
 def _set(job_id, **kw):
@@ -229,34 +345,45 @@ def _check_cancel(job_id):
 
 def _run_export(job_id, channels, start_utc, end_utc, package, operator, connection_dict):
     job_dir = EXPORT_DIR / job_id
+    with _jobs_lock:
+        if job_id not in _jobs or _jobs[job_id]["state"] != "queued":
+            return   # cancelled while it waited (or swept): never contact the recorder for it
+        _jobs[job_id].update(state="running", progress=f"0/{len(channels)} cameras", percent=0,
+                             started_utc=_now_iso())
+    _save_jobs()
     try:
         job_dir.mkdir(parents=True, exist_ok=True)
         _check_cancel(job_id)
-        _set(job_id, state="running", progress=f"0/{len(channels)} cameras")
         clips = []
         for i, ch in enumerate(channels):
             _check_cancel(job_id)
             _set(job_id, progress=f"{i}/{len(channels)} cameras — exporting {ch.get('name') or 'channel ' + str(ch['channel'])}")
-            clip = _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id)
+            # Share of the whole job done so far: finished cameras plus how far through this one's range the
+            # frames have got (the last few percent are left for packaging).
+            on_progress = lambda frac, i=i: _set(job_id, percent=min(97, int(97 * (i + frac) / len(channels))))
+            clip = _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id, on_progress)
             clips.append(clip)
         _check_cancel(job_id)
-        _set(job_id, progress=f"{len(channels)}/{len(channels)} cameras — packaging")
+        _set(job_id, progress=f"{len(channels)}/{len(channels)} cameras — packaging", percent=98)
 
         if package == "signed":
             out_path = _package_signed(job_dir, job_id, clips, operator, start_utc, end_utc, connection_dict,
                                        bookmarks=bookmarks_for_manifest(channels, start_utc, end_utc))
         else:
             out_path = _package_plain(job_dir, job_id, clips)
+        size = out_path.stat().st_size
+        expires = datetime.datetime.fromtimestamp(time.time() + JOB_TTL, datetime.timezone.utc).isoformat()
         with _jobs_lock:   # atomically with the cancel flag: a cancel that lands now still wins
             if _ctl.get(job_id, {}).get("cancel") is not None and _ctl[job_id]["cancel"].is_set():
                 raise Cancelled()
-            _jobs[job_id].update(state="done", progress="done", download=str(out_path.relative_to(EXPORT_DIR)))
+            _jobs[job_id].update(state="done", progress="done", percent=100, size_bytes=size, expires_utc=expires,
+                                 finished_utc=_now_iso(), download=str(out_path.relative_to(EXPORT_DIR)))
     except Cancelled:
         _remove_job_files(job_id)
-        _set(job_id, state="cancelled", progress="cancelled")
+        _set(job_id, state="cancelled", progress="cancelled", percent=None, finished_utc=_now_iso())
     except Exception as e:
         _remove_job_files(job_id)
-        _set(job_id, state="error", error=f"{type(e).__name__}: {e}")
+        _set(job_id, state="error", error=f"{type(e).__name__}: {e}", percent=None, finished_utc=_now_iso())
     finally:
         with _jobs_lock:
             if job_id in _ctl:
@@ -407,7 +534,7 @@ def _time_accuracy(seg, preroll_s):
             "the reference.")
 
 
-def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id=None):
+def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id=None, on_progress=None):
     conn = h.conn_of({"connection": connection_dict})
     # The recording-track override, never the live main_path one: a live path here would silently export live
     # video instead of the requested range (see hikrelay.playback_path).
@@ -482,6 +609,8 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id
             if mux is None:
                 mux = IncrementalMux(out_file, seg["codec"])
             mux.add(item.t, item.key, item.data)
+            if on_progress is not None and mux.count % 30 == 0 and span > 0:
+                on_progress(min(1.0, max(0.0, (item.t - start_dt.timestamp()) / span)))
         if job_id is not None:
             _check_cancel(job_id)
         if mux is None or mux.count == 0:

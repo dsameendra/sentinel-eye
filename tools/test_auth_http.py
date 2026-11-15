@@ -166,6 +166,7 @@ def role_matrix():
         ("GET", "/api/timeline/events.csv", None, "operator"),             # 503 here (no recorder clock), never 401/403
         ("GET", "/api/timeline/retention", None, "operator"),
         ("POST", "/api/export", {"channels": ["zz"], "start_utc": "x", "end_utc": "y"}, "operator"),
+        ("GET", "/api/export", None, "operator"),               # the Exports panel's job list
         ("GET", "/api/export/signing-key", None, "operator"),   # public key + fingerprint (Settings, verify.html)
         ("DELETE", "/api/export/no-such-job", None, "operator"),   # cancel an export: 404 here, never 401/403
         ("GET", "/api/enhance/abc", None, "operator"),

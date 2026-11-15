@@ -81,6 +81,7 @@ async def lifespan(app):
     p = PlaybackService(current)
     state["playback"] = p
     await run_in_threadpool(p.start)
+    await run_in_threadpool(exportmod.load_jobs)   # finished exports stay listed and downloadable across a restart
     await run_in_threadpool(exportmod._sweep_old_jobs)  # exports are downloads, not an archive — sweep stale ones on boot too
     await run_in_threadpool(enhance_ai._sweep_old_jobs)  # same reasoning, same TTL pattern, separate job kind
     yield
@@ -654,6 +655,13 @@ async def create_export(req: ExportRequest, request: Request):
     _audit(request, "export.create", job_id, channels=[c.channel for c in chans], start_utc=start_utc,
            end_utc=end_utc, package=req.package)
     return {"job_id": job_id}
+
+
+@app.get("/api/export")
+async def export_list():
+    """Every export still known here, newest first, with queue position and progress (operator+, like
+    exporting): what the Exports panel in the top bar shows, from any page and after a reload."""
+    return await run_in_threadpool(exportmod.list_jobs)
 
 
 @app.get("/api/export/signing-key")

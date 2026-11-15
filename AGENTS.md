@@ -88,6 +88,7 @@ Also run the suites for the area you touched. None of them needs a recorder:
 | Log rotation | `.venv/bin/python3 tools/test_log_rotation.py` |
 | Codec strings | `node tools/test_codecs.mjs` |
 | Skip empty / previous-next event | `node tools/test_eventspans.mjs` |
+| Exports panel (queue wording) | `node tools/test_exportjobs.mjs` |
 | Encoder selection | `.venv/bin/python3 tools/test_hwaccel.py` |
 | AI enhancer | `.venv/bin/python3 tools/test_enhance_models.py`, `tools/test_enhance_ai.py` |
 | Docker | `tools/test_docker_image.sh`, `tools/test_docker_compose.sh` |

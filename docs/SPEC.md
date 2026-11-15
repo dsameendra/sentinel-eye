@@ -671,7 +671,11 @@ when it answers, and the signing key's fingerprint (SHA-256 of the raw public ke
 fingerprint and asks the recipient to compare it with "Evidence signing key" in the exporting install's Settings
 (Status for admins, This device for operators). H.264 recordings export, play and thumbnail like H.265 ones. Clips are muxed as frames arrive (memory
 stays flat) and stored uncompressed in the zip. A queued or running export can be cancelled
-(`DELETE /api/export/{id}`), which releases its recorder session and removes its partial files. Bookmarks on the
+(`DELETE /api/export/{id}`), which releases its recorder session and removes its partial files. Exports run one at a
+time in request order on a single server-side worker (they used to start at once and compete for the recorder's
+playback sessions), so a batch survives its browser tab; `GET /api/export` lists every job with its queue
+position, percent and expiry, shown by the Exports panel in the top bar, and the list is kept in
+`exports/jobs.json` across restarts (unfinished jobs come back as interrupted). Bookmarks on the
 exported cameras inside the range are listed in the manifest (`bookmarks: [{id, time_utc, time_local, cameras,
 title, severity, note, author, created_utc, edited_by?, edited_utc?}]`, additive — absent when there are none) and
 shown by `verify.html`. Export refuses a range with no recording.
