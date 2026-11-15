@@ -14,6 +14,7 @@ import time
 
 import db
 import hikrelay as h
+import recorder_guard
 
 MAX_SESSIONS = 4
 # The recorder's playback bandwidth budget, in "real-time streams": measured directly against it, the sum of
@@ -23,6 +24,31 @@ MAX_SESSIONS = 4
 SPEED_BUDGET = 16
 NICE_SPEEDS = ("0.125", "0.25", "0.5", "1", "2", "4", "8", "16")
 BANDWIDTH_MSG = "The recorder can't play this many cameras this fast — lower the speed, or show fewer cameras."
+
+
+def valid_speed(v):
+    """`v` as one of NICE_SPEEDS ("2", "0.5", …), or None. Speeds go into the recorder's RTSP `Scale:` header,
+    so only these exact strings are ever passed on; a JSON number (2, 0.5) is accepted in its canonical form."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        v = f"{v:g}"
+    return v if isinstance(v, str) and v in NICE_SPEEDS else None
+
+
+def parse_utc(v):
+    """An ISO 8601 instant as an aware UTC datetime, or None if it isn't one. A naive time is taken as UTC (the
+    API's times are all UTC): formatting a naive one for the recorder would otherwise silently use the host's
+    own zone (hik_time's astimezone)."""
+    if not isinstance(v, str) or not v or len(v) > 64:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(v.replace("Z", "+00:00") if v.endswith("Z") else v)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
 
 
 def units(speed) -> float:
@@ -132,12 +158,18 @@ class PlaybackReader:
         self.thread.start()
 
     def seek(self, start_utc, speed=None):
-        self._seek_to = start_utc
-        if speed is not None:
-            self._new_speed = speed
+        """Ignored when `start_utc` isn't an ISO 8601 instant; an invalid `speed` keeps the current one (the
+        server validates both first; this is the second layer before they reach the RTSP request)."""
+        dt = parse_utc(start_utc)
+        if dt is None:
+            return
+        self._seek_to = dt.isoformat()
+        if valid_speed(speed) is not None:
+            self._new_speed = valid_speed(speed)
 
     def set_speed(self, speed):
-        self._new_speed = speed
+        if valid_speed(speed) is not None:
+            self._new_speed = valid_speed(speed)
 
     def stop(self):
         self._stop.set()
@@ -160,6 +192,12 @@ class PlaybackReader:
             pass
 
     def _run(self):
+        c = self.conn
+        if recorder_guard.tripped(recorder_guard.fingerprint(c["host"], c["user"], c["pw"])):
+            # Fail before queueing for a session slot: nothing will log in until the password is fixed.
+            self.error = recorder_guard.MESSAGE
+            self.q.put(("error", self.error))
+            return
         self.waiting_for_slot = True
         if self.adaptive_speeds:
             got = pool.acquire_fastest(self.adaptive_speeds, timeout=25)
@@ -207,7 +245,9 @@ class PlaybackReader:
         return r["a_const"] if r else self.a_const
 
     def _play_loop(self):
-        start_dt = datetime.datetime.fromisoformat(self._seek_to or self.start_utc)
+        start_dt = parse_utc(self._seek_to or self.start_utc)
+        if start_dt is None:
+            raise h.RelayError("Invalid playback time")
         self._seek_to = None
         self.a_const = self._a_const_for(start_dt)
         # The DVR refuses PLAY for a time too close to "now" (still-open recording segment) — with 400 Bad
@@ -249,7 +289,7 @@ class PlaybackReader:
             if self._stop.is_set():
                 return
             if self._seek_to is not None or self._new_speed is not None:
-                seek_dt = datetime.datetime.fromisoformat(self._seek_to) if self._seek_to else \
+                seek_dt = (parse_utc(self._seek_to) if self._seek_to else None) or \
                     datetime.datetime.fromtimestamp(near_utc, datetime.timezone.utc)
                 speed = self._new_speed or self.speed
                 self._seek_to, self._new_speed = None, None

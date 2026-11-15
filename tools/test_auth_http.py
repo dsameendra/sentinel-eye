@@ -134,7 +134,8 @@ def anonymous():
                 public_module(urljoin(path, spec))
     for entry in ("/js/login.js", "/js/pair.js", "/js/pwa.js"):
         public_module(entry)
-    check("anon /api/status only says go2rtc", r.status_code == 200 and r.json() == {"go2rtc": True}, r.text)
+    check("anon /api/status only says go2rtc (not even whether the recorder password works)",
+          r.status_code == 200 and r.json() == {"go2rtc": True}, r.text)
     r = c.get("/api/settings")
     check("anon API -> 401 JSON", r.status_code == 401 and r.json()["code"] == "auth_required")
     check("security headers, even on the gate's own answers",
@@ -165,6 +166,7 @@ def role_matrix():
         ("PUT", "/api/settings", {"connection": {"host": "not a host!"}}, "admin"),   # 422: never saved
         ("POST", "/api/test", {}, "admin"),
         ("POST", "/api/discover", {}, "admin"),
+        ("POST", "/api/recorder/retry", None, "admin"),
         ("GET", "/api/auth/admin/users", None, "admin"),
         ("GET", "/api/auth/admin/audit", None, "admin"),
         ("POST", "/api/auth/pair/approve", {"code": "x"}, "admin"),

@@ -12,6 +12,7 @@ from pathlib import Path
 import db
 import hikrelay as h
 import playback_session as psess
+import recorder_guard
 from settings import DATA
 
 THUMB_DIR = DATA / "thumbnails"
@@ -38,7 +39,7 @@ def path_for(event_id):
     return THUMB_DIR / f"{event_id}.jpg"
 
 
-def get_or_generate(event, connection_dict, main_path_override, tz_offset_min):
+def get_or_generate(event, connection_dict, playback_path_override, tz_offset_min):
     """event: a dict row from the events table (id, channel, start_utc, end_utc, snapshot_path).
     Serialized per event_id so concurrent requests for the same thumbnail don't each open a DVR session."""
     cached = event.get("snapshot_path")
@@ -60,10 +61,13 @@ def get_or_generate(event, connection_dict, main_path_override, tz_offset_min):
         if not _gen_gate.acquire(timeout=30):
             raise RuntimeError("Too many thumbnails are generating right now — try again shortly")
         try:
-            return _generate(event, connection_dict, main_path_override, tz_offset_min)
+            return _generate(event, connection_dict, playback_path_override, tz_offset_min)
         except Exception as e:
-            with _failed_guard:
-                _failed[event["id"]] = (str(e), time.monotonic())
+            # Not while the recorder is refusing the password: that clears the moment it's fixed in Settings,
+            # and a cached failure would keep every thumbnail blank for another ten minutes after.
+            if not recorder_guard.tripped():
+                with _failed_guard:
+                    _failed[event["id"]] = (str(e), time.monotonic())
             raise
         finally:
             _gen_gate.release()
@@ -71,7 +75,7 @@ def get_or_generate(event, connection_dict, main_path_override, tz_offset_min):
                 _locks.pop(event["id"], None)
 
 
-def _generate(event, connection_dict, main_path_override, tz_offset_min):
+def _generate(event, connection_dict, playback_path_override, tz_offset_min):
     start = datetime.datetime.fromisoformat(event["start_utc"])
     end = datetime.datetime.fromisoformat(event["end_utc"])
     mid = start + (end - start) / 2
@@ -82,7 +86,7 @@ def _generate(event, connection_dict, main_path_override, tz_offset_min):
     if a_const is None:
         raise RuntimeError("This channel has no clock calibration yet")
     tz = datetime.timezone(datetime.timedelta(minutes=tz_offset_min))
-    path = h.playback_path(ch, main_path_override or "")
+    path = h.playback_path(ch, playback_path_override or "")
 
     reader = psess.PlaybackReader(conn, ch, path, a_const, mid.isoformat(), tz, "1")
     reader.start()

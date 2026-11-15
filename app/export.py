@@ -15,8 +15,8 @@ it does NOT independently prove the DVR's footage itself is authentic — verify
 
 Package "plain": just the clip file(s), no manifest, no signature.
 
-Not implemented yet: package "original DVR file" (option 3, ISAPI native passthrough) and the multi-cut
-batch clipper UI — both deferred, not stubbed.
+Several cuts at once: the Playback view's multi-cut clip list runs one export job per cut (web/js/playback.js).
+Not implemented yet: package "original DVR file" (option 3, ISAPI native passthrough) — deferred, not stubbed.
 """
 import datetime
 import fractions
@@ -124,12 +124,18 @@ def _run_export(job_id, channels, start_utc, end_utc, package, operator, connect
 
 def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict):
     conn = h.conn_of({"connection": connection_dict})
-    path = h.playback_path(ch["channel"], ch.get("main_path", ""))
+    # The recording-track override, never the live main_path one: a live path here would silently export live
+    # video instead of the requested range (see hikrelay.playback_path).
+    path = h.playback_path(ch["channel"], ch.get("playback_path", ""))
     a_const = psess.calibration_for_time(ch["channel"], start_utc)
     cal = db.get_calibration_near(ch["channel"], start_utc) or db.get_calibration(ch["channel"]) or {}
     if a_const is None:
         raise RuntimeError(f"Channel {ch['channel']} has no clock calibration yet — try again shortly")
-    tz_offset = ch.get("_tz_offset_min", 330)
+    # The recorder's own UTC offset is required: guessing one (this used to default to India's +05:30) exports
+    # the wrong hours of footage, signed, on any recorder anywhere else.
+    tz_offset = ch.get("_tz_offset_min")
+    if tz_offset is None:
+        raise RuntimeError("The recorder's clock isn't known yet — try again shortly")
     tz = datetime.timezone(datetime.timedelta(minutes=tz_offset))
 
     start_dt = datetime.datetime.fromisoformat(start_utc)

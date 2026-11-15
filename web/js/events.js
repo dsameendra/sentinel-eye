@@ -5,7 +5,7 @@
 // windows by app/events.py, so no further run-collapsing is needed here.
 import { barHTML, wireBar } from './bar.js';
 import { closePopover, confirmDialog, esc, icon, openPopover, scopeLayers, toast } from './ui.js';
-import { fetchTzOffset, knownTzOffset } from './dvrtime.js';
+import { fetchTzOffset, knownTzOffset, provisionalTzOffset, waitTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { openEventPreview } from './eventPreview.js';
@@ -29,7 +29,7 @@ export class EventsView {
   constructor(root, ctx) {
     this.root = root;
     this.ctx = ctx;
-    this.tzOffsetMin = 330;
+    this.tzOffsetMin = provisionalTzOffset();   // replaced in _init by the recorder's own offset
     this.selectedCams = new Set(this.cams().map((c) => c.id)); // every enabled camera, to start — matches the previous "all cameras" default
     this.kinds = new Set(KINDS); // every type on to start; the chips narrow it
     this.query = '';               // the bar's search field — filters the loaded results as you type
@@ -95,19 +95,22 @@ export class EventsView {
   }
 
   // Draws at once (with the DVR offset already known) and searches; the offset is checked in the
-  // background, and only a change — or a first visit ever, with nothing known — waits for it.
+  // background, and only a change — or a first visit ever, with nothing known — waits for it. If the server
+  // doesn't know it yet either (it has just started), this browser's own offset stands in until it does.
   async _init() {
     const known = knownTzOffset();
-    if (known === null) this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
-    else this.tzOffsetMin = known;
+    const fetched = known ?? await fetchTzOffset();
     if (this._dead) return;   // left before a first-ever fetch came back
+    this.tzOffsetMin = fetched ?? provisionalTzOffset();
     this.build();
     this.search();
-    if (known !== null) fetchTzOffset(known).then((m) => {
-      if (m === this.tzOffsetMin || this._dead) return;
+    const apply = (m) => {
+      if (m === null || m === this.tzOffsetMin || this._dead) return;
       this.tzOffsetMin = m;
       if (this.preset === 'today') this.search(); else this.renderResults();
-    });
+    };
+    if (known !== null) fetchTzOffset(known).then(apply);
+    else if (fetched === null) waitTzOffset(() => !this._dead).then(apply);
   }
 
   // ------------------------------------------------------------- range from preset

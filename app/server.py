@@ -1,14 +1,16 @@
 """Sentinel Eye web server: UI, settings API, connection test, and a WebSocket proxy to go2rtc."""
-import asyncio, re, threading
+import asyncio, json, re, threading
 from contextlib import asynccontextmanager
-from typing import Literal
+from pathlib import Path
+from typing import Annotated, Literal
 from urllib.parse import quote, urlparse
 
 import websockets
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.concurrency import run_in_threadpool
 
 import auth
@@ -21,6 +23,7 @@ import export as exportmod
 import hikrelay
 import hwaccel
 import playback_session as psess
+import recorder_guard
 import settings as cfg
 import thumbnails
 import timebase
@@ -36,6 +39,36 @@ except auth.AuthError as e:
 
 def current() -> cfg.Settings:
     return state["settings"]
+
+
+TZ_UNKNOWN = "The recorder's clock isn't known yet — try again shortly"
+
+
+def _dvr_tz():
+    """The recorder's UTC offset as a tzinfo, or None until PlaybackService has read it."""
+    p = state["playback"]
+    return p.tz if p else None
+
+
+def _tz_offset_min(tz) -> int:
+    return int(tz.utcoffset(None).total_seconds() // 60)
+
+
+def _recorder_blocked() -> bool:
+    """True while the recorder is rejecting the saved credentials (recorder_guard): fail fast, don't log in."""
+    c = current().connection
+    return recorder_guard.tripped(recorder_guard.fingerprint(c.host, c.username, c.password))
+
+
+def _actor(request: Request) -> str:
+    """Who to name in the audit log: the account, or (sign-in off / LAN bypass) the same name stamped on
+    bookmarks and exports."""
+    p = request.state.principal
+    return p.username if p.via == "session" else p.author
+
+
+def _audit(request: Request, action: str, target: str = "", **detail) -> None:
+    auth.audit(_actor(request), action, target, auth_api.ip_of(request), **detail)
 
 
 @asynccontextmanager
@@ -155,18 +188,44 @@ def get_settings(request: Request):
 
 
 @app.put("/api/settings")
-async def put_settings(new: cfg.Settings):
+async def put_settings(new: cfg.Settings, request: Request):
     old = current()
     new = cfg.merge_secrets(new, old)
     if new.connection.encrypted and not new.connection.key:
         raise HTTPException(422, "Enter the verification code, or turn stream encryption off")
     cfg.normalise_order(new)
-    streams_changed = (new.connection != old.connection or new.channels != old.channels)
+    conn_changed = new.connection != old.connection
+    streams_changed = conn_changed or new.channels != old.channels
+    # A different recorder (not just a new password or port): what was indexed about the old one says nothing.
+    recorder_changed = (new.connection.host, new.connection.http_port) != (old.connection.host, old.connection.http_port)
     cfg.save(new)
     state["settings"] = new
+    # Saving Settings is how the admin fixes a password the recorder rejected: lift the lockout breaker so
+    # everything may log in once more (it trips again on the first rejection).
+    was_blocked = recorder_guard.clear()
+    p = state["playback"]
+    if p and (streams_changed or was_blocked):
+        p.reload(connection_changed=recorder_changed)   # new connection / channels apply now, not after a restart
+    before, after = old.model_dump(), new.model_dump()
+    # Section and field NAMES only — never a value (the connection holds the password and verification code).
+    _audit(request, "settings.update", "",
+           sections=[k for k in after if after[k] != before.get(k)] or None,
+           connection_fields=sorted(k for k in after["connection"] if after["connection"][k] != before["connection"].get(k)) or None)
     if streams_changed:
         await run_in_threadpool(state["go2rtc"].sync)
     return cfg.public(new)
+
+
+@app.post("/api/recorder/retry")
+async def recorder_retry(request: Request):
+    """Admin: try the saved credentials again after the recorder rejected them (e.g. the password was fixed
+    on the recorder itself, or its lockout has expired). One login goes first — see PlaybackService.reload."""
+    was_blocked = recorder_guard.clear()
+    p = state["playback"]
+    if p:
+        p.reload(connection_changed=False)
+    _audit(request, "recorder.retry", "", was_blocked=was_blocked)
+    return {"ok": True, "was_blocked": was_blocked}
 
 
 @app.put("/api/display")
@@ -219,10 +278,14 @@ async def status(request: Request):
         return {"go2rtc": await run_in_threadpool(g.up)}
     streams = await run_in_threadpool(g.status)
     p = state["playback"]
+    sub = p.subscriber if p else None
     return {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams,
             "hwaccel": hwaccel.current()[0],
-            "playback": {**p.status, "alertstream_connected": p.subscriber.connected if p.subscriber else False,
-                         "last_live_event_utc": p.subscriber.last_event_utc if p.subscriber else None}}
+            # The recorder rejected the saved username/password: nothing logs in until Settings are saved or an
+            # admin retries (POST /api/recorder/retry). A yes/no only — no credentials, so fine for any role.
+            "recorder_auth_failed": _recorder_blocked(),
+            "playback": {**(p.status if p else {}), "alertstream_connected": sub.connected if sub else False,
+                         "last_live_event_utc": sub.last_event_utc if sub else None}}
 
 
 # ------------------------------------------------------------------ playback (timeline: coverage + events)
@@ -259,7 +322,7 @@ async def timeline_events(channel: list[int] | None = Query(None), start_utc: st
     # Both callers (events.js, timeline.js) are unaffected by the order itself: events.js re-sorts
     # client-side regardless, and timeline.js positions each event by its own timestamp, not array order.
     q += " ORDER BY start_utc DESC LIMIT ?"
-    params.append(limit)
+    params.append(max(1, min(limit, 5000)))   # clamped, not refused: bounds one query's cost without a 422
     rows = await run_in_threadpool(db.query, q, tuple(params))
     return [dict(r) for r in rows]
 
@@ -273,16 +336,25 @@ async def event_thumbnail(event_id: int):
     if row is None:
         raise HTTPException(404, "Unknown event")
     event = dict(row)
+    # Private: a frame of camera footage, behind sign-in — no shared cache may keep a copy.
+    cache = {"Cache-Control": "private, max-age=604800"}
+    cached = event.get("snapshot_path")
+    if cached and Path(cached).exists():
+        return FileResponse(cached, media_type="image/jpeg", headers=cache)
+    if _recorder_blocked():
+        raise HTTPException(503, recorder_guard.MESSAGE)
+    tz = _dvr_tz()
+    if tz is None:
+        # Never guess the offset (this used to assume India's +05:30): the frame would come from the wrong hour.
+        raise HTTPException(503, TZ_UNKNOWN)
     s = current()
     ch = next((c for c in s.channels if c.channel == event["channel"]), None)
-    tz = state["playback"].tz
-    tz_offset = int(tz.utcoffset(None).total_seconds() // 60) if tz else 330
     try:
         path = await run_in_threadpool(thumbnails.get_or_generate, event, s.connection.model_dump(),
-                                        ch.main_path if ch else "", tz_offset)
+                                        ch.playback_path if ch else "", _tz_offset_min(tz))
     except Exception as e:
         raise HTTPException(503, f"Couldn't generate a thumbnail: {e}")
-    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
+    return FileResponse(path, media_type="image/jpeg", headers=cache)
 
 
 @app.get("/api/timeline/calibration")
@@ -298,11 +370,20 @@ async def playback_pool():
 
 
 class BookmarkRequest(BaseModel):
-    channels: list[str]  # our channel ids (e.g. "c1"), not DVR channel numbers
+    channels: list[str] = Field(max_length=64)  # our channel ids (e.g. "c1"), not DVR channel numbers
     time_utc: str
-    title: str = ""
-    note: str = ""
-    severity: str = "info"  # info | warning | critical
+    title: str = Field("", max_length=200)
+    note: str = Field("", max_length=4000)
+    severity: Literal["info", "warning", "critical"] = "info"
+
+    @field_validator("time_utc")
+    @classmethod
+    def _time(cls, v):
+        # Stored normalised (UTC, +00:00) like every other event time, so it sorts and compares with them.
+        dt = psess.parse_utc(v)
+        if dt is None:
+            raise ValueError("time_utc must be an ISO 8601 time")
+        return dt.isoformat()
 
 
 @app.post("/api/bookmarks")
@@ -319,17 +400,19 @@ async def create_bookmark(req: BookmarkRequest, request: Request):
     for ch in chan_nums:
         await run_in_threadpool(db.upsert_event, "manual", ch, "bookmark", req.time_utc, req.time_utc,
                                  None, None, {"title": req.title, "severity": req.severity, "bookmark_id": bid}, None)
+    _audit(request, "bookmark.create", str(bid), channels=chan_nums, time_utc=req.time_utc, severity=req.severity)
     return {"id": bid, "channels": chan_nums, "author": author}
 
 
 @app.get("/api/bookmarks")
 async def get_bookmarks(channel: int | None = None, start_utc: str = "", end_utc: str = "", limit: int = 500):
-    return await run_in_threadpool(db.list_bookmarks, channel, start_utc or None, end_utc or None, limit)
+    return await run_in_threadpool(db.list_bookmarks, channel, start_utc or None, end_utc or None, max(1, min(limit, 1000)))
 
 
 @app.delete("/api/bookmarks/{bookmark_id}")
-async def remove_bookmark(bookmark_id: int):
+async def remove_bookmark(bookmark_id: int, request: Request):
     await run_in_threadpool(db.delete_bookmark, bookmark_id)
+    _audit(request, "bookmark.delete", str(bookmark_id))
     return {"ok": True}
 
 
@@ -351,20 +434,27 @@ async def create_export(req: ExportRequest, request: Request):
     chans = [c for c in s.channels if c.id in req.channels]
     if not chans:
         raise HTTPException(422, "No valid channel")
-    try:
-        start_dt, end_dt = _dt.datetime.fromisoformat(req.start_utc), _dt.datetime.fromisoformat(req.end_utc)
-    except ValueError:
+    # Both normalised to aware UTC (a naive time is taken as UTC, as everywhere in this API): comparing a naive
+    # with an aware one raised a 500 here, and export.py compares them again against frame times.
+    start_dt, end_dt = psess.parse_utc(req.start_utc), psess.parse_utc(req.end_utc)
+    if start_dt is None or end_dt is None:
         raise HTTPException(422, "start_utc/end_utc must be ISO 8601")
     if end_dt <= start_dt:
         raise HTTPException(422, "end_utc must be after start_utc")
     if (end_dt - start_dt) > _dt.timedelta(hours=2):
         raise HTTPException(422, "Clips are limited to 2 hours per export for now")
-    tz = state["playback"].tz
-    tz_offset = int(tz.utcoffset(None).total_seconds() // 60) if tz else 330
-    channel_dicts = [{**c.model_dump(), "_tz_offset_min": tz_offset} for c in chans]
+    if _recorder_blocked():
+        raise HTTPException(503, recorder_guard.MESSAGE)
+    tz = _dvr_tz()
+    if tz is None:
+        raise HTTPException(503, TZ_UNKNOWN)
+    channel_dicts = [{**c.model_dump(), "_tz_offset_min": _tz_offset_min(tz)} for c in chans]
     job_id = _secrets.token_hex(8)
-    exportmod.start_export(job_id, channel_dicts, req.start_utc, req.end_utc, req.package,
+    start_utc, end_utc = start_dt.isoformat(), end_dt.isoformat()
+    exportmod.start_export(job_id, channel_dicts, start_utc, end_utc, req.package,
                             request.state.principal.author, s.connection.model_dump())
+    _audit(request, "export.create", job_id, channels=[c.channel for c in chans], start_utc=start_utc,
+           end_utc=end_utc, package=req.package)
     return {"job_id": job_id}
 
 
@@ -377,33 +467,62 @@ async def export_status(job_id: str):
 
 
 @app.get("/api/export/{job_id}/download")
-async def export_download(job_id: str):
+async def export_download(job_id: str, request: Request):
     job = await run_in_threadpool(exportmod.get_job, job_id)
     if job is None or job.get("state") != "done" or not job.get("download"):
         raise HTTPException(404, "That export isn't ready")
     path = exportmod.EXPORT_DIR / job["download"]
     if not path.exists():
         raise HTTPException(404, "That export has expired")
+    _audit(request, "export.download", job_id, package=job.get("package"))
     return FileResponse(path, filename=path.name)
+
+
+# One frame is a base64 PNG straight from the browser's decoded playback buffer: a 4K frame is ~10-25 MB.
+MAX_ENHANCE_IMAGE_B64 = 25 * 1024 * 1024
+MAX_ENHANCE_FRAMES = 11
+MAX_ENHANCE_BODY = MAX_ENHANCE_FRAMES * MAX_ENHANCE_IMAGE_B64 + 64 * 1024
 
 
 class EnhanceRequest(BaseModel):
     channel: int
     at_utc: str = ""
     mode: Literal["auto", "face", "plate", "general"] = "auto"
-    images: list[str]  # base64 PNG, oldest -> newest, 1-11 frames
+    images: list[Annotated[str, Field(max_length=MAX_ENHANCE_IMAGE_B64)]]  # base64 PNG, oldest -> newest, 1-11 frames
     roi: list[float] | None = None  # optional [x, y, w, h] fractions (0-1) — crop before enhancing
     weight: float = 0.5  # GFPGAN fidelity (0=free reconstruction, 1=barely touched) — spec section 2d
     upscaler: str | None = None   # override Settings → Enhancement for this job (catalog id)
     face: str | None = None
 
 
+async def _read_body_capped(request: Request, cap: int) -> bytes:
+    """The request body, refused with 413 as soon as it passes `cap` bytes — before it is all held in memory,
+    parsed as JSON or base64-decoded (a declared Content-Length over the cap is refused without reading)."""
+    too_big = HTTPException(413, f"That request is too large (the limit is {cap // (1024 * 1024)} MB)")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        raise too_big
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > cap:
+            raise too_big
+    return bytes(buf)
+
+
 @app.post("/api/enhance")
-async def create_enhance(req: EnhanceRequest):
+async def create_enhance(request: Request):
     """Starts a background AI frame-enhancement job (docs/SPEC.md section 7.8). Frames come from the
-    client's already-decoded playback buffer — no DVR session, doesn't touch the 4-session budget."""
+    client's already-decoded playback buffer — no DVR session, doesn't touch the 4-session budget.
+    The body is read with a size cap and validated by hand (not as a FastAPI body parameter), so an oversized
+    upload is refused while it streams in rather than after being parsed."""
     import secrets as _secrets
-    if not req.images or len(req.images) > 11:
+    body = await _read_body_capped(request, MAX_ENHANCE_BODY)
+    try:
+        req = EnhanceRequest.model_validate_json(body)
+    except ValidationError as e:
+        raise RequestValidationError(e.errors(include_url=False, include_context=False, include_input=False))
+    if not req.images or len(req.images) > MAX_ENHANCE_FRAMES:
         raise HTTPException(422, "1-11 frames expected")
     if req.roi is not None and len(req.roi) != 4:
         raise HTTPException(422, "roi must be [x, y, w, h]")
@@ -441,6 +560,7 @@ async def enhance_models_download(req: ModelDownloadRequest, request: Request):
     if not ok:
         raise HTTPException(409, why)
     enhance_models.download_in_background(req.kind, req.id)
+    _audit(request, "model.download", f"{req.kind}:{req.id}")
     return {"ok": True}
 
 
@@ -508,11 +628,10 @@ async def enhance_ocr(job_id: str, req: OcrRequest):
 @app.get("/api/timeline/tz")
 async def timeline_tz():
     """The DVR's UTC offset, so the calendar/time picker can show and set DVR-local dates correctly."""
-    tz = state["playback"].tz
+    tz = _dvr_tz()
     if tz is None:
         return {"offset_minutes": 0, "ready": False}
-    offset = tz.utcoffset(None)
-    return {"offset_minutes": int(offset.total_seconds() // 60), "ready": True}
+    return {"offset_minutes": _tz_offset_min(tz), "ready": True}
 
 
 # ------------------------------------------------------------------ DVR playback (WebCodecs feed)
@@ -522,6 +641,9 @@ async def timeline_tz():
 #   bytes 1-8   : absolute UTC time, float64 big-endian, seconds
 #   bytes 9+    : Annex-B NAL bytes (start code included), fed straight into WebCodecs VideoDecoder
 # Control messages from the browser are JSON text: {"type":"seek","t":"<iso>"} or {"type":"speed","scale":"2"}.
+# Speeds are only ever one of playback_session.NICE_SPEEDS and times only ever ISO 8601 instants: both end up in
+# the recorder's RTSP request text (`Scale:` / `Range:`), so anything else is refused at connect (close 1008) or
+# ignored in a message, never passed on.
 
 REPLAY_WINDOW_S = 120   # a viewer may play back this far: the live view's instant replay (last 10 s), not review
 
@@ -553,13 +675,25 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
     if ch is None:
         await ws.close(code=4404)
         return
+    start_dt, speed = psess.parse_utc(start), psess.valid_speed(speed)
+    if start_dt is None or speed is None:
+        await ws.accept()
+        await ws.close(code=1008, reason="Invalid start time" if start_dt is None else "Invalid speed")
+        return
+    start = start_dt.isoformat()
+    if _recorder_blocked():
+        await ws.accept()
+        await ws.send_json({"type": "error", "message": recorder_guard.MESSAGE})
+        await ws.close()
+        return
     a_const = psess.calibration_for_time(ch.channel, start)
-    tz = state["playback"].tz
+    tz = _dvr_tz()
     if a_const is None or tz is None:
         await ws.close(code=4409)  # not calibrated yet — client should retry shortly
         return
     conn = hikrelay.conn_of({"connection": s.connection.model_dump()})
-    path = hikrelay.playback_path(ch.channel, ch.main_path)
+    # The recording-track override, never the live main_path one (that silently plays live video instead).
+    path = hikrelay.playback_path(ch.channel, ch.playback_path)
     await ws.accept()
     tracked = _ws_track(p, ws)
     reader = psess.PlaybackReader(conn, ch.channel, path, a_const, start, tz, speed)
@@ -573,21 +707,28 @@ async def playback_ws(ws: WebSocket, channel: str, start: str, speed: str = "1")
                     return
                 if m.get("text"):
                     try:
-                        import json
                         msg = json.loads(m["text"])
                     except ValueError:
                         continue
+                    if not isinstance(msg, dict):
+                        continue
                     if msg.get("type") == "seek":
-                        if review or _within_replay_window(msg.get("t", "")):
-                            reader.seek(msg["t"], msg.get("scale"))
+                        t = psess.parse_utc(msg.get("t"))
+                        if t is None:
+                            continue   # not a time: ignored, never handed to the reader
+                        # A missing scale keeps the current speed (JSON.stringify drops an undefined one); an
+                        # invalid one is dropped the same way rather than reaching the recorder.
+                        if review or _within_replay_window(t.isoformat()):
+                            reader.seek(t.isoformat(), psess.valid_speed(msg.get("scale")))
                     elif msg.get("type") == "speed":
                         # Same gate as "seek": a viewer's session is only ever within the replay window at
                         # connect time, and reader.set_speed() has no per-call window check of its own — an
                         # ungated reverse speed would let a viewer scrub arbitrarily far into DVR history.
                         # No legitimate viewer flow sends "speed" today (only playback.js's operator+ review
                         # UI does), so this can't regress live view's instant replay.
-                        if review:
-                            reader.set_speed(msg["scale"])
+                        sp = psess.valid_speed(msg.get("scale"))
+                        if review and sp is not None:
+                            reader.set_speed(sp)
 
         async def to_client():
             import struct

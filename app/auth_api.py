@@ -79,6 +79,7 @@ ROUTE_ROLES = [(m, re.compile(rx), role) for m, rx, role in [
     ("GET", r"/api/settings", "viewer"),                  # handler redacts the connection for non-admins
     ("PUT", r"/api/display", "operator"),                 # shared layout/order: everyone's screens change
     ("*", r"/api/(settings|test|discover)", "admin"),
+    ("POST", r"/api/recorder/retry", "admin"),             # logs in to the recorder again after a rejection
     ("*", r"/api/(timeline|playback|bookmarks|export|enhance)(/.*)?", "operator"),
     ("*", r"/api/auth/(admin/.*|pair/approve)", "admin"),
     ("*", r"/api/auth/.*", "viewer"),
@@ -566,4 +567,4 @@ def admin_set_config(patch: dict[str, Any], request: Request):
 
 @router.get("/admin/audit")
 def admin_audit(limit: int = 200):
-    return auth.audit_list(limit)
+    return auth.audit_list(max(1, min(limit, 1000)))

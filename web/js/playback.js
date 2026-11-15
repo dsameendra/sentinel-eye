@@ -6,7 +6,7 @@ import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
 import { WCPlayer, unsupportedReason } from './wcplayer.js';
-import { partsFromEpoch, fetchTzOffset, knownTzOffset } from './dvrtime.js';
+import { partsFromEpoch, fetchTzOffset, knownTzOffset, provisionalTzOffset, waitTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
@@ -42,7 +42,7 @@ export class PlaybackView {
     // of gambling on the retry loop; "Jump to now" is one click away for whoever actually wants live edge.
     this.currentEpoch = startEpoch ? +startEpoch : Date.now() / 1000 - 180;
     this.speed = '1';
-    this.tzOffsetMin = 330; // Asia/Kolkata default until /api/timeline/tz answers
+    this.tzOffsetMin = provisionalTzOffset(); // replaced in _init by the recorder's own offset
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.clips = [];               // [[startEpoch, endEpoch], …] — multi-cut clipper's pending list (spec 10/15)
     // Settings > Enhancement > "Live filters" default preset (was hardcoded "off" — Tile already honoured
@@ -64,17 +64,21 @@ export class PlaybackView {
 
   // Builds at once with the DVR offset already known (main.js fetches it at start-up); only a first visit
   // ever, with nothing known yet, waits for it. The offset is checked again in the background, and a change
-  // (a recorder that follows daylight saving) is applied in place — every time shown reads it afresh.
+  // (a recorder that follows daylight saving) is applied in place — every time shown reads it afresh. If the
+  // server doesn't know it yet either (it has just started), this browser's own offset stands in until it does.
   async _init(channelId) {
     const known = knownTzOffset();
-    this.tzOffsetMin = known ?? await fetchTzOffset(this.tzOffsetMin);
+    const fetched = known ?? await fetchTzOffset();
     if (this._dead) return;   // left before a first-ever fetch came back
+    this.tzOffsetMin = fetched ?? provisionalTzOffset();
     this.build(channelId);
-    if (known !== null) fetchTzOffset(known).then((m) => {
-      if (this._dead || m === this.tzOffsetMin) return;
+    const apply = (m) => {
+      if (this._dead || m === null || m === this.tzOffsetMin) return;
       this.tzOffsetMin = m;
       if (this.timeline) { this.timeline.opts.tzOffsetMin = m; this.timeline.refresh?.(); }
-    });
+    };
+    if (known !== null) fetchTzOffset(known).then(apply);
+    else if (fetched === null) waitTzOffset(() => !this._dead).then(apply);
   }
 
   // Same order the operator arranged on Live/Settings (display.order), not just the enabled subset in

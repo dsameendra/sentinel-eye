@@ -144,5 +144,6 @@ if __name__ == "__main__":
     api = isapi.Isapi(s.connection.host, s.connection.username, s.connection.password, s.connection.http_port)
     chans = [int(c) for c in _sys.argv[1:]] or [c.channel for c in s.channels if c.enabled]
     for ch in chans:
-        r = calibrate_channel(conn, api, ch, f"/Streaming/Channels/{ch}02")
+        c = next((c for c in s.channels if c.channel == ch), None)
+        r = calibrate_channel(conn, api, ch, h.stream_path(ch, "sub", c.sub_path if c else ""))
         print(ch, json.dumps(r))

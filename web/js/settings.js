@@ -91,7 +91,10 @@ export class SettingsView {
         const v = ch[k];
         if (v !== 'auto' && !(typeof v === 'number' && v >= 0.5 && v <= 120)) e[`ch.${ch.id}.${k}`] = '0.5–120 or empty for auto';
       }
-      for (const k of ['sub_path', 'main_path']) if (ch[k] && !ch[k].startsWith('/')) e[`ch.${ch.id}.${k}`] = 'Must start with /';
+      for (const k of ['sub_path', 'main_path', 'playback_path']) {
+        if (ch[k] && !ch[k].startsWith('/')) e[`ch.${ch.id}.${k}`] = 'Must start with /';
+        else if (ch[k] && /[\s\x00-\x1f\x7f]/.test(ch[k])) e[`ch.${ch.id}.${k}`] = 'No spaces';
+      }
     }
     return e;
   }
@@ -123,6 +126,7 @@ export class SettingsView {
     this.wire();
     this.refresh();
     if (this.tab === 'status') this.startStatus();
+    if (this.tab === 'connection') this.checkRecorder();
   }
 
   fieldErr(path) { const m = this.errors()[path]; return m ? `<div class="err" data-err="${path}">${esc(m)}</div>` : `<div class="err" data-err="${path}" hidden></div>`; }
@@ -143,10 +147,39 @@ export class SettingsView {
     return `<span class="test-status ${r.ok ? 'ok' : 'bad'}" role="status">${icon(r.ok ? 'checkcircle' : 'alert')}<span><b>${esc(r.message || (r.ok ? 'OK' : 'Failed'))}</b>${bits ? ` <span class="muted">${esc(bits)}</span>` : ''}</span></span>`;
   }
 
+  /** The recorder rejected the saved login (app/recorder_guard.py): nothing logs in until it's fixed and saved,
+   * or an admin asks to try again — repeated failed logins would lock the recorder's account. */
+  recorderBlockedHTML() {
+    return `<div class="result bad" role="alert" style="margin:0 0 14px">${icon('alert')}<div>
+      <b>The recorder rejected the saved username or password.</b> Sentinel Eye has stopped logging in so the recorder doesn't lock the account. Correct them below and save — or, if you fixed them on the recorder itself, try again.
+      <div style="margin-top:8px"><button class="btn sm" data-a="rec-retry">Try again</button></div></div></div>`;
+  }
+
+  /** Fills (or clears) the breaker notice on the Connection and Status tabs from /api/status. */
+  async checkRecorder(st = null) {
+    try { st = st || await api.status(); } catch { return; }
+    this.recorderBlocked = !!st.recorder_auth_failed;
+    const host = this.pane.querySelector('.rec-blocked');
+    if (!host) return;
+    host.innerHTML = this.recorderBlocked ? this.recorderBlockedHTML() : '';
+    host.querySelector('[data-a=rec-retry]')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await api.retryRecorder();
+        toast('Trying the recorder again…');
+        this.recorderBlocked = false;
+        host.innerHTML = '';
+        setTimeout(() => this.checkRecorder(), 8000);   // a still-wrong password trips it again within seconds
+      } catch (err) { toast(err.message, 'bad'); btn.disabled = false; }
+    });
+  }
+
   connectionTab() {
     const c = this.draft.connection, b = this.base.connection;
     const first = this.draft.channels.find((x) => x.enabled) || this.draft.channels[0];
     return `<header class="pane-head"><h1>Recorder connection</h1><p>How Sentinel Eye reaches your recorder (or a single IP camera).</p></header>
+    <div class="rec-blocked">${this.recorderBlocked ? this.recorderBlockedHTML() : ''}</div>
     <section class="sgroup"><h2>Address &amp; login</h2><div class="card"><div class="form form-conn">
       <div class="field f-host"><label for="f-host">Host</label><input id="f-host" type="text" data-b="connection.host" value="${esc(c.host)}" placeholder="192.0.2.10" autocomplete="off" spellcheck="false">${this.fieldErr('connection.host')}</div>
       <div class="field"><label for="f-port">RTSP port</label><input id="f-port" type="number" min="1" max="65535" data-b="connection.rtsp_port" data-t="int" value="${esc(c.rtsp_port)}">${this.fieldErr('connection.rtsp_port')}</div>
@@ -211,6 +244,7 @@ export class SettingsView {
         ${this.adv?.has(c.id) ? `<tr class="adv"><td></td><td colspan="5"><div class="form" style="grid-template-columns:1fr 1fr">
           <div class="field"><label>SD stream path (optional)</label><input type="text" data-b="ch.${c.id}.sub_path" value="${esc(c.sub_path)}" placeholder="/Streaming/Channels/${c.channel}02" spellcheck="false">${this.fieldErr(`ch.${c.id}.sub_path`)}</div>
           <div class="field"><label>HD stream path (optional)</label><input type="text" data-b="ch.${c.id}.main_path" value="${esc(c.main_path)}" placeholder="/Streaming/Channels/${c.channel}01" spellcheck="false">${this.fieldErr(`ch.${c.id}.main_path`)}</div>
+          <div class="field"><label>Recordings path (optional)</label><input type="text" data-b="ch.${c.id}.playback_path" value="${esc(c.playback_path || '')}" placeholder="/Streaming/tracks/${c.channel}01" spellcheck="false">${this.fieldErr(`ch.${c.id}.playback_path`)}<div class="hint">Used for playback, event pictures and exports. Recordings use a different path from live video.</div></div>
           <div class="field"><label>Picture shape</label><select data-b="ch.${c.id}.aspect">${[['auto', 'Automatic (recommended)'], ['16:9', 'Widescreen 16:9'], ['4:3', 'Standard 4:3'], ['native', 'Exactly as sent']].map(([v, l]) => `<option value="${v}" ${(c.aspect || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><div class="hint">SD streams are often squeezed; “Automatic” restores the real shape so SD and HD match.</div></div>
           <div class="hint" style="grid-column:1/-1">Only needed for non-Hikvision cameras. Leave empty to use the standard Hikvision paths.</div></div></td></tr>` : ''}
         ${t ? `<tr class="adv"><td></td><td colspan="5"><div class="rowtest">${[line('sub', 'SD'), line('main', 'HD')].filter(Boolean).join(' &nbsp;·&nbsp; ')}
@@ -358,7 +392,7 @@ export class SettingsView {
   }
 
   statusTab() {
-    return `<header class="pane-head"><h1>Status</h1><p>What the video engine is doing right now. Updates every few seconds.</p></header><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
+    return `<header class="pane-head"><h1>Status</h1><p>What the video engine is doing right now. Updates every few seconds.</p></header><div class="rec-blocked"></div><section class="card" id="status-card"><p class="muted">Loading…</p></section>`;
   }
 
   async startStatus() {
@@ -367,6 +401,7 @@ export class SettingsView {
       if (!card) return;
       try {
         const st = await api.status();
+        if (!!st.recorder_auth_failed !== !!this.recorderBlocked || (st.recorder_auth_failed && !this.pane.querySelector('.rec-blocked [data-a=rec-retry]'))) this.checkRecorder(st);
         const names = Object.fromEntries(this.base.channels.map((c) => [c.id, c.name || `Camera ${c.channel}`]));
         const rows = Object.entries(st.streams).sort().map(([n, v]) => {
           const [id, kind] = [n.split('_')[0], n.slice(n.indexOf('_') + 1)];
@@ -536,7 +571,7 @@ export class SettingsView {
     let n = channel || 1;
     while (used.has(n)) n++;
     const id = 'c' + Math.random().toString(16).slice(2, 8);
-    this.draft.channels.push({ id, channel: n, name: name || `Camera ${n}`, enabled: true, sub_fps: 'auto', main_fps: 'auto', aspect: 'auto', sub_path: '', main_path: '' });
+    this.draft.channels.push({ id, channel: n, name: name || `Camera ${n}`, enabled: true, sub_fps: 'auto', main_fps: 'auto', aspect: 'auto', sub_path: '', main_path: '', playback_path: '' });
     this.draft.display.order.push(id);
     this.render(); this.refresh();
     this.pane.querySelector(`[data-row="${id}"] input[type=text]`)?.focus();
