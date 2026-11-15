@@ -267,6 +267,10 @@ SD streams stay connected at all times, so the grid starts instantly; HD streams
 viewed. HD is H.265 on the wire, transcoded to H.264 on this machine so it plays smoothly in every
 browser — playing the original H.265 directly is an opt-in setting for lower CPU use.
 
+Nothing is loaded from, or sent to, anywhere but this server: every page is served with a
+Content-Security-Policy that limits scripts, styles, pictures, video and connections to its own address, so
+the browser itself refuses a CDN, a remote font or a request to another host.
+
 ## Running it
 
 ### Requirements

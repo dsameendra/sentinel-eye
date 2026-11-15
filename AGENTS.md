@@ -89,6 +89,7 @@ Also run the suites for the area you touched. None of them needs a recorder:
 | Codec strings | `node tools/test_codecs.mjs` |
 | Skip empty / previous-next event | `node tools/test_eventspans.mjs` |
 | Exports panel (queue wording) | `node tools/test_exportjobs.mjs` |
+| Security headers / CSP | `.venv/bin/python3 tools/test_security_headers.py` |
 | Encoder selection | `.venv/bin/python3 tools/test_hwaccel.py` |
 | AI enhancer | `.venv/bin/python3 tools/test_enhance_models.py`, `tools/test_enhance_ai.py` |
 | Docker | `tools/test_docker_image.sh`, `tools/test_docker_compose.sh` |
@@ -141,6 +142,10 @@ user asks.
   and any new settings or status payload must do the same.
 - **No network calls off the LAN:** no telemetry, CDNs, cloud APIs or remote fonts. Model downloads are the
   only exception, and they are pinned and checksum-verified (`app/enhance_models.py`).
+  The server's Content-Security-Policy (`_content_security_policy` in `app/server.py`) enforces this in the
+  browser: everything is same-origin, scripts are our own files plus the one hashed inline bootstrap in the
+  HTML pages. Don't add inline event handlers, `eval`, or anything loaded from another host
+  (`tools/test_security_headers.py`).
 - **AI provenance:** enhanced output always carries the ENHANCED label, and the original frame is always
   kept alongside it.
 - **Exports** stay as stream copy (no re-encoding), with a signed manifest.

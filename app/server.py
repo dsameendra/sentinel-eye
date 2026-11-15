@@ -93,14 +93,49 @@ app = FastAPI(title="Sentinel Eye", lifespan=lifespan)
 app.middleware("http")(auth_api.gate)
 
 
+def _content_security_policy() -> str:
+    """The pages may only load and talk to this server itself: the project's "nothing leaves the LAN" rule
+    (no CDNs, remote fonts, telemetry or cloud APIs) enforced by the browser, not just by review — and an
+    injected script or a markup slip can't pull code from, or send footage to, anywhere else.
+
+    Scripts: our own files, plus the one small inline bootstrap each page carries (TV mode/theme before first
+    paint), allowed by its SHA-256 — computed here from the pages themselves, so editing that script never needs
+    a second change. No 'unsafe-inline' and no eval for scripts. Styles need 'unsafe-inline' because the views
+    set style attributes. Pictures and video also come from data:/blob: URLs the page builds itself (snapshots,
+    QR codes, thumbnails, the MSE live stream). WebSockets to this origin are covered by connect-src 'self'."""
+    import base64, hashlib
+    hashes = set()
+    for page in sorted((cfg.ROOT / "web").glob("*.html")):
+        for body in re.findall(r"<script>(.*?)</script>", page.read_text(), re.S):   # inline only: no src=
+            hashes.add("'sha256-" + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode() + "'")
+    return "; ".join([
+        "default-src 'self'",
+        "script-src 'self' " + " ".join(sorted(hashes)) if hashes else "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "connect-src 'self'",
+        "font-src 'self'",
+        "worker-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ])
+
+
+CSP = _content_security_policy()
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     """On every response, the sign-in gate's own included (registered after it, so it wraps it): no framing
-    by other sites (clickjacking a signed-in admin), no MIME sniffing, no full URLs leaked as Referer."""
+    by other sites (clickjacking a signed-in admin), no MIME sniffing, no full URLs leaked as Referer, and a
+    Content-Security-Policy that keeps every page to this origin (_content_security_policy)."""
     resp = await call_next(request)
     h = resp.headers
     h.setdefault("X-Frame-Options", "DENY")
-    h.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    h.setdefault("Content-Security-Policy", CSP)
     h.setdefault("X-Content-Type-Options", "nosniff")
     h.setdefault("Referrer-Policy", "same-origin")
     return resp
