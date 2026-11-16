@@ -64,6 +64,7 @@
   details td { padding: 5px 0; vertical-align: top; border-top: 1px solid var(--line); }
   details td:first-child { width: 150px; color: var(--faint); padding-right: 12px; }
   details code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: var(--text); }
+  .fp { font: 600 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; overflow-wrap: anywhere; margin: 6px 0 8px; }
   .note { font-size: 13px; color: var(--muted); }
   .note b { color: var(--text); font-weight: 600; }
   .ghost { align-self: center; height: 40px; padding: 0 18px; border: 0; border-radius: 999px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
@@ -106,6 +107,10 @@ const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart
 const fromHex = (s) => { const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16); return a; };
 const short = (h) => (h && h.length > 10 ? `${h.slice(0, 4)}…${h.slice(-4)}` : h || '');
 const sha256 = async (buf) => hex(await crypto.subtle.digest('SHA-256', buf));
+// Must match app/export.py's key_fingerprint: SHA-256 of the raw public key, upper-case, groups of four.
+const fingerprint = async (pubHex) => (await sha256(fromHex(pubHex))).toUpperCase().match(/.{4}/g).join(' ');
+const fmtLocal = (iso) => (typeof iso === 'string' ? iso.replace('T', ' ').replace(/\.\d+/, '').replace(/(Z|[+-]\d\d:\d\d)$/, '') : '—');
+const fmtOffset = (m) => { if (typeof m !== 'number') return ''; const s = m < 0 ? '-' : '+', a = Math.abs(m); return `UTC${s}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`; };
 const fmtUtc = (iso) => {
   const d = new Date(iso);
   if (isNaN(d)) return iso || '—';
@@ -239,18 +244,55 @@ async function handle(files) {
     else if (missing.length) top = verdict('warn', 'Partly verified', `The signature is valid, but ${esc(missing.join(', '))} ${missing.length > 1 ? 'weren\'t' : 'wasn\'t'} included, so ${missing.length > 1 ? 'they' : 'it'} couldn't be checked. Drop the whole .zip to check everything.`);
     else top = verdict('ok', 'Verified', 'Every file matches its recorded hash, and the signature matches this manifest exactly — nothing here has been altered since export.');
 
+    let fp = '';
+    try { fp = await fingerprint(sig.public_key_hex); } catch { fp = ''; }
+    const fpMismatch = fp && manifest.signing_key_fingerprint && manifest.signing_key_fingerprint !== fp;
+    const fpCard = fp ? `<div class="card" style="margin-top:20px"><div class="head">Signing key fingerprint</div>
+      <div class="fp">${esc(fp)}</div>
+      ${fpMismatch ? `<div class="chk bad">${ICON.cross}<span class="n">The manifest names a different key (${esc(manifest.signing_key_fingerprint)})</span></div>` : ''}
+      <p class="note">Compare this with the fingerprint Sentinel Eye shows under <b>Evidence signing key</b> in Settings (Status, or This device) on the installation that made this export — ask whoever sent it. A valid signature only proves the files match <i>this</i> key — anyone can sign with a key of their own — so unless the fingerprints match, it says nothing about where the export came from.</p></div>` : '';
+
     const cams = [...new Set(clips.map((c) => c.camera_name))].join(', ') || '—';
     const r = manifest.requested_range_utc || clips[0]?.dvr_time_range_utc || {};
     const a = fmtUtc(r.start), b = fmtUtc(r.end);
     const range = a.day ? `${a.day}, ${a.time} – ${b.day && b.day !== a.day ? b.day + ', ' : ''}${b.time || ''} UTC` : '—';
-    const meta = [`Camera${clips.length > 1 ? 's' : ''}: ${esc(cams)}`, `Range: ${esc(range)}`, manifest.operator ? `Exported by: ${esc(manifest.operator)}` : ''].filter(Boolean).join(' · ');
+    const nBm = Array.isArray(manifest.bookmarks) ? manifest.bookmarks.length : 0;
+    const meta = [`Camera${clips.length > 1 ? 's' : ''}: ${esc(cams)}`, `Range: ${esc(range)}`, manifest.operator ? `Exported by: ${esc(manifest.operator)}` : '', nBm ? `${nBm} bookmark${nBm > 1 ? 's' : ''} (see Details)` : ''].filter(Boolean).join(' · ');
     const created = fmtUtc(manifest.created_utc);
+    // Manifest v2 fields, each only when present: a v1 package (no manifest_version) shows exactly what it always did.
+    const clipRow = (c) => {
+      const bits = [];
+      bits.push(esc(c.file));
+      if (c.dvr_time_range_local) bits.push(esc(`${fmtLocal(c.dvr_time_range_local.start)} – ${fmtLocal(c.dvr_time_range_local.end).slice(11)} recorder time (${fmtOffset(c.utc_offset_minutes)})`));
+      if (c.dvr_time_range_utc) bits.push(esc(`${fmtUtc(c.dvr_time_range_utc.start).time} – ${fmtUtc(c.dvr_time_range_utc.end).time} UTC`));
+      const fmt = [c.codec, c.width && c.height ? `${c.width}×${c.height}` : '', c.frame_count ? `${c.frame_count} frames` : ''].filter(Boolean).join(' · ');
+      if (fmt) bits.push(esc(fmt));
+      if (c.time_accuracy) bits.push(`<b>${c.time_source === 'calibration' ? 'Time accuracy' : 'Times are approximate'}:</b> ${esc(c.time_accuracy)}`);
+      bits.push(`<code>${esc(c.sha256)}</code>`);
+      return `<tr><td>${esc(c.camera_name)}</td><td>${bits.join('<br>')}</td></tr>`;
+    };
+    // Bookmarks (added to manifest v2 later; absent when the range had none): signed along with everything else.
+    const bms = Array.isArray(manifest.bookmarks) ? manifest.bookmarks : [];
+    const bmRows = bms.map((b) => {
+      const when = b.time_local ? `${fmtLocal(b.time_local)} recorder time` : `${fmtUtc(b.time_utc).day}, ${fmtUtc(b.time_utc).time} UTC`;
+      const bits = [esc(when), esc([b.severity, (b.cameras || []).join(', ')].filter(Boolean).join(' · '))];
+      if (b.title) bits.push(`<b>${esc(b.title)}</b>`);
+      if (b.note) bits.push(esc(b.note));
+      bits.push(esc(`By ${b.author || '—'}${b.edited_utc ? ` · edited by ${b.edited_by || '—'}` : ''}`));
+      return `<tr><td>Bookmark</td><td>${bits.join('<br>')}</td></tr>`;
+    }).join('');
+    const rec = manifest.recorder ? [manifest.recorder.model, manifest.recorder.serial ? `serial ${manifest.recorder.serial}` : '', manifest.recorder.firmware ? `firmware ${manifest.recorder.firmware}` : ''].filter(Boolean).join(' · ') : '';
     show(`${top}
       <div class="card" style="margin-top:20px"><div class="src">${esc(label)}</div><div class="meta">${meta}</div>${rows.join('')}</div>
+      ${fpCard}
       <div class="card" style="margin-top:20px"><details><summary>Details</summary><table>
         <tr><td>Export ID</td><td><code>${esc(manifest.export_id || '—')}</code></td></tr>
         <tr><td>Created</td><td>${esc(created.day ? `${created.day}, ${created.time} UTC` : '—')}</td></tr>
-        ${clips.map((c) => `<tr><td>${esc(c.camera_name)}</td><td>${esc(c.file)}<br>${c.dvr_time_range_utc ? esc(`${fmtUtc(c.dvr_time_range_utc.start).time} – ${fmtUtc(c.dvr_time_range_utc.end).time} UTC`) + '<br>' : ''}<code>${esc(c.sha256)}</code></td></tr>`).join('')}
+        ${manifest.manifest_version ? `<tr><td>Manifest version</td><td>${esc(manifest.manifest_version)}</td></tr>` : ''}
+        ${manifest.app ? `<tr><td>Exported with</td><td>${esc(`${manifest.app.name || 'Sentinel Eye'} ${manifest.app.version || ''}`.trim())}</td></tr>` : ''}
+        ${rec ? `<tr><td>Recorder</td><td>${esc(rec)}</td></tr>` : ''}
+        ${clips.map(clipRow).join('')}
+        ${bmRows}
         <tr><td>Public key</td><td><code>${esc(sig.public_key_hex)}</code></td></tr>
       </table></details></div>
       <p class="note" style="margin-top:20px"><b>What this proves, and what it doesn't.</b> A valid result means these files are exactly what Sentinel Eye produced at export time and haven't been changed since. It doesn't, by itself, prove the recorder's original footage was authentic — that rests on physical access to the recorder and this installation's key, as with any camera system.</p>`);

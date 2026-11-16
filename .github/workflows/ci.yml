@@ -1,14 +1,20 @@
 name: CI
 
-# Deliberately lightweight: syntax-only checks for the Python backend and the plain-JS frontend, no
-# dependency install (the AI enhancer's PyTorch/basicsr stack alone makes a full install too slow and
-# flaky for a required check) and no real DVR to test playback/decrypt against in CI. This still catches a
-# real, previously-shipped class of bug directly: a broken file that fails to even parse.
+# Syntax checks for the Python backend and the plain-JS frontend, plus every test suite that needs no real
+# recorder: all tools/test_*.py (except test_m0.py, which talks to a real DVR; new test files are picked up
+# automatically) and the Node suites for the viewer and the PWA shell. Dependencies come from
+# requirements-dev.txt only: the AI enhancer's PyTorch/basicsr stack is not installed (its tests exercise the
+# graceful-degradation path), which keeps the job fast and stable. Playback/decrypt against a real DVR can't
+# run in CI.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+# The jobs only read the repository: no write access for the workflow's token.
+permissions:
+  contents: read
 
 jobs:
   syntax-check:
@@ -19,11 +25,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.14'   # same minor as the Dockerfile's python:3.14-slim
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Python syntax check (app/, tools/)
         run: find app tools -name '*.py' -print -exec python -m py_compile {} +
@@ -31,18 +37,43 @@ jobs:
       - name: JS syntax check (web/)
         run: find web -name '*.js' -print0 | xargs -0 -n1 node --check
 
-  ws-route-allowlist:
-    name: WebSocket route allowlist
+  tests:
+    name: Recorder-free test suites
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.14'   # same minor as the Dockerfile's python:3.14-slim
 
-      - name: Install runtime dependencies
-        run: pip install -q -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: WebSocket routes match the audited allowlist
-        run: python tools/test_ws_routes.py
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install -q -r requirements-dev.txt
+
+      - name: Python test suites (tools/test_*.py, not test_m0.py)
+        run: |
+          failed=0
+          for t in tools/test_*.py; do
+            [ "$t" = tools/test_m0.py ] && continue   # needs a real recorder
+            echo "::group::$t"
+            if python "$t"; then echo "PASSED $t"; else echo "::error::$t failed"; failed=1; fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+      - name: Node test suites (viewer, service worker, PWA bootstrap, codecs, event spans)
+        run: |
+          failed=0
+          for t in tools/test_viewer.mjs tools/test_shell_update.mjs tools/test_pwa_bootstrap.mjs tools/test_codecs.mjs tools/test_eventspans.mjs tools/test_exportjobs.mjs tools/test_masterclock.mjs; do
+            echo "::group::$t"
+            if node "$t"; then echo "PASSED $t"; else echo "::error::$t failed"; failed=1; fi
+            echo "::endgroup::"
+          done
+          exit $failed

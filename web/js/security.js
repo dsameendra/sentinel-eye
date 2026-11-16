@@ -14,6 +14,10 @@ const ACTION_LABEL = {
   'user.password': 'Changed password', 'totp.enable': 'Turned on 2FA', 'totp.disable': 'Turned off 2FA', 'totp.recovery_codes': 'New recovery codes',
   'session.revoke': 'Signed out a session', 'session.revoke_all': 'Signed out all sessions', 'device.approve': 'Paired a device',
   'device.delete': 'Removed a device', 'config.update': 'Changed security settings', 'auth.enable': 'Turned sign-in on', 'auth.disable': 'Turned sign-in off',
+  'user.rename': 'Renamed account', 'user.avatar': 'Changed picture', 'password.recheck_fail': 'Wrong password (re-check)',
+  'settings.update': 'Changed settings', 'recorder.retry': 'Retried the recorder login', 'export.create': 'Exported a clip',
+  'export.download': 'Downloaded an export', 'bookmark.create': 'Added a bookmark', 'bookmark.delete': 'Deleted a bookmark',
+  'model.download': 'Downloaded an AI model',
 };
 
 export class SecurityPanel {

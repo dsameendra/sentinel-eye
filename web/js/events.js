@@ -3,15 +3,23 @@
 // thumbnail per event (captured from its midpoint, on demand — app/thumbnails.py), and jumps a result
 // straight into Playback at that instant. Motion/line/tamper spans arrive already stitched into start/end
 // windows by app/events.py, so no further run-collapsing is needed here.
+//
+// Results page from the server newest first (a keyset cursor, so a page never repeats or skips rows while new
+// events arrive); "Load more" — or scrolling near the end — fetches the next page. Export CSV downloads every
+// event matching the filters (server-side, not just the loaded rows).
 import { barHTML, wireBar } from './bar.js';
 import { closePopover, confirmDialog, esc, icon, openPopover, scopeLayers, toast } from './ui.js';
-import { fetchTzOffset, knownTzOffset } from './dvrtime.js';
+import { fetchTzOffset, knownTzOffset, provisionalTzOffset, waitTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { openEventPreview } from './eventPreview.js';
+import { ROLL_OFF_WARN_DAYS, loadRetention, rollOff, rollOffPhrase } from './retention.js';
 
 const KIND_LABEL = { motion: 'Motion', line: 'Line cross', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
-const RESULT_CAP = 500; // no server-side pagination yet — a capped result set with a "narrow your search" hint is the honest MVP
+const SHOW_LABEL = { ...KIND_LABEL, intrusion: 'Intrusion' };
+// A type chip can stand for more than one stored kind: intrusion is drawn and coloured as line crossing.
+const KIND_QUERY = { line: ['line', 'intrusion'] };
+const PAGE = 200;
 // Each thumbnail can cost a real DVR playback session (app/thumbnails.py serializes them server-side to at
 // most 1 of the 4 slots, but that still queues behind whatever's already generating) — cap how many this
 // page ever has in flight at once, rather than trusting the browser's own per-origin connection limit
@@ -21,7 +29,7 @@ const KINDS = Object.keys(KIND_LABEL);
 const PRESETS = [['today', 'Today'], ['24h', '24h'], ['7d', '7d'], ['custom', 'Custom']];
 
 // The last search's results, kept for the session so returning to Events shows them instantly.
-let lastSearch = null;   // { key, results, capped }
+let lastSearch = null;   // { key, results, more }
 const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r.id === b[i].id && r.end_utc === b[i].end_utc);
 
 export class EventsView {
@@ -29,7 +37,7 @@ export class EventsView {
   constructor(root, ctx) {
     this.root = root;
     this.ctx = ctx;
-    this.tzOffsetMin = 330;
+    this.tzOffsetMin = provisionalTzOffset();   // replaced in _init by the recorder's own offset
     this.selectedCams = new Set(this.cams().map((c) => c.id)); // every enabled camera, to start — matches the previous "all cameras" default
     this.kinds = new Set(KINDS); // every type on to start; the chips narrow it
     this.query = '';               // the bar's search field — filters the loaded results as you type
@@ -47,6 +55,11 @@ export class EventsView {
     this._io = new IntersectionObserver((entries) => {
       for (const e of entries) if (e.isIntersecting) { this._queueThumb(e.target); this._io.unobserve(e.target); }
     }, { root: null, rootMargin: '200px' });
+    // Scrolling near the end of the list loads the next page, like pressing "Load more".
+    this._moreIo = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) this.loadMore();
+    }, { root: null, rootMargin: '600px' });
+    this.retention = {};
     this._init();
   }
 
@@ -95,19 +108,23 @@ export class EventsView {
   }
 
   // Draws at once (with the DVR offset already known) and searches; the offset is checked in the
-  // background, and only a change — or a first visit ever, with nothing known — waits for it.
+  // background, and only a change — or a first visit ever, with nothing known — waits for it. If the server
+  // doesn't know it yet either (it has just started), this browser's own offset stands in until it does.
   async _init() {
     const known = knownTzOffset();
-    if (known === null) this.tzOffsetMin = await fetchTzOffset(this.tzOffsetMin);
-    else this.tzOffsetMin = known;
+    const fetched = known ?? await fetchTzOffset();
     if (this._dead) return;   // left before a first-ever fetch came back
+    this.tzOffsetMin = fetched ?? provisionalTzOffset();
     this.build();
     this.search();
-    if (known !== null) fetchTzOffset(known).then((m) => {
-      if (m === this.tzOffsetMin || this._dead) return;
+    loadRetention().then((r) => { if (!this._dead) { this.retention = r; this.renderResults(); } });
+    const apply = (m) => {
+      if (m === null || m === this.tzOffsetMin || this._dead) return;
       this.tzOffsetMin = m;
       if (this.preset === 'today') this.search(); else this.renderResults();
-    });
+    };
+    if (known !== null) fetchTzOffset(known).then(apply);
+    else if (fetched === null) waitTzOffset(() => !this._dead).then(apply);
   }
 
   // ------------------------------------------------------------- range from preset
@@ -138,6 +155,9 @@ export class EventsView {
         <section class="ev-sec"><h3>Event type</h3><div class="ev-kinds"></div></section>
         <section class="ev-sec"><h3>View</h3>
           <label class="ev-switch"><span class="switch"><input type="checkbox" id="ev-thumbs" ${this.showThumbs ? 'checked' : ''}><span></span></span>Show thumbnails</label></section>
+        <section class="ev-sec"><h3>Export</h3>
+          <button class="btn sm" data-a="csv">${icon('download')} Export CSV</button>
+          <p class="ev-cap">Every event matching these filters, not just the ones shown — in recorder time and UTC.</p></section>
       </aside>
       <div class="ev-scrim" hidden></div>
       <main class="events-main"><div class="events-results"></div></main>
@@ -158,6 +178,7 @@ export class EventsView {
       if (e.key === '/' && !e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !q.closest('[inert]') && !document.getElementById('modal-root')?.firstChild) { e.preventDefault(); q.focus(); }
     };
     document.addEventListener('keydown', this._onKey);
+    this.root.querySelector('[data-a=csv]').addEventListener('click', () => this.exportCsv());
     this.root.querySelector('#ev-thumbs').addEventListener('change', (e) => {
       this.showThumbs = e.target.checked;
       try { localStorage.setItem('sentinel.eventsThumbs', this.showThumbs ? '1' : '0'); } catch { /* private mode */ }
@@ -197,50 +218,89 @@ export class EventsView {
     });
   }
 
+  /** The filters as query parameters (no paging): range, cameras when not all, types when not all. */
+  _params() {
+    const [fromEpoch, toEpoch] = this._range();
+    const p = new URLSearchParams({ start_utc: new Date(fromEpoch * 1000).toISOString(), end_utc: new Date(toEpoch * 1000).toISOString() });
+    const allCams = this.cams();
+    if (this.selectedCams.size < allCams.length) {
+      for (const c of allCams) if (this.selectedCams.has(c.id)) p.append('channel', String(c.channel));
+    }
+    // A subset of types is one query with `kind` repeated — never one capped query per type merged.
+    if (this.kinds.size < KINDS.length) for (const k of this.kinds) for (const q of KIND_QUERY[k] || [k]) p.append('kind', q);
+    return p;
+  }
+
   async search() {
-    if (this.selectedCams.size === 0 || this.kinds.size === 0) { this.results = []; this.loading = false; this.renderResults(); return; }
+    if (this.selectedCams.size === 0 || this.kinds.size === 0) { this.results = []; this.more = false; this.loading = false; this.renderResults(); return; }
     // The same search as last time (coming back to Events, say) shows its results at once and refreshes
     // them quietly; only a new search shows the spinner.
     const key = JSON.stringify([this.preset, this.preset === 'custom' ? [this.customFrom, this.customTo] : 0, [...this.selectedCams].sort(), [...this.kinds].sort()]);
     const cached = lastSearch?.key === key ? lastSearch : null;
-    if (cached) { this.results = cached.results; this.capped = cached.capped; this.loading = false; }
+    if (cached) { this.results = cached.results; this.more = cached.more; this.loading = false; }
     else this.loading = true;
     this.renderResults();
-    const [fromEpoch, toEpoch] = this._range();
-    const base = new URLSearchParams({
-      start_utc: new Date(fromEpoch * 1000).toISOString(),
-      end_utc: new Date(toEpoch * 1000).toISOString(),
-      limit: String(RESULT_CAP),
-    });
-    const allCams = this.cams();
-    if (this.selectedCams.size < allCams.length) {
-      for (const c of allCams) if (this.selectedCams.has(c.id)) base.append('channel', String(c.channel));
-    }
-    // Every type → one query. A subset → one query per type, merged: filtering a single capped query
-    // client-side could silently drop the rarer kinds behind hundreds of motion rows.
-    const kinds = this.kinds.size === KINDS.length ? [''] : [...this.kinds];
+    const p = this._params();
+    p.set('limit', String(PAGE));
     const seq = ++this._seq;
     try {
-      const parts = await Promise.all(kinds.map((k) => {
-        const p = new URLSearchParams(base);
-        if (k) p.set('kind', k);
-        return getJSON(`/api/timeline/events?${p}`);
-      }));
+      const rows = await getJSON(`/api/timeline/events?${p}`);
       if (seq !== this._seq) return; // a newer search has started; its results win
-      const rows = parts.flat();
-      rows.sort((a, b) => b.start_utc.localeCompare(a.start_utc)); // newest first
-      const capped = parts.some((r) => r.length >= RESULT_CAP);
-      lastSearch = { key, results: rows, capped };
-      // Nothing new since the cached results on screen: leave them (and their loaded thumbnails) alone.
-      if (cached && sameRows(cached.results, rows) && cached.capped === capped && !this.loading) return;
-      this.capped = capped;
+      const more = rows.length >= PAGE;
+      // Coming back to a longer cached list: keep its extra pages unless the first page itself changed.
+      if (cached && !this.loading && sameRows(cached.results.slice(0, rows.length), rows)) {
+        lastSearch = { key, results: cached.results, more: cached.more };
+        return;
+      }
+      lastSearch = { key, results: rows, more };
       this.results = rows;
+      this.more = more;
     } catch (e) {
       if (seq !== this._seq) return;
-      if (!cached) { this.results = []; toast(e.message || 'Search failed', 'bad'); }
+      if (!cached) { this.results = []; this.more = false; toast(e.message || 'Search failed', 'bad'); }
     }
     this.loading = false;
     this.renderResults();
+  }
+
+  /** The next page after the last loaded row (keyset cursor: its start time and id). */
+  async loadMore() {
+    if (!this.more || this.loading || this._loadingMore || !this.results?.length) return;
+    const last = this.results[this.results.length - 1];
+    const p = this._params();
+    p.set('limit', String(PAGE));
+    p.set('before', `${last.start_utc},${last.id}`);
+    const seq = this._seq;
+    this._loadingMore = true;
+    this._paintMore();
+    try {
+      const rows = await getJSON(`/api/timeline/events?${p}`);
+      if (seq !== this._seq) return;
+      const seen = new Set(this.results.map((r) => r.id));
+      const fresh = rows.filter((r) => !seen.has(r.id));
+      this.results = this.results.concat(fresh);
+      this.more = rows.length >= PAGE;
+      if (lastSearch && lastSearch.results !== this.results) lastSearch = { ...lastSearch, results: this.results, more: this.more };
+      this._loadingMore = false;
+      this.renderResults({ append: fresh });
+    } catch (e) {
+      toast(e.message || "Couldn't load more events", 'bad');
+    } finally {
+      this._loadingMore = false;
+      this._paintMore();
+    }
+  }
+
+  /** Every event matching the filters as a CSV download (the server streams it; the browser saves it). */
+  exportCsv() {
+    if (knownTzOffset() === null) { toast("The recorder's clock isn't known yet — try again shortly.", 'bad'); return; }
+    const a = document.createElement('a');
+    a.href = `/api/timeline/events.csv?${this._params()}`;
+    a.download = '';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    toast('Exporting events as CSV — the download starts in a moment.', 'ok');
   }
 
   /** DVR-local "Today · 23:50:28" / "Yesterday · …" / "Oct 1 · …". */
@@ -254,44 +314,43 @@ export class EventsView {
     return `${day} · ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
   }
 
-  renderResults() {
-    if (!this.res) return;
-    this._io.disconnect();
-    this._thumbQueue = []; // any queued images belonged to the previous result set — the DOM is about to be replaced
-    if (this.loading) { this.res.innerHTML = `<div class="ev-empty"><span class="spin"></span><p>Searching…</p></div>`; return; }
-    if (this.results === null) { this.res.innerHTML = ''; return; }
-    const rows = this.results.map((ev) => {
-      const cam = this.camById(ev.channel);
-      let attrs = null;
-      if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
-      const camName = cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`;
-      const when = this._when(ev.start_utc);
-      const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
-      const dur = durSec < 1 ? '' : durSec < 60 ? `${Math.round(durSec)} s` : `${Math.round(durSec / 60)} min`;
-      return { ev, cam, attrs, camName, when, dur, hay: `${camName} ${KIND_LABEL[ev.kind] || ev.kind} ${attrs?.title || ''} ${attrs?.notes || ''} ${when}`.toLowerCase() };
-    }).filter((r) => !this.query || this.query.split(/\s+/).every((w) => r.hay.includes(w)));
-    if (!rows.length) {
-      const searching = !!this.query && this.results.length;
-      this.res.innerHTML = `<div class="ev-empty"><div class="ev-empty-ico">${icon('search')}</div><h2>${searching ? 'No matches' : 'No events'}</h2>
-        <p>${searching ? `Nothing here matches “${esc(this.query)}”.` : 'Nothing in this range for these cameras and types. Try a wider range, or turn more of them on.'}</p></div>`;
-      return;
-    }
-    const pill = (k) => `<span class="ev-badge ${k}">${k === 'bookmark' ? icon('bookmark') : ''}${KIND_LABEL[k] || esc(k)}</span>`;
-    const actions = (r) => `
-      ${r.attrs?.bookmark_id ? `<button class="ev-act" data-a="delbm" data-bmid="${r.attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : ''}
+  /** Rows for display: camera, bookmark attrs, when, duration, roll-off, search text. */
+  _view(ev) {
+    const cam = this.camById(ev.channel);
+    let attrs = null;
+    if (ev.kind === 'bookmark' && ev.attrs_json) { try { attrs = JSON.parse(ev.attrs_json); } catch { /* malformed, skip */ } }
+    const camName = cam ? cam.name || 'Camera ' + cam.channel : `Channel ${ev.channel}`;
+    const when = this._when(ev.start_utc);
+    const durSec = Math.max(0, (new Date(ev.end_utc) - new Date(ev.start_utc)) / 1000);
+    const dur = durSec < 1 ? '' : durSec < 60 ? `${Math.round(durSec)} s` : `${Math.round(durSec / 60)} min`;
+    // Footage the recorder has overwritten (or soon will) — its own coverage index says when (retention.js).
+    const roll = rollOff(this.retention, ev.channel, Date.parse(ev.start_utc) / 1000);
+    const ret = !roll ? null : roll.gone ? { cls: 'gone', text: 'Footage overwritten', tip: 'The recorder no longer has this footage — its disk loops.' }
+      : roll.days <= ROLL_OFF_WARN_DAYS ? { cls: 'soon', text: `Overwritten ${rollOffPhrase(roll.days)}`, tip: 'The recorder overwrites its oldest footage first — export it from Playback to keep it.' } : null;
+    return { ev, cam, attrs, camName, when, dur, ret,
+      hay: `${camName} ${SHOW_LABEL[ev.kind] || ev.kind} ${attrs?.title || ''} ${attrs?.note || ''} ${attrs?.author || ''} ${when}`.toLowerCase() };
+  }
+
+  _match(r) { return !this.query || this.query.split(/\s+/).every((w) => r.hay.includes(w)); }
+
+  _itemHTML(r, i) {
+    const pill = (k) => `<span class="ev-badge ${esc(k)}">${k === 'bookmark' ? icon('bookmark') : ''}${esc(SHOW_LABEL[k] || k)}</span>`;
+    const ret = r.ret ? `<span class="ev-ret ${r.ret.cls}" title="${esc(r.ret.tip)}">${esc(r.ret.text)}</span>` : '';
+    const actions = `
+      ${r.attrs?.bookmark_id ? `<button class="ev-act" data-a="delbm" data-bmid="${+r.attrs.bookmark_id}" title="Delete bookmark" aria-label="Delete bookmark">${icon('trash')}</button>` : ''}
       <button class="ev-act" data-a="open" ${r.cam ? '' : 'disabled title="This camera is not enabled"'} title="Open in Playback" aria-label="Open in Playback">${icon('calendar')}</button>`;
-    const items = rows.map((r, i) => this.showThumbs
-      ? `<article class="ev-card" data-i="${i}" tabindex="0" aria-label="${esc(`${KIND_LABEL[r.ev.kind] || r.ev.kind}, ${r.camName}, ${r.when}`)}">
-          <div class="ev-thumb"><img data-ev-id="${r.ev.id}" alt="" loading="lazy">${pill(r.ev.kind)}${r.dur ? `<span class="ev-dur">${r.dur}</span>` : ''}<div class="ev-acts">${actions(r)}</div></div>
-          <div class="ev-card-body"><b>${esc(r.camName)}</b><span>${esc(r.when)}</span>${r.attrs?.title ? `<span class="ev-title">${esc(r.attrs.title)}</span>` : ''}</div>
+    return this.showThumbs
+      ? `<article class="ev-card" data-i="${i}" tabindex="0" aria-label="${esc(`${SHOW_LABEL[r.ev.kind] || r.ev.kind}, ${r.camName}, ${r.when}`)}">
+          <div class="ev-thumb"><img data-ev-id="${+r.ev.id}" alt="" loading="lazy">${pill(r.ev.kind)}${r.dur ? `<span class="ev-dur">${r.dur}</span>` : ''}<div class="ev-acts">${actions}</div></div>
+          <div class="ev-card-body"><b>${esc(r.camName)}</b><span>${esc(r.when)}</span>${r.attrs?.title ? `<span class="ev-title">${esc(r.attrs.title)}</span>` : ''}${ret}</div>
         </article>`
       : `<article class="ev-row" data-i="${i}" tabindex="0">${pill(r.ev.kind)}<b>${esc(r.camName)}</b><span class="ev-row-when">${esc(r.when)}${r.dur ? ` · ${r.dur}` : ''}</span>
-          <span class="ev-title">${r.attrs?.title ? esc(r.attrs.title) : ''}</span><span class="ev-acts">${actions(r)}</span></article>`).join('');
-    const capNote = this.capped
-      ? `<p class="ev-cap-note">Showing the first ${RESULT_CAP} of each type — narrow the range, cameras or types to see the rest.</p>` : '';
-    this.res.innerHTML = `<div class="${this.showThumbs ? 'events-grid' : 'events-list'}">${items}</div>${capNote}`;
-    this.res.querySelectorAll('[data-i]').forEach((el) => {
-      const r = rows[+el.dataset.i];
+          <span class="ev-title">${r.attrs?.title ? esc(r.attrs.title) : ''}</span>${ret}<span class="ev-acts">${actions}</span></article>`;
+  }
+
+  _wireItems(els) {
+    for (const el of els) {
+      const r = this._rows[+el.dataset.i];
       el.addEventListener('click', (e) => {
         const act = e.target.closest('[data-a]');
         if (act?.dataset.a === 'open') { e.stopPropagation(); this.openInPlayback(r.ev); return; }
@@ -301,7 +360,55 @@ export class EventsView {
       el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); this.openPreview(r.ev); } });
       const img = el.querySelector('img');
       if (img) this._io.observe(img);
-    });
+    }
+  }
+
+  /** "N shown" and the Load more button under the list; its sentinel auto-loads the next page. */
+  _paintMore() {
+    const foot = this.res?.querySelector('.ev-more');
+    if (!foot) return;
+    const n = this.results?.length || 0, shown = this._rows?.length || 0;
+    const count = this.query ? `${shown} of ${n} loaded match` : `${n} shown`;
+    foot.querySelector('.ev-count').textContent = this.more ? count : `${count} · that's all`;
+    const btn = foot.querySelector('[data-a=more]');
+    btn.hidden = !this.more;
+    btn.disabled = !!this._loadingMore;
+    btn.innerHTML = this._loadingMore ? '<span class="spin sm"></span> Loading…' : 'Load more';
+  }
+
+  /** @param o.append rows just added by loadMore: render only those, below what's already shown. */
+  renderResults({ append = null } = {}) {
+    if (!this.res) return;
+    if (append && this._rows && this.res.querySelector('.events-grid, .events-list')) {
+      const host = this.res.querySelector('.events-grid, .events-list');
+      const start = this._rows.length;
+      const add = append.map((ev) => this._view(ev)).filter((r) => this._match(r));
+      this._rows.push(...add);
+      host.insertAdjacentHTML('beforeend', add.map((r, k) => this._itemHTML(r, start + k)).join(''));
+      this._wireItems([...host.children].slice(start));
+      this._paintMore();
+      return;
+    }
+    this._io.disconnect();
+    this._moreIo.disconnect();
+    this._thumbQueue = []; // any queued images belonged to the previous result set — the DOM is about to be replaced
+    if (this.loading) { this.res.innerHTML = `<div class="ev-empty"><span class="spin"></span><p>Searching…</p></div>`; return; }
+    if (this.results === null) { this.res.innerHTML = ''; return; }
+    this._rows = this.results.map((ev) => this._view(ev)).filter((r) => this._match(r));
+    const rows = this._rows;
+    if (!rows.length && !(this.query && this.more)) {
+      const searching = !!this.query && this.results.length;
+      this.res.innerHTML = `<div class="ev-empty"><div class="ev-empty-ico">${icon('search')}</div><h2>${searching ? 'No matches' : 'No events'}</h2>
+        <p>${searching ? `Nothing loaded matches “${esc(this.query)}”.` : 'Nothing in this range for these cameras and types. Try a wider range, or turn more of them on.'}</p></div>`;
+      return;
+    }
+    this.res.innerHTML = `<div class="${this.showThumbs ? 'events-grid' : 'events-list'}">${rows.map((r, i) => this._itemHTML(r, i)).join('')}</div>
+      <div class="ev-more"><span class="ev-count"></span><button class="btn sm" data-a="more">Load more</button></div>`;
+    this._wireItems([...this.res.querySelectorAll('[data-i]')]);
+    const more = this.res.querySelector('.ev-more');
+    more.querySelector('[data-a=more]').addEventListener('click', () => this.loadMore());
+    this._paintMore();
+    this._moreIo.observe(more);
   }
 
   openPreview(ev) {
@@ -348,6 +455,7 @@ export class EventsView {
     this._dead = true;
     document.removeEventListener('keydown', this._onKey);
     this._io.disconnect();
+    this._moreIo.disconnect();
     this.root.innerHTML = '';
   }
 }

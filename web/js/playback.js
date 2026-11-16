@@ -5,8 +5,9 @@ import { ViewerControls, immersive, toggleViewer, leaveViewer, bindViewerToggle,
 import { barHTML, wireBar } from './bar.js';
 import { Timeline } from './timeline.js';
 import { bookmarkDialog, closePopover, esc, icon, toast, openPopover, shortcutsDialog, modalRoot } from './ui.js';
-import { WCPlayer, unsupportedReason } from './wcplayer.js';
-import { partsFromEpoch, fetchTzOffset, knownTzOffset } from './dvrtime.js';
+import { WCPlayer, openVideoFrames, unsupportedReason } from './wcplayer.js';
+import { MasterClock, gapJump, shouldWait } from './masterclock.js';
+import { partsFromEpoch, fetchTzOffset, knownTzOffset, provisionalTzOffset, waitTzOffset } from './dvrtime.js';
 import { DateTimePicker } from './datepicker.js';
 import { api, getJSON } from './api.js';
 import { Enhancer, PRESETS as ENHANCE_PRESETS } from './enhance.js';
@@ -14,6 +15,10 @@ import { enhancePanelHTML, wireEnhancePanel, summarizeEnhParams } from './enhanc
 import { ZoomPan } from './zoom.js';
 import { ZoomHud } from './zoomhud.js';
 import { openEnhancePopup } from './enhancePopup.js';
+import { buildSpans, eventJumpRef, skipDecision } from './eventspans.js';
+import { BookmarksPanel } from './bookmarks.js';
+import { RecorderWatch, inlineNoticeHTML } from './recorderNotice.js';
+import { ROLL_OFF_WARN_DAYS, loadRetention, rollOff, rollOffPhrase } from './retention.js';
 
 const SPEEDS = ['0.125', '0.25', '0.5', '1', '2', '4', '8', '16'];
 // The recorder's playback budget (app/playback_session.py's SPEED_BUDGET, measured on it): the speeds of
@@ -23,6 +28,10 @@ const maxSpeedFor = (n) => SPEEDS.filter((sp) => Math.max(1, +sp) * Math.max(1, 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MAX_PANES = 4; // the DVR allows at most 4 simultaneous playback sessions, full stop (spec 2.2)
 const EXPORT_SCALE = 16; // must match app/export.py's EXPORT_SCALE — the DVR delivers full frames this fast during export (measured)
+const SKIP_KEY = 'sentinel.skipEmpty';   // Skip empty on/off, per device (like the Events thumbnails switch)
+const USER_SEEK_GRACE_MS = 8000;          // after a deliberate seek, Skip empty leaves the playhead alone this long
+const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion', tamper: 'Tamper', videoloss: 'Video loss', bookmark: 'Bookmark' };
+const KIND_DOT = { motion: 'var(--ev-motion)', line: 'var(--ev-line)', intrusion: 'var(--ev-line)', tamper: 'var(--tamper)', videoloss: 'var(--ev-videoloss)', bookmark: 'var(--ev-bookmark)' };
 const pad2 = (n) => String(n).padStart(2, '0');
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
@@ -42,7 +51,11 @@ export class PlaybackView {
     // of gambling on the retry loop; "Jump to now" is one click away for whoever actually wants live edge.
     this.currentEpoch = startEpoch ? +startEpoch : Date.now() / 1000 - 180;
     this.speed = '1';
-    this.tzOffsetMin = 330; // Asia/Kolkata default until /api/timeline/tz answers
+    // The one clock every pane renders from (docs/SPEC.md 7.2): T advances with speed while playing, stands still
+    // while paused or while a pane can't show T yet (strict sync), and each pane shows its newest frame <= T.
+    this.clock = new MasterClock();
+    this.clock.seek(this.currentEpoch);
+    this.tzOffsetMin = provisionalTzOffset(); // replaced in _init by the recorder's own offset
     this.panes = [];               // [{cam, el, canvas, veil, statusEl, player}], panes[0] is primary
     this.clips = [];               // [[startEpoch, endEpoch], …] — multi-cut clipper's pending list (spec 10/15)
     // Settings > Enhancement > "Live filters" default preset (was hardcoded "off" — Tile already honoured
@@ -50,8 +63,11 @@ export class PlaybackView {
     this.enhParams = { ...(ENHANCE_PRESETS[ctx.settings().display.enhance_default_preset] || ENHANCE_PRESETS.off) };
     this._roiSelectMode = false;   // armed via the wand panel's "Select region" button — next drag on any pane sets *that* pane's ROI
     this._flashlightMode = false;  // armed via "Digital flashlight" — cursor over any pane locally lifts shadows around it there
-    this._alignSeq = 0;            // bumped on every seek/selection change so a slow, superseded pane's landing can't retroactively trigger alignment
     this.fitOverride = null;       // null = follow Settings > Display > Fit; 'contain'/'cover' = this-session-only override, never saved (see fitMode())
+    try { this.skipEmpty = localStorage.getItem(SKIP_KEY) === '1'; } catch { this.skipEmpty = false; }
+    this._spanWin = null;          // Skip empty's loaded events: {chans, from, loadedTo, complete, fetchedAt, spans}
+    this._lastJump = null;         // {start}: the event previous/next last jumped to (eventJumpRef)
+    this.retention = {};           // channel -> {oldest, days} (retention.js)
     this.onKey = (e) => this._key(e);
     document.addEventListener('keydown', this.onKey);
     // Rotating a phone/iPad between portrait and landscape crosses the stacked/grid breakpoint above —
@@ -64,17 +80,21 @@ export class PlaybackView {
 
   // Builds at once with the DVR offset already known (main.js fetches it at start-up); only a first visit
   // ever, with nothing known yet, waits for it. The offset is checked again in the background, and a change
-  // (a recorder that follows daylight saving) is applied in place — every time shown reads it afresh.
+  // (a recorder that follows daylight saving) is applied in place — every time shown reads it afresh. If the
+  // server doesn't know it yet either (it has just started), this browser's own offset stands in until it does.
   async _init(channelId) {
     const known = knownTzOffset();
-    this.tzOffsetMin = known ?? await fetchTzOffset(this.tzOffsetMin);
+    const fetched = known ?? await fetchTzOffset();
     if (this._dead) return;   // left before a first-ever fetch came back
+    this.tzOffsetMin = fetched ?? provisionalTzOffset();
     this.build(channelId);
-    if (known !== null) fetchTzOffset(known).then((m) => {
-      if (this._dead || m === this.tzOffsetMin) return;
+    const apply = (m) => {
+      if (this._dead || m === null || m === this.tzOffsetMin) return;
       this.tzOffsetMin = m;
       if (this.timeline) { this.timeline.opts.tzOffsetMin = m; this.timeline.refresh?.(); }
-    });
+    };
+    if (known !== null) fetchTzOffset(known).then(apply);
+    else if (fetched === null) waitTzOffset(() => !this._dead).then(apply);
   }
 
   // Same order the operator arranged on Live/Settings (display.order), not just the enabled subset in
@@ -128,17 +148,20 @@ export class PlaybackView {
       <div class="pb-body">
         <div class="pb-stage"><div class="pb-panes"></div></div>
         <div class="pb-controls">
+          <div class="pb-notices"><div class="rec-notice-host" hidden></div><div class="roll-notice-host" hidden></div></div>
           <div class="pb-ctrlrow">
             <div class="pb-ctrl-left">
               <span class="pb-time"></span>
               <button class="btn ghost sm" data-a="now" title="Jump to the live edge">Jump to now</button>
             </div>
             <div class="pb-ctrl-center">
+              <button class="btn icon ghost" data-a="prevev" title="Previous event ([)" aria-label="Previous event">${icon('evprev')}</button>
               <button class="btn icon ghost" data-a="stepback" title="Previous frame (,)" aria-label="Previous frame">${icon('left')}</button>
               <button class="btn icon ghost" data-a="back10" title="Back 10 s (Shift+2)" aria-label="Back 10 seconds">${icon('back2')}</button>
               <button class="btn play-btn" data-a="playpause" title="Play / pause (Space)" aria-label="Play or pause">${icon('play')}</button>
               <button class="btn icon ghost" data-a="fwd10" title="Forward 10 s (Shift+5)" aria-label="Forward 10 seconds">${icon('fwd2')}</button>
               <button class="btn icon ghost" data-a="stepfwd" title="Next frame (.)" aria-label="Next frame">${icon('right')}</button>
+              <button class="btn icon ghost" data-a="nextev" title="Next event (])" aria-label="Next event">${icon('evnext')}</button>
             </div>
             <div class="pb-ctrl-right">
               <button class="btn icon ghost" data-a="timeline" title="Timeline and review tools" aria-label="Timeline and review tools" aria-expanded="false">${icon('calendar')}</button>
@@ -156,6 +179,9 @@ export class PlaybackView {
                 <span><i style="background:var(--ev-motion)"></i>Motion</span><span><i style="background:var(--ev-line)"></i>Line cross</span><span><i style="background:var(--tamper)"></i>Tamper</span>
                 <span data-k="videoloss" hidden><i style="background:var(--ev-videoloss)"></i>Video loss</span><span data-k="bookmark" hidden><i style="background:var(--ev-bookmark)"></i>Bookmark</span>
               </div><span class="bar-sep"></span>
+              <button class="btn ghost sm tlp-skip" data-a="skipempty" aria-pressed="${this.skipEmpty}" title="Skip empty — while playing, jump over stretches with no motion, line crossing, tamper or bookmark on the selected cameras. Uses the recorder's own motion and alarm log. (S)">${icon('skipgap')}<span>Skip empty</span></button>
+              <button class="btn ghost sm tlp-bm" data-a="bookmarks" aria-haspopup="dialog" title="Bookmarks (L)">${icon('bookmark')}<span>Bookmarks</span></button>
+              <span class="bar-sep"></span>
               <button class="btn icon ghost sm" data-a="tlzout" title="Zoom out" aria-label="Zoom timeline out">${icon('minus')}</button>
               <button class="btn icon ghost sm" data-a="tlzin" title="Zoom in" aria-label="Zoom timeline in">${icon('plus')}</button></div>
             <div class="pb-timeline"></div>
@@ -189,6 +215,20 @@ export class PlaybackView {
     this.root.querySelector('[data-a=selectrange]').addEventListener('click', () => this._setSelectRangeMode(!this.timeline.selectMode));
     this.root.querySelector('[data-a=tlzin]').addEventListener('click', () => this.timeline.zoomBy(1.8));
     this.root.querySelector('[data-a=tlzout]').addEventListener('click', () => this.timeline.zoomBy(1 / 1.8));
+    this.root.querySelector('[data-a=skipempty]').addEventListener('click', () => this.toggleSkipEmpty());
+    this.root.querySelector('[data-a=bookmarks]').addEventListener('click', () => this.bookmarks?.toggle());
+    this.root.querySelector('[data-a=prevev]').addEventListener('click', () => this.jumpEvent(-1));
+    this.root.querySelector('[data-a=nextev]').addEventListener('click', () => this.jumpEvent(1));
+    this.bookmarks = new BookmarksPanel(this.root.querySelector('.pb'), {
+      ctx: this.ctx, tzOffset: () => this.tzOffsetMin, playhead: () => this.currentEpoch,
+      camName: (ch) => { const c = this.cams().find((x) => x.channel === ch); return c ? c.name || `Camera ${c.channel}` : `Channel ${ch}`; },
+      onJump: (b) => this.jumpToBookmark(b),
+      onChanged: () => this.timeline?.refresh(),
+      onAdd: () => this.bookmarkHere(),
+    });
+    this.recorderWatch = new RecorderWatch(this.root.querySelector('.rec-notice-host'), this.ctx);
+    this._loadRetention();
+    this._retTimer = setInterval(() => this._loadRetention(), 10 * 60 * 1000);
 
     this.root.querySelector('[data-a=playpause]').addEventListener('click', () => this.togglePlay());
     this.root.querySelector('[data-a=stepfwd]').addEventListener('click', () => this.stepFrame(1));
@@ -211,6 +251,8 @@ export class PlaybackView {
     this._renderTime();
     this.timeline.goTo(this.currentEpoch);
     this._setSelection([first.id]); // sets this.playing before controls are bound, so the very first auto-hide countdown is correct
+    window.__pbSync = () => this.syncInfo();   // debug/test hook: master time vs what each pane shows
+    window.__pbSync.endFeed = (i) => this.panes[i]?.player.disconnectSocket(true);   // test: a session that ends cleanly
     this._bindAutoHideControls();
     this.root.querySelector('[data-a=timeline]').addEventListener('click', () => this.toggleDetails());
     this._pollPool();
@@ -400,7 +442,7 @@ export class PlaybackView {
     const speedRow = hidden('.speed-seg') ? `<div class="pop-row"><span>Speed</span><div class="seg" role="group" aria-label="Speed">
         ${SPEEDS.map((sp) => `<button ${+sp > +maxSpeedFor(this.panes.length) ? 'disabled' : ''} data-s="${sp}" aria-pressed="${sp === this.speed}">${sp === '0.5' ? '½' : sp}×</button>`).join('')}</div></div>` : '';
     const extra = [
-      ...[['stepback','Previous frame'],['stepfwd','Next frame'],['bookmark','Bookmark this moment'],['enhance','Picture adjustments'],['aienhance','AI frame enhancer'],['now','Jump to now']].filter(([a]) => hidden(`[data-a=${a}]`)).map(([a,label]) => `<button class="pop-item" data-proxy="${a}" ${this.root.querySelector(`[data-a=${a}]`)?.disabled ? 'disabled title="Pause playback first"' : ''}><span>${label}</span></button>`),
+      ...[['prevev','Previous event'],['nextev','Next event'],['stepback','Previous frame'],['stepfwd','Next frame'],['bookmark','Bookmark this moment'],['enhance','Picture adjustments'],['aienhance','AI frame enhancer'],['now','Jump to now']].filter(([a]) => hidden(`[data-a=${a}]`)).map(([a,label]) => `<button class="pop-item" data-proxy="${a}" ${this.root.querySelector(`[data-a=${a}]`)?.disabled ? 'disabled title="Pause playback first"' : ''}><span>${label}</span></button>`),
       hidden('[data-a=selectrange]') ? `<button class="pop-item" data-m="range">${icon('range')}<span>Select a range to export</span></button>` : '',
       hidden('[data-a=pbfs]') ? `<button class="pop-item" data-m="fs">${icon('expand')}<span>Full screen</span></button>` : '',
     ].join('');
@@ -412,6 +454,8 @@ export class PlaybackView {
         <button data-f="contain" aria-pressed="${!fill}">Fit</button><button data-f="cover" aria-pressed="${fill}">Fill</button></div></div>
       <div class="pop-sep"></div>
       ${extra}
+      <button class="pop-item" data-m="skip" aria-pressed="${this.skipEmpty}">${icon('skipgap')}<span>Skip empty</span><kbd>S</kbd></button>
+      <button class="pop-item" data-m="bookmarks">${icon('bookmark')}<span>Bookmarks</span><kbd>L</kbd></button>
       <button class="pop-item" data-m="keys">${icon('layout')}<span>Keyboard shortcuts</span><kbd>?</kbd></button>
     </div>`, { className: 'view-pop' });
     if (!menu) return;
@@ -428,6 +472,8 @@ export class PlaybackView {
       menu.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     }));
     menu.querySelector('[data-m=keys]').addEventListener('click', () => { closePopover(); shortcutsDialog(); });
+    menu.querySelector('[data-m=skip]').addEventListener('click', () => { closePopover(); this.toggleSkipEmpty(); });
+    menu.querySelector('[data-m=bookmarks]').addEventListener('click', () => { closePopover(); this.bookmarks?.open(); });
   }
 
   /** Timeline panel header/footer (board): visible range in the title, playhead time bottom-left, and the
@@ -462,6 +508,9 @@ export class PlaybackView {
     this._syncSpeedLimits(true);
     // Every selected camera's events, not just the primary's — the timeline gives each one its own lane.
     this.timeline?.setChannels(this.panes.map((p) => ({ channel: p.cam.channel, name: p.cam.name || `Camera ${p.cam.channel}` })));
+    this._spanWin = null;   // Skip empty's events were for the old selection
+    this._skipNote = null;
+    this._applyRetention();
     // A pending clip list applies to whichever cameras are selected at export time (_runExportOne reads
     // this.panes fresh), so a clip added against one camera set would silently switch to a different one
     // if the selection changed underneath it — clear the list instead of ever exporting a range against
@@ -472,17 +521,15 @@ export class PlaybackView {
     // rather than push — otherwise every camera toggle fills history with entries that all render this
     // same view, and Back becomes a several-times-in-a-row no-op.
     this.ctx.replace(`#/playback/${this.primary.id}/${Math.round(this.currentEpoch)}`);
-    // (re)connect only the panes that don't already have a live session at the current position — and, if
-    // any of them lands later than the cameras already playing (same keyframe-snap reality _alignPanes
-    // handles for a full seek), pull the rest forward to match rather than leaving the newly-added camera
-    // permanently a few seconds ahead of the ones already open.
-    const toConnect = this.panes.filter((pane) =>
-      pane.player.ws?.readyState !== WebSocket.OPEN && pane.player.ws?.readyState !== WebSocket.CONNECTING);
+    // Connect only the panes that don't already have a session. A newly added camera joins at the master time:
+    // the clock waits (strict sync) while its session decodes its way from its keyframe up to T.
+    const toConnect = this.panes.filter((pane) => !pane.connected);
     if (toConnect.length) {
-      this.playing = true;
-      this._alignPanes(this.panes, this.currentEpoch, this.speed, this.playing, toConnect);
+      if (!this._started) { this._started = true; this.playing = true; this.clock.play(); }
+      this._connectPanes(toConnect, this.clock.time());
     }
     this._paintPlayIcon();
+    this._startTick();
   }
 
   _makePane(cam) {
@@ -502,9 +549,15 @@ export class PlaybackView {
     const canvas = el.querySelector('canvas');
     const enhCanvas = el.querySelector('.enh-canvas');
     const veil = el.querySelector('.pb-veil');
-    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null, _pauseOnNextFrame: false };
+    const pane = { cam, el, canvas, enhCanvas, veil, enhancer: null, _roi: null, connected: false };
     pane.player = new WCPlayer(canvas, {
+      clock: this.clock,
+      // Through a keyframe pre-roll, or short of footage, the feed runs as fast as the recorder's budget allows
+      // for this many cameras; comfortably ahead, it drops back to twice the playing speed (masterclock.feedPlan).
+      maxSpeed: () => maxSpeedFor(this.panes.length),
+      keepBehind: 12,
       onFrame: (t) => this._onFrame(pane, t),
+      onSegment: (msg) => this._onSegment(pane, msg),
       onState: (s, m) => this._onPaneState(pane, s, m),
       onError: (m) => { this._onPaneState(pane, 'error', m); if (pane === this.panes[0]) toast(`${cam.name || 'Camera'}: ${m}`, 'bad', 6000); },
       onQueued: (info) => this._onPaneState(pane, 'queued', `Recorder busy: ${info.busy}/${info.limit} sessions in use`),
@@ -722,141 +775,173 @@ export class PlaybackView {
   }
 
   // ---------------------------------------------------------------- playback control (applies to every pane)
-  // Pausing no longer disconnects (that's what made frame-stepping slow — every step had to open a brand
-  // new DVR session from scratch, real RTSP setup latency each time). It now just stops auto-advancing the
-  // displayed frame while the session keeps decoding into WCPlayer's own ring buffer in the background —
-  // see wcplayer.js. Resuming jumps to the newest buffered frame instead of reconnecting.
+  // Every pane renders the one master clock (docs/SPEC.md 7.2): play/pause/speed/step/seek move the clock, and
+  // each pane shows its newest frame <= T. Pausing keeps every session open (the recorder's feed is paused by
+  // back-pressure once enough is buffered — wcplayer.js), so play resumes at once and stepping needs no new
+  // recorder round trip.
   play() {
     this.playing = true;
+    this.clock.play();
     this._paintPlayIcon();
-    const iso = new Date(this.currentEpoch * 1000).toISOString();
-    for (const p of this.panes) {
-      if (p.player.ws?.readyState === WebSocket.OPEN) p.player.resumeFollow();
-      else p.player.connect(p.cam.id, iso, this.speed);
-    }
+    // A pane whose session has ended (or never opened) reopens at T; the clock waits for it.
+    const T = this.clock.time();
+    this._connectPanes(this.panes.filter((p) => !p.connected || (p.player.ended && !p.player.covers(T + 1))), T);
     this._showControls?.(); // starts the auto-hide countdown now that playing again
   }
 
   pause() {
     this.playing = false;
+    this.clock.pause();
     this._paintPlayIcon();
-    for (const p of this.panes) p.player.pauseHere();
-    this._onState('paused');
     this._showControls?.(); // paused = actively reviewing — stays visible (show() checks this.playing)
   }
 
   togglePlay() { this.playing ? this.pause() : this.play(); }
 
-  /** @param forcePlay start playing even if currently paused (used by "Jump to now"). Used to also update
-   * only the displayed position/UI while paused, leaving the actual player session untouched — found
-   * (not assumed) to desync the two: picking a new date/time while paused moved the playhead and time
-   * fields, but the still-open session just sat at its old position, so pressing Play resumed from wherever
-   * that stale session happened to be (e.g. an initial midnight/deep-link position) instead of from the
-   * newly picked time. A seek is always a deliberate "go here" action regardless of play state, so it now
-   * always reconnects — and, if this wasn't a play request, immediately re-pauses once the first frame at
-   * the new position has actually painted, landing paused exactly where the UI already claimed to be
-   * instead of silently drifting away from it. */
-  seekTo(epoch, forcePlay = false) {
+  /** Go to `epoch`. Every pane is moved to the same instant: within what's already buffered that's just the
+   * clock moving (instant); otherwise each pane gets a fresh recorder session there (each starts at its own
+   * camera's keyframe before `epoch`, decodes its way up to it without showing those frames, and the clock waits
+   * until every pane can show `epoch`). Paused, every pane lands on its frame for exactly `epoch`.
+   * @param forcePlay start playing even if currently paused (used by "Jump to now"). */
+  seekTo(epoch, forcePlay = false, { source = 'user' } = {}) {
+    // A deliberate seek (not Skip empty's own, nor previous/next event's) pauses Skip empty for a moment and
+    // forgets the last event jump, so neither fights where the operator just went.
+    if (source === 'user') { this._userSeekAt = Date.now(); this._skipTarget = null; this._skipNote = null; }
+    if (source !== 'jump') this._lastJump = null;
     this.currentEpoch = epoch;
+    this.playing = this.playing || forcePlay;
+    if (this.playing) this.clock.play(); else this.clock.pause();
+    this.clock.seek(epoch);
+    this._seekTarget = epoch;
     this._renderTime();
     this.timeline?.setPlayhead(epoch);
-    const shouldPlay = this.playing || forcePlay;
-    this.playing = shouldPlay;
     this._paintPlayIcon();
-    // Always a fresh session, never the in-session "seek" WS message — measured directly (not assumed)
-    // that reissuing PLAY with a new clock= range on an already-open RTSP session can land noticeably off
-    // target (observed: requested exact midnight, landed ~89 minutes later). A fresh connect for the same
-    // request did NOT reproduce that specific failure mode, so this removes one source of imprecision.
-    // Separately (see _alignPanes below): each channel's DVR session independently snaps the requested
-    // instant to that channel's own nearest available keyframe, so two cameras seeked to the exact same
-    // epoch can genuinely start from different real recorded moments — several seconds apart, confirmed
-    // directly against the cameras' own burned-in clocks, not just this app's computed label of them. A
-    // calibration error (docs/SPEC.md's timing notes) can compound this, but isn't the whole story: even
-    // with perfect per-channel calibration, independent sessions can still land on different keyframes.
-    for (const pane of this.panes) pane._pauseOnNextFrame = !shouldPlay;   // consumed once in _onFrame, below
-    this._alignPanes(this.panes, epoch, this.speed, shouldPlay);
+    // A pane already holding footage around `epoch` (a short skip back or forward) needs no new session.
+    this._connectPanes(this.panes.filter((p) => !(p.connected && p.player.ws && p.player.covers(epoch) && p.player.covers(epoch + 1))), epoch);
   }
 
-  /** Connects (or reconnects) every pane in `toConnect` (default: all of `panes`) to `epoch`, then pulls
-   * any pane — connecting or already playing — that sits on an earlier real moment than the latest of its
-   * siblings forward to match, so "the same seek" (or adding a camera mid-review) actually means the same
-   * recorded instant across every camera, not just the same request.
-   *
-   * The real bug this fixes (found by testing directly against the DVR, not assumed): with an anchored
-   * PlaybackReader, a *single* channel lands exactly on its requested target every time — there is no
-   * meaningful DVR-side keyframe slop to correct for. The actual source of the gap was this function
-   * itself: an already-playing pane's "current position" was read as a synchronous snapshot at the moment
-   * connecting began, via `Promise.resolve(pane._lastAbsTime)` inside the same `Promise.all` that was still
-   * waiting on the newly-connecting pane's session to negotiate (RTSP setup, DVR queueing — real time, not
-   * instant). The already-playing pane keeps playing forward for that whole wait, so by the time the new
-   * pane's first (correctly-anchored) frame arrives, the "target" it was compared against was already
-   * stale — every pane looked aligned to the *value read before the wait*, not to where anyone actually was
-   * once it was over. Fixed by reading every pane's position fresh, after every connect has finished, not
-   * before it started. */
-  async _alignPanes(panes, epoch, speed, shouldPlay, toConnect = panes) {
+  /** Open (or reopen) a recorder session for each of `panes` at `epoch`. */
+  _connectPanes(panes, epoch) {
     const iso = new Date(epoch * 1000).toISOString();
-    const seq = ++this._alignSeq;
-    const connecting = new Set(toConnect);
-    await Promise.all(panes.filter((pane) => connecting.has(pane)).map((pane) => new Promise((resolve) => {
-      pane._alignResolve = (t) => { pane._alignResolve = null; resolve(t); };
-      pane.player.connect(pane.cam.id, iso, speed);
-      setTimeout(() => { if (pane._alignResolve) { const r = pane._alignResolve; pane._alignResolve = null; r(null); } }, 6000);
-    })));
-    if (seq !== this._alignSeq) return; // superseded by a newer seek/selection change while we were waiting
-    // Fresh as of right now — an already-playing pane not in toConnect has kept advancing in real time for
-    // however long the connects above took, so this must be read after awaiting them, not before.
-    const landings = panes.map((pane) => pane._lastAbsTime ?? null);
-    const known = landings.filter((t) => t != null);
-    if (known.length < 2) return;
-    const target = Math.max(...known);
-    const targetIso = new Date(target * 1000).toISOString();
-    const corrected = [];
-    panes.forEach((pane, i) => {
-      if (landings[i] != null && landings[i] < target - 0.35) {
-        pane._pauseOnNextFrame = !shouldPlay; // _onFrame already consumed this once for the initial landing — re-arm for the correction
-        corrected.push(new Promise((resolve) => {
-          pane._alignResolve = (t) => { pane._alignResolve = null; resolve(); };
-          pane.player.seek(targetIso, speed);
-          setTimeout(() => { if (pane._alignResolve) { const r = pane._alignResolve; pane._alignResolve = null; r(); } }, 6000);
-        }));
-      }
-    });
-    // Waited on (not fire-and-forget) so a second, closely-spaced align (e.g. adding a 3rd camera right
-    // after a 2nd) reads *this* round's corrected positions instead of racing them — resolved via the same
-    // _alignResolve _onFrame already reports every landing through, so this is just confirming the
-    // correction actually happened, not issuing a second one.
-    await Promise.all(corrected);
+    for (const pane of panes) {
+      pane.connected = true;
+      pane._shownKey = null;
+      pane.player.connect(pane.cam.id, iso);
+    }
   }
 
   setSpeed(s) {
     this.speed = s;
-    if (!this.playing) return;
-    for (const p of this.panes) if (p.player.ws?.readyState === WebSocket.OPEN) p.player.setSpeed(s);
+    this.clock.setSpeed(+s);   // T carries on from where it is; each pane's feed follows on its own (feedPlan)
   }
 
+  /** Frame step: the master time moves to the next/previous frame of the focused pane (the enlarged one, else the
+   * first), and every pane shows its frame for that instant. Within the buffer it's instant; one step past the
+   * newest frame waits briefly for it; one step back past the buffered minute re-opens the recorder there. */
   async stepFrame(dir) {
-    this.playing = false;
-    this._paintPlayIcon();
+    this.pause();
     this._onState('paused');
-    this._showControls?.();
-    // no spinner-first here: stepping is normally instant now (buffered), and flashing a veil on every
-    // click would make the common case feel slower than it is — only the rare backward-past-buffer fetch
-    // takes real time, and that pane's own veil (wired in _makePane) covers it if it does.
-    try {
-      const results = await Promise.all(this.panes.map((p) =>
-        (dir > 0 ? p.player.stepForward() : p.player.stepBackward(this.currentEpoch, p.cam.id))));
-      const t = results[0];
-      if (t != null) { this.currentEpoch = t; this._renderTime(); this.timeline?.setPlayhead(t); }
-    } catch (e) {
-      toast(String(e.message || e), 'bad');
+    const focus = this.inspected || this.panes[0];
+    if (!focus) return;
+    const T = this.clock.time();
+    const from = focus.player.painted ?? T;
+    let t = focus.player.stepTime(from, dir);
+    const deadline = performance.now() + 3000;
+    while (t == null && dir > 0 && focus.player.ws && performance.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 40));
+      if (this._dead || this.clock.time() !== T) return;   // moved meanwhile
+      t = focus.player.stepTime(from, dir);
     }
+    if (t == null) {
+      if (dir < 0) this.seekTo(from - 1 / 15, false, { source: 'step' });
+      return;
+    }
+    this.clock.seek(t);
+    this.currentEpoch = t;
+    this._renderTime();
+    this.timeline?.setPlayhead(t);
+  }
+
+  // ---------------------------------------------------------------- the render loop: one clock, every pane
+  _startTick() {
+    if (this._tickOn || this._dead) return;
+    this._tickOn = true;
+    const loop = () => {
+      if (this._dead) { this._tickOn = false; return; }
+      this._tick();
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  /** Every animation frame: where each pane stands at T, whether the clock must wait (strict sync: a pane that
+   * can't show T yet holds every pane), every pane painted for T, and the time readout/playhead followed. */
+  _tick() {
+    const clk = this.clock;
+    let T = clk.time();
+    const st = this.panes.map((p) => p.player.status(T));
+    if (this.playing) {
+      const j = gapJump(st, T);   // every pane in a recording gap: on to the first footage after it
+      if (j != null) { clk.seek(j); T = j; }
+      clk.setWaiting(shouldWait(st, clk.waiting));
+    } else clk.setWaiting(false);
+    T = clk.time();
+    if (this.playing) {
+      // A pane whose session ended cleanly (server restart, a network blip, the page coming back from the
+      // back/forward cache, an older server that ignores "hold") reopens at T as T nears the end of what it has;
+      // the clock just waits for it. At most every 5 s a pane, so a session that keeps closing can't spin.
+      const now = performance.now();
+      this.panes.forEach((p, i) => {
+        if (p.player.ended && p.player.state !== 'error' && st[i].newest != null && (st[i].newest - T) / clk.speed < 2
+            && now - (p._reopenAt || 0) > 5000) {
+          p._reopenAt = now;
+          this._connectPanes([p], T);
+        }
+      });
+    }
+    this.panes.forEach((p, i) => { p.player.render(T); this._paneVeil(p, st[i]); });
+    const waiting = this.panes.filter((p, i) => ['connecting', 'starved', 'decoding'].includes(st[i].state));
+    this._syncStatus(waiting);
+    this.currentEpoch = T;
+    const now = performance.now();
+    if (Math.floor(T) !== this._shownSecond || now - (this._uiAt || 0) > 250) {
+      this._shownSecond = Math.floor(T);
+      this._uiAt = now;
+      this._renderTime();
+      this.timeline?.setPlayhead(T);
+      if (this.playing && clk.running && this.panes[0]) this._skipTick(T, this.panes[0]);
+    }
+  }
+
+  /** A pane's own overlay for where it stands at T (connecting/queued/error ones are drawn by _onPaneState). */
+  _paneVeil(pane, s) {
+    const key = s.state === 'starved' || s.state === 'decoding' ? (this.clock.waiting ? 'buffering' : 'ok') : s.state;
+    if (key === pane._shownKey) return;
+    if (['connecting', 'off'].includes(s.state) && ['connecting', 'queued', 'error'].includes(pane.player.state)) { pane._shownKey = null; return; }
+    pane._shownKey = key;
+    const v = pane.veil;
+    if (key === 'buffering') {
+      v.hidden = false; v.className = 'pb-veil is-wait';
+      v.innerHTML = `<div class="msg">Buffering — waiting for this camera's footage to reach the others</div>`;
+    } else if (key === 'gap') {
+      v.hidden = false; v.className = 'pb-veil is-wait';
+      v.innerHTML = `<div class="msg">No recording at this moment</div>`;
+    } else if (key === 'ok') v.hidden = true;
+  }
+
+  /** The bar's status: "Buffering <cameras>" while the clock waits for them, else playing/paused. */
+  _syncStatus(waiting) {
+    const names = waiting.map((p) => p.cam.name || `Camera ${p.cam.channel}`);
+    const key = !this.playing ? 'paused' : this.clock.waiting ? `wait:${names.join(',')}` : 'playing';
+    if (key === this._statusKey) return;
+    this._statusKey = key;
+    if (key === 'paused') this._onState('paused');
+    else if (key === 'playing') this._onState('playing');
+    else this._onState('buffering', names.length ? `Buffering ${names.join(', ')}` : 'Buffering…');
   }
 
   // ---------------------------------------------------------------- per-pane state -> shared UI
   _onFrame(pane, absTime) {
-    pane.veil.hidden = true;
-    pane._lastAbsTime = absTime; // this pane's own last known real position — what _alignPanes compares an about-to-connect sibling against
-    if (pane._alignResolve) pane._alignResolve(absTime); // reports this pane's actual landed position to _alignPanes, if a (re)connect is waiting on it
     // Keep the pane's --ar in sync with the decoded frame's real shape (tile.js does the same for live
     // view) — without this the canvas sizing CSS falls back to a fixed 16:9 guess, which is wrong for any
     // camera whose stream isn't 16:9 and produces the same "too much black" effect this was meant to fix.
@@ -865,35 +950,53 @@ export class PlaybackView {
       const ar = w / h;
       if (pane.ar !== ar) { pane.ar = ar; pane.el.style.setProperty('--ar', ar.toFixed(4)); }
     }
-    if (pane === this.panes[0]) {
-      this.currentEpoch = absTime;
-      this._renderTime();
-      this.timeline?.setPlayhead(absTime);
+  }
+
+  /** A pane's session started (or re-started) a segment. When the recorder couldn't serve the instant asked for
+   * — the newest minute or two isn't playable yet, and the server backs off to the newest it will serve — the
+   * master time moves back to where that session really starts, rather than waiting on footage that isn't there. */
+  _onSegment(pane, msg) {
+    const T = this.clock.time();
+    if (typeof msg.display_from === 'number' && this._seekTarget != null && msg.display_from < this._seekTarget - 1 && msg.display_from < T) {
+      this.clock.seek(msg.display_from);
+      this._seekTarget = msg.display_from;
     }
-    // Consumes the flag seekTo() set: this pane just reconnected for a seek that wasn't a play request, so
-    // hold here at the frame that actually landed rather than letting WCPlayer's default post-connect
-    // "follow" behaviour keep streaming it forward in the background while the rest of the UI says paused.
-    if (pane._pauseOnNextFrame) { pane._pauseOnNextFrame = false; pane.player.pauseHere(); }
+    this._renderTime();
   }
 
   _onPaneState(pane, s, msg) {
     const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
       paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'] };
-    const [cls, label] = labels[s] || ['off', s];
-    if (s === 'connecting' || s === 'queued') { pane.veil.hidden = false; pane.veil.className = 'pb-veil is-wait'; pane.veil.innerHTML = `<div class="msg">${esc(label)}</div>`; }
-    if (s === 'error') { pane.veil.className = 'pb-veil'; pane.veil.innerHTML = `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(msg || '')}">Couldn't play this moment — try another time or camera</div>`; }
-    if (pane === this.panes[0]) this._onState(s, msg);
+    const [, label] = labels[s] || ['off', s];
+    if (s === 'connecting' || s === 'queued') { pane._shownKey = null; pane.veil.hidden = false; pane.veil.className = 'pb-veil is-wait'; pane.veil.innerHTML = `<div class="msg">${esc(label)}</div>`; }
+    if (s === 'error') { pane._shownKey = null; pane.veil.hidden = false; pane.veil.className = 'pb-veil'; pane.veil.innerHTML = `<div class="veil-ico">${icon('offline')}</div><div class="msg" title="${esc(msg || '')}">Couldn't play this moment — try another time or camera</div>`; }
+    if (pane === this.panes[0] && (s === 'error' || s === 'queued')) this._onState(s, msg);
   }
 
   _onState(s, msg) {
     const dot = this.statusEl.querySelector('.dot');
     const txt = this.statusEl.querySelector('.txt');
     const labels = { connecting: ['wait', 'Connecting…'], queued: ['wait', msg || 'Queued…'], playing: ['armed', 'Playing'],
-      paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'] };
+      paused: ['', 'Paused'], error: ['off', msg || 'Error'], idle: ['', 'Idle'], buffering: ['wait', msg || 'Buffering…'] };
     const [cls, label] = labels[s] || ['off', s];
     dot.className = `dot ${cls}`;
     txt.textContent = label;
-    if (s === 'error') { this.playing = false; this._paintPlayIcon(); }
+    if (s === 'error' && this.panes.length === 1) { this.playing = false; this.clock.pause(); this._paintPlayIcon(); }
+  }
+
+  /** Debug/test hook (tools/e2e_playback_sync.py): the master time and what every pane shows for it. */
+  syncInfo() {
+    const T = this.clock.time();
+    return {
+      T, playing: this.playing, running: this.clock.running, waiting: this.clock.waiting, speed: this.clock.speed,
+      videoFrames: openVideoFrames(),
+      panes: this.panes.map((p) => {
+        const s = p.player.status(T);
+        return { cam: p.cam.id, channel: p.cam.channel, shown: p.player.painted, state: s.state, ahead: s.ahead,
+          newest: s.newest, approx: !!p.player.segment?.approx, decoded: p.player.frames.length,
+          encoded: p.player.chunks.length, bytes: p.player.bytes, feed: { ...p.player.feed }, wsOpen: !!p.player.ws };
+      }),
+    };
   }
 
   async _pollPool() {
@@ -919,10 +1022,23 @@ export class PlaybackView {
   }
 
   _renderTime() {
+    this._rollCheck();
     const p = partsFromEpoch(this.currentEpoch, this.tzOffsetMin);
     this.timeEl.textContent = `${pad2(p.hh)}:${pad2(p.mi)}:${pad2(p.ss)}`;
     if (this.dateEl) this.dateEl.textContent = `${MONTHS[p.mo]} ${p.da}, ${p.y}`;
-    for (const pane of this.panes) { const t = pane.el.querySelector('.pb-pane-time'); if (t) t.textContent = this.timeEl.textContent; }
+    // "≈" when the server couldn't place this footage with a clock calibration (time_source "anchor"): its
+    // times are the requested instant, and the picture can really be up to a keyframe interval earlier.
+    const approx = (pane) => !!pane?.player.segment?.approx;
+    const why = 'Approximate time — no clock calibration covers when this was recorded. The clock in the picture is the reference.'
+      + (this.panes.length > 1 ? ' This camera can\'t be frame-locked to the others: its picture can be up to a keyframe interval (about a minute) away from theirs.' : '');
+    if (approx(this.panes[0])) this.timeEl.textContent = '≈ ' + this.timeEl.textContent;
+    this.timeEl.title = approx(this.panes[0]) ? why : '';
+    for (const pane of this.panes) {
+      const t = pane.el.querySelector('.pb-pane-time');
+      if (!t) continue;
+      t.textContent = (approx(pane) ? '≈ ' : '') + this.timeEl.textContent.replace(/^≈ /, '');
+      t.title = approx(pane) ? why : '';
+    }
   }
 
   _paintPlayIcon() {
@@ -940,7 +1056,13 @@ export class PlaybackView {
     // without this, e.g. the shortcuts overlay's own Escape/Tab handling raced against this handler's own
     // key bindings underneath it (confirmed directly: Space toggled playback behind an open dialog).
     if (document.getElementById('modal-root').firstChild) return;
+    if (this.bookmarks?.isOpen) return;   // the sheet owns the keyboard (its own Esc closes it)
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === ' ') { e.preventDefault(); this.togglePlay(); }
+    else if (e.key === '[') this.jumpEvent(-1);
+    else if (e.key === ']') this.jumpEvent(1);
+    else if (e.key === 's' || e.key === 'S') this.toggleSkipEmpty();
+    else if (e.key === 'l' || e.key === 'L') this.bookmarks?.toggle();
     else if (e.key === '.') this.stepFrame(1);
     else if (e.key === ',') this.stepFrame(-1);
     else if (e.shiftKey && e.key === '1') this.seekTo(this.currentEpoch - 5);
@@ -951,6 +1073,185 @@ export class PlaybackView {
     else if (e.shiftKey && e.key === '6') this.seekTo(this.currentEpoch + 30);
     else if (e.key === 'b' || e.key === 'B') this.bookmarkHere();
     else if (e.key === 'f' || e.key === 'F') this.toggleFullscreen();
+  }
+
+  // ---------------------------------------------------------------- previous / next event, Skip empty (spec 7.7)
+  _chanParams(qs) { for (const p of this.panes) qs.append('channel', String(p.cam.channel)); return qs; }
+
+  /** Seek to a few seconds before the start of the nearest event (any kind, bookmarks included) on the selected
+   * cameras before (dir -1) or after (dir 1) the playhead — one indexed query, no scanning. */
+  async jumpEvent(dir) {
+    if (!this.panes.length || this._jumping) return;
+    const ref = eventJumpRef(dir, this.currentEpoch, this._lastJump?.start);
+    const qs = this._chanParams(new URLSearchParams({ limit: '1', order: dir > 0 ? 'asc' : 'desc' }));
+    // after: starts strictly later than the reference (half a second of slack for the label's rounding);
+    // before: strictly earlier.
+    qs.set(dir > 0 ? 'after' : 'before', `${new Date((ref + (dir > 0 ? 0.5 : -0.5)) * 1000).toISOString()},0`);
+    this._jumping = true;
+    try {
+      const [ev] = await getJSON(`/api/timeline/events?${qs}`);
+      if (!ev) { toast(dir > 0 ? 'No later events on the selected cameras.' : 'No earlier events on the selected cameras.', 'ok', 3000); return; }
+      const start = Date.parse(ev.start_utc) / 1000;
+      if (start > Date.now() / 1000 - 5) { toast('No later recorded events yet.', 'ok', 3000); return; }
+      this._lastJump = { start };
+      const cam = this.cams().find((c) => c.channel === ev.channel);
+      const p = partsFromEpoch(start, this.tzOffsetMin);
+      toast(`${KIND_LABEL[ev.kind] || ev.kind} · ${cam ? cam.name || `Camera ${cam.channel}` : `Channel ${ev.channel}`} · ${pad2(p.hh)}:${pad2(p.mi)}:${pad2(p.ss)}`,
+        'ok', 2500, { dot: KIND_DOT[ev.kind] || 'var(--faint)' });
+      this.seekTo(start - 3, false, { source: 'jump' });
+      this.timeline?.goTo(start);
+    } catch (e) {
+      toast(e.message || "Couldn't look up events", 'bad');
+    } finally {
+      this._jumping = false;
+    }
+  }
+
+  toggleSkipEmpty(force) {
+    this.skipEmpty = force ?? !this.skipEmpty;
+    try { localStorage.setItem(SKIP_KEY, this.skipEmpty ? '1' : '0'); } catch { /* private mode */ }
+    this.root.querySelectorAll('[data-a=skipempty]').forEach((b) => b.setAttribute('aria-pressed', String(this.skipEmpty)));
+    this._skipNote = null;
+    this._skipTarget = null;
+    this._userSeekAt = 0;
+    toast(this.skipEmpty
+      ? 'Skip empty on — playback jumps over stretches with no motion, line crossing, tamper or bookmark in the recorder\'s own event log.'
+      : 'Skip empty off.', 'ok', this.skipEmpty ? 6000 : 2500);
+  }
+
+  /** Events on the selected cameras from just before `t` up to now, oldest first (forward-looking: a newest-
+   * first fetch would drop the rows nearest the playhead when it hits the limit). Refetched when the playhead
+   * nears the end of a cut-short window, or after a minute (live events keep arriving). */
+  async _loadSpans(t) {
+    const chans = this.panes.map((p) => p.cam.channel).sort().join(',');
+    const w = this._spanWin;
+    const fresh = w && w.chans === chans && t >= w.from
+      && (w.complete ? Date.now() - w.fetchedAt < 60000 : t < w.loadedTo - 120);
+    if (fresh || this._spanLoading) return;
+    this._spanLoading = true;
+    try {
+      const from = t - 60;
+      const limit = 5000;
+      const qs = this._chanParams(new URLSearchParams({ start_utc: new Date(from * 1000).toISOString(), order: 'asc', limit: String(limit) }));
+      const rows = await getJSON(`/api/timeline/events?${qs}`);
+      const complete = rows.length < limit;
+      this._spanWin = { chans, from, complete, fetchedAt: Date.now(),
+        loadedTo: complete ? Date.now() / 1000 : Date.parse(rows[rows.length - 1].start_utc) / 1000, spans: buildSpans(rows) };
+    } catch { /* transient — the next frame asks again */ } finally {
+      this._spanLoading = false;
+    }
+  }
+
+  /** Called on the primary pane's frames while playing: when the playhead has left the last active span and
+   * the next one is far enough ahead to be worth a reconnect, jump to it — visibly (a toast and the skipped
+   * stretch flashed on the timeline). Never right after a deliberate seek or while scrubbing, never during a
+   * segment's keyframe pre-roll, and not again until the playhead has reached the last skip's target. */
+  _skipTick(t, pane) {
+    if (!this.skipEmpty || !this.playing) return;
+    const now = Date.now();
+    if (now - (this._skipCheckAt || 0) < 700) return;
+    this._skipCheckAt = now;
+    if (now - (this._userSeekAt || 0) < USER_SEEK_GRACE_MS) return;
+    if (this.timeline?.scrubTime != null) return;
+    if (this._skipTarget != null) {
+      if (t < this._skipTarget - 1 && now - this._skipAt < 90000) return;   // still in the jump's pre-roll
+      this._skipTarget = null;
+    }
+    const from = pane.player.displayFrom;
+    if (from != null && t < from - 0.05) return;   // keyframe pre-roll before a requested instant
+    this._loadSpans(t);
+    const w = this._spanWin;
+    // A fetch begun before a camera change can land after it: never act on another selection's events.
+    if (!w || t < w.from || w.chans !== this.panes.map((p) => p.cam.channel).sort().join(',')) return;
+    const d = skipDecision(w.spans, t, { speed: +this.speed, complete: w.complete });
+    if (d.action === 'skip') {
+      this._skipTarget = d.to;
+      this._skipAt = now;
+      this.timeline?.flashRange(t, d.to);
+      const mins = d.gap / 60;
+      const len = mins >= 90 ? `${Math.round(mins / 60)} h` : mins >= 1 ? `${Math.round(mins)} min` : `${Math.round(d.gap)} s`;
+      // The timeline flash is the visible sign — but when the timeline isn't on screen (short layouts, full
+      // screen, auto-hidden chrome) every skip gets a toast, so a skip is never silent.
+      const canvas = this.root.querySelector('.pb-timeline canvas');
+      const seen = !!canvas?.getClientRects().length && !canvas.closest('[inert],[data-chrome-hidden]');
+      if (!seen || now - (this._skipToastAt || 0) > 6000) { this._skipToastAt = now; toast(`Skipped ${len} with no events.`, 'ok', 2500); }
+      this.seekTo(d.to, false, { source: 'skip' });
+    } else if ((d.action === 'empty' || d.action === 'end') && this._skipNote !== `${d.action}@${w.chans}`) {
+      this._skipNote = `${d.action}@${w.chans}`;
+      toast(d.action === 'empty'
+        ? 'Skip empty: the recorder\'s event log has nothing from here on for these cameras — playing straight through.'
+        : 'Skip empty: no more events ahead — playing straight through.', 'ok', 6000);
+    }
+  }
+
+  // ---------------------------------------------------------------- roll-off (the recorder's disk loops)
+  async _loadRetention() {
+    this.retention = await loadRetention();
+    if (!this._dead) this._applyRetention();
+  }
+
+  /** Timeline shading before the primary camera's oldest recording, and the roll-off notice re-checked. */
+  _applyRetention() {
+    const ch = this.primary?.channel;
+    this.timeline?.setRetention(ch != null ? this.retention?.[ch]?.oldest ?? null : null);
+    this._rollKey = null;
+    this._rollCheck();
+  }
+
+  /** The nearest roll-off among the selected cameras for footage at `t` (null when unknown). */
+  _rollOffAt(t) {
+    let worst = null;
+    for (const p of this.panes) {
+      const r = rollOff(this.retention, p.cam.channel, t);
+      if (r && (!worst || r.days < worst.days)) worst = r;
+    }
+    return worst;
+  }
+
+  _rollCheck() {
+    const host = this.root.querySelector('.roll-notice-host');
+    if (!host) return;
+    const r = this._rollOffAt(this.currentEpoch);
+    const soon = r && !r.gone && r.days <= ROLL_OFF_WARN_DAYS;
+    const key = soon ? `soon:${Math.round(r.days)}` : r?.gone ? 'gone' : 'none';
+    if (key === this._rollKey) return;
+    this._rollKey = key;
+    if (!soon || this._rollDismissed) { host.hidden = true; host.innerHTML = ''; return; }
+    host.hidden = false;
+    host.innerHTML = inlineNoticeHTML({ tone: 'warn', glyph: 'alert',
+      text: `This footage will be overwritten by the recorder ${esc(rollOffPhrase(r.days))} — export it to keep it.`,
+      actions: [{ id: 'export', label: 'Export…' }] });
+    host.querySelector('.inline-notice').title = 'Estimated from the oldest recording the recorder still has: it overwrites its oldest footage first as its disk fills.';
+    host.querySelector('[data-n=export]').addEventListener('click', () => this.openExportDialog());
+    host.querySelector('[data-n=dismiss]').addEventListener('click', () => { this._rollDismissed = true; host.hidden = true; host.innerHTML = ''; });
+  }
+
+  // ---------------------------------------------------------------- bookmarks panel: jump to one
+  /** Play from just before a bookmark, adding its cameras to the selection if they aren't shown (up to the
+   * recorder's 4 playback sessions — the bookmark's own cameras first). */
+  jumpToBookmark(b) {
+    const ids = this.cams().filter((c) => b.channels.includes(c.channel)).map((c) => c.id);
+    const t = Date.parse(b.time_utc) / 1000 - 3;
+    const current = this.panes.map((p) => p.cam.id);
+    const missing = ids.filter((id) => !current.includes(id));
+    this.bookmarks?.close();
+    if (missing.length) {
+      // The added cameras connect at t (_setSelection); the ones already shown are moved there — each pane
+      // connects once, not twice.
+      const want = [...ids, ...current.filter((id) => !ids.includes(id))].slice(0, MAX_PANES);
+      const kept = this.panes.filter((p) => want.includes(p.cam.id));
+      this._userSeekAt = Date.now(); this._skipTarget = null; this._lastJump = null;
+      this.currentEpoch = t;
+      this.clock.seek(t);
+      this._seekTarget = t;
+      this._renderTime();
+      this.timeline?.setPlayhead(t);
+      this._setSelection(want);
+      this._connectPanes(kept.filter((p) => !(p.player.ws && p.player.covers(t) && p.player.covers(t + 1))), t);
+    } else {
+      this.seekTo(t, false, { source: 'user' });
+    }
+    this.timeline?.goTo(t);
   }
 
   // ---------------------------------------------------------------- bookmarks (spec section 9)
@@ -969,6 +1270,7 @@ export class PlaybackView {
       });
       toast('Bookmark saved.', 'ok');
       this.timeline?.refresh();
+      this.bookmarks?.load();
     } catch (e) {
       toast(e.message || 'Could not save the bookmark', 'bad');
     }
@@ -1040,8 +1342,10 @@ export class PlaybackView {
           </div>
           <span class="spacer"></span>
           <div class="xp-meta"><span class="k">Takes</span><span class="v"></span></div>
+          <p class="xp-roll" hidden></p>
           <p class="xp-status" aria-live="polite" hidden></p>
           <button class="btn xp-add" data-x="add">${icon('plus')} Add to clips, keep trimming</button>
+          <button class="btn xp-add xp-cancel" data-x="cancel" hidden>${icon('close')} Cancel export</button>
           <button class="btn primary xp-go" data-x="go"></button>
         </div>
       </div></div>`;
@@ -1068,6 +1372,11 @@ export class PlaybackView {
       $('.w0').textContent = hms(w0); $('.w1').textContent = hms(w1);
       $('.ta').textContent = hms(a); $('.tb').textContent = hms(b);
       const tooLong = b - a > 2 * 3600;
+      const roll = this._rollOffAt(a);
+      const rollEl = $('.xp-roll');
+      rollEl.hidden = !(roll && roll.days <= ROLL_OFF_WARN_DAYS);
+      if (!rollEl.hidden) rollEl.textContent = roll.gone ? 'The start of this range has already been overwritten by the recorder.'
+        : `The recorder will overwrite this footage ${rollOffPhrase(roll.days)}.`;
       $('.xp-meta .v').textContent = tooLong ? 'Up to 2 hours per export' : eta(mode === 'clips' ? this.clips.reduce((n, [x, y]) => n + y - x, 0) || b - a : b - a);
       $('.xp-meta').classList.toggle('bad', tooLong);
       const n = this.clips.length;
@@ -1078,7 +1387,8 @@ export class PlaybackView {
       const go = $('.xp-go');
       if (!running) go.innerHTML = mode === 'clips' ? `Export all${n ? ` (${n})` : ''}` : 'Export clip';
       go.disabled = running || (mode === 'clips' ? !n : tooLong);
-      $('.xp-add').disabled = running || tooLong;
+      $('[data-x=add]').disabled = running || tooLong;
+      $('[data-x=cancel]').hidden = !running;
       $('[data-x=clear]').disabled = running || !n;
       if (mode === 'clips') renderClips();
     };
@@ -1161,19 +1471,28 @@ export class PlaybackView {
 
     const go = $('.xp-go');
     const busy = (txt) => { go.innerHTML = `<span class="spin sm"></span> ${esc(txt)}`; };
+    // Cancel: the running job is cancelled on the server (its recorder session released, partial files
+    // removed) and a batch stops before its next clip.
+    let ctl = null;
+    $('[data-x=cancel]').addEventListener('click', () => {
+      if (!ctl || ctl.cancelled) return;
+      ctl.cancelled = true;
+      busy('Cancelling…');
+      if (ctl.jobId) api.cancelExport(ctl.jobId).catch(() => {});
+    });
     go.addEventListener('click', async () => {
-      running = true; paint();
+      running = true; ctl = { cancelled: false, jobId: null }; paint();
       if (mode === 'single') {
         setStatus('');
         busy('Starting export…');
         try {
-          const jobId = await this._runExportOne(a, b, pkg, (msg) => busy(msg));
+          const jobId = await this._runExportOne(a, b, pkg, (msg) => { if (!ctl.cancelled) busy(msg); }, ctl);
           const link = document.createElement('a');
           link.href = `/api/export/${jobId}/download`; link.click();
           toast('Export ready — download started.', 'ok');
           setStatus(`${icon('checkcircle')} Exported. <a href="/api/export/${jobId}/download">Download again</a>${pkg === 'signed' ? ' · open verify.html inside to check it' : ''}`, 'ok');
         } catch (e) {
-          setStatus(esc(e.message || 'Export failed.'), 'bad');
+          setStatus(esc(e.cancelled ? 'Export cancelled.' : e.message || 'Export failed.'), e.cancelled ? '' : 'bad');
         }
       } else {
         const rows = [...el.querySelectorAll('.clip-row')];
@@ -1181,22 +1500,25 @@ export class PlaybackView {
         for (let i = 0; i < this.clips.length; i++) {
           const [x, y] = this.clips[i];
           const cell = rows[i]?.querySelector('.clip-status');
+          if (ctl.cancelled) { if (cell) cell.textContent = 'Cancelled'; continue; }
           busy(`Clip ${i + 1} of ${this.clips.length}…`);
           if (cell) cell.textContent = 'Starting…';
+          ctl.jobId = null;
           try {
-            const jobId = await this._runExportOne(x, y, pkg, (msg) => { if (cell) cell.textContent = msg; });
+            const jobId = await this._runExportOne(x, y, pkg, (msg) => { if (cell) cell.textContent = msg; }, ctl);
             if (cell) cell.innerHTML = `<a href="/api/export/${jobId}/download">Download</a>`;
             done.push(i);
           } catch (e) {
-            if (cell) cell.textContent = e.message || 'Failed';
+            if (cell) cell.textContent = e.cancelled ? 'Cancelled' : e.message || 'Failed';
           }
         }
         // Finished clips leave the pending list, but their rows (each with its download link) stay on screen
         // until the next change — redrawing now would drop the links before anyone could click them.
         this.clips = this.clips.filter((_, i) => !done.includes(i));
         this._syncClipUi();
-        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported.`, done.length === rows.length ? 'ok' : 'bad');
+        toast(`${done.length}/${rows.length} clip${rows.length > 1 ? 's' : ''} exported${ctl.cancelled ? ' — the rest were cancelled' : ''}.`, done.length === rows.length ? 'ok' : 'bad');
         running = false;
+        $('[data-x=cancel]').hidden = true;
         $('.xp-clips .count').textContent = this.clips.length ? String(this.clips.length) : '';
         go.innerHTML = `Export all${this.clips.length ? ` (${this.clips.length})` : ''}`;
         go.disabled = !this.clips.length;
@@ -1232,13 +1554,15 @@ export class PlaybackView {
   /** Runs one export job to completion (create + poll) and resolves to its job_id. Shared by the single-
    * clip dialog and the multi-cut clipper's batch export — a batch is just this, called once per clip,
    * in order (see _addClip's comment on why never in parallel). */
-  async _runExportOne(startEpoch, endEpoch, pkg, onProgress) {
+  async _runExportOne(startEpoch, endEpoch, pkg, onProgress, ctl = {}) {
     const { job_id } = await api.createExport({
       channels: this.panes.map((p) => p.cam.id),
       start_utc: new Date(startEpoch * 1000).toISOString(),
       end_utc: new Date(endEpoch * 1000).toISOString(),
       package: pkg,
     });
+    ctl.jobId = job_id;
+    if (ctl.cancelled) api.cancelExport(job_id).catch(() => {});   // cancelled while it was being created
     await this._pollExport(job_id, endEpoch - startEpoch, onProgress);
     return job_id;
   }
@@ -1249,7 +1573,9 @@ export class PlaybackView {
     // adds queueing, not just per-channel time, so scale by pane count too, with real margin on top.
     // The server exports as fast as the recorder's playback budget allows at that moment — 16x when nothing
     // else is playing, as slow as 1x alongside a busy review — so allow for the slow case here.
-    const perChannel = Math.max(90, spanSec * 3 + 60);
+    // The recorder starts at the keyframe before the clip (up to a minute of extra footage — app/export.py's
+    // export_deadline_s), so that pre-roll counts too.
+    const perChannel = Math.max(90, (spanSec + 60) * 3 + 60);
     const deadline = Date.now() + perChannel * this.panes.length * 1000;
     return new Promise((resolve, reject) => {
       const tick = async () => {
@@ -1257,8 +1583,9 @@ export class PlaybackView {
         let job;
         try { job = await api.exportStatus(jobId); } catch (e) { reject(e); return; }
         if (job.state === 'error') { reject(new Error(job.error || 'Export failed')); return; }
+        if (job.state === 'cancelled') { reject(Object.assign(new Error('Export cancelled'), { cancelled: true })); return; }
         if (job.state === 'done') { resolve(); return; }
-        onProgress?.(job.progress || 'Working…');
+        onProgress?.(job.state === 'cancelling' ? 'Cancelling…' : job.progress || 'Working…');
         setTimeout(tick, 1500);
       };
       tick();
@@ -1267,12 +1594,16 @@ export class PlaybackView {
 
   destroy() {
     this._dead = true;
+    if (window.__pbSync) delete window.__pbSync;
     this.viewerControls?.destroy();
     document.removeEventListener('keydown', this.onKey);
     window.removeEventListener('resize', this.onResize);
     if (this._onFsChange) document.removeEventListener('fullscreenchange', this._onFsChange);
     clearInterval(this._poolTimer);
+    clearInterval(this._retTimer);
     clearTimeout(this._hideTimer);
+    this.recorderWatch?.destroy();
+    this.bookmarks?.destroy();
     this._teardownPanes();
     this.timeline?.destroy();
     this.root.innerHTML = '';

@@ -20,9 +20,12 @@ try { const v = localStorage.getItem(TZ_KEY); if (v !== null && v !== '' && Numb
 /** The DVR's UTC offset in minutes as last known, or null if it has never been fetched in this browser. */
 export const knownTzOffset = () => known;
 
-/** Fetches the DVR's current UTC offset in minutes (and remembers it), falling back to the last known one,
- * then `fallbackMin` (default Asia/Kolkata, +5:30). */
-export async function fetchTzOffset(fallbackMin = 330) {
+/** A stand-in for screens that must draw before the recorder's offset has ever been known in this browser:
+ * this browser's own offset (usually the same place). Never a fixed zone — this used to assume India (+5:30),
+ * which put every time hours off anywhere else. Replace it with waitTzOffset() as soon as the real one comes. */
+export const provisionalTzOffset = () => known ?? -new Date().getTimezoneOffset();
+
+async function readTz() {
   try {
     const r = await getJSON('/api/timeline/tz');
     if (r.ready) {
@@ -30,6 +33,24 @@ export async function fetchTzOffset(fallbackMin = 330) {
       try { localStorage.setItem(TZ_KEY, String(known)); } catch { /* private mode */ }
       return known;
     }
-  } catch { /* keep the fallback */ }
-  return known ?? fallbackMin;
+  } catch { /* not known yet */ }
+  return null;
+}
+
+/** Fetches the DVR's current UTC offset in minutes (and remembers it), falling back to the last known one,
+ * then `fallbackMin` — null by default: until the server has read the recorder's clock there is no right
+ * answer to give, only a stand-in (provisionalTzOffset) for the caller to replace. */
+export async function fetchTzOffset(fallbackMin = null) {
+  return (await readTz()) ?? known ?? fallbackMin;
+}
+
+/** Resolves with the recorder's offset once the server knows it (it reads the recorder's clock at start-up),
+ * asking every few seconds; resolves null if `alive()` turns false first (the screen was left). */
+export async function waitTzOffset(alive = () => true, everyMs = 5000) {
+  while (alive()) {
+    const m = await readTz();
+    if (m !== null) return m;
+    await new Promise((res) => setTimeout(res, everyMs));
+  }
+  return null;
 }

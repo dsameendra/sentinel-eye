@@ -36,6 +36,8 @@ async function call(method, url, body) {
 /** GET a JSON URL with the same sign-in/error handling as `api` — for call sites that build their own URLs. */
 export const getJSON = (url) => call('GET', url);
 
+const exportsChanged = () => { try { window.dispatchEvent(new Event('se-exports-changed')); } catch { /* not in a page */ } };
+
 export const api = {
   settings: () => call('GET', '/api/settings'),
   saveSettings: (s) => call('PUT', '/api/settings', s),
@@ -43,10 +45,17 @@ export const api = {
   test: (connection, channel, kind, path = '') => call('POST', '/api/test', { connection, channel, kind, path }),
   discover: (connection) => call('POST', '/api/discover', { connection }),
   status: () => call('GET', '/api/status'),
+  retryRecorder: () => call('POST', '/api/recorder/retry'),
   createBookmark: (b) => call('POST', '/api/bookmarks', b),
+  updateBookmark: (id, b) => call('PATCH', `/api/bookmarks/${id}`, b),
   deleteBookmark: (id) => call('DELETE', `/api/bookmarks/${id}`),
-  createExport: (b) => call('POST', '/api/export', b),
+  retention: () => call('GET', '/api/timeline/retention'),
+  // Both tell the Exports panel (exportsTray.js) to look again now instead of at its next slow poll.
+  createExport: (b) => call('POST', '/api/export', b).finally(exportsChanged),
+  exports: () => call('GET', '/api/export'),
   exportStatus: (jobId) => call('GET', `/api/export/${jobId}`),
+  cancelExport: (jobId) => call('DELETE', `/api/export/${jobId}`).finally(exportsChanged),
+  signingKey: () => call('GET', '/api/export/signing-key'),
   createEnhance: (b) => call('POST', '/api/enhance', b),
   enhanceStatus: (jobId) => call('GET', `/api/enhance/${jobId}`),
   enhanceModels: () => call('GET', '/api/enhance/models'),

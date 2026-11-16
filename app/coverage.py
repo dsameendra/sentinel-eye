@@ -21,7 +21,9 @@ def _search(api: isapi.Isapi, track, start_iso, end_iso, max_results=200, pos=0)
 
 
 def spans_for_day(api, channel, day_start_local, tz):
-    """Merged recorded spans (UTC ISO pairs) for one DVR-local day on a channel's main track."""
+    """Merged recorded spans (UTC ISO pairs) for one DVR-local day on a channel's main track. Raises
+    isapi.DvrRequestError on any non-200 page: returning what had arrived so far let refresh_day overwrite a
+    day's good cached coverage with a partial (often empty) list — the timeline then showed no recordings."""
     track = channel * 100 + 1
     day_end_local = day_start_local + datetime.timedelta(days=1)
     start = day_start_local.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -30,7 +32,7 @@ def spans_for_day(api, channel, day_start_local, tz):
     while True:
         st, out = _search(api, track, start, end, pos=pos)
         if st != 200:
-            break
+            raise isapi.DvrRequestError("recording search", st)
         items = re.findall(r"<searchMatchItem>.*?</searchMatchItem>", out, re.S)
         for it in items:
             s = re.search(r"<startTime>(.*?)</startTime>", it)
@@ -51,7 +53,8 @@ def _to_utc(dvr_iso, tz):
 
 
 def refresh_day(api, channel, day, tz):
-    """day: date object, DVR-local. Fetches and caches that day's coverage; returns the spans."""
+    """day: date object, DVR-local. Fetches and caches that day's coverage; returns the spans. On a failed
+    request (raised) the cached row is left as it was."""
     day_start = datetime.datetime.combine(day, datetime.time(0, 0), tzinfo=tz)
     spans = spans_for_day(api, channel, day_start, tz)
     db.write(
@@ -72,8 +75,8 @@ def cached_range(channel, day_from, day_to):
 
 
 def refresh_all(api, channels, tz, day_from, day_to, stop_event=None):
-    """Refresh coverage for every channel over [day_from, day_to] inclusive. Used at startup for the
-    DVR's whole retention, and nightly for the last couple of days (which can still change)."""
+    """Refresh coverage for every channel over [day_from, day_to] inclusive; raises on the first failure.
+    (PlaybackService indexes day by day itself, so one bad day doesn't stop the rest — see _coverage_pass.)"""
     day = day_from
     n = 0
     while day <= day_to:
@@ -88,9 +91,17 @@ def refresh_all(api, channels, tz, day_from, day_to, stop_event=None):
 
 def earliest_recorded_day(api, channel, tz, probe_months=6):
     """Walk back month by month (dailyDistribution) to find the first day with any recording."""
+    return earliest_recorded_day_checked(api, channel, tz, probe_months)["day"]
+
+
+def earliest_recorded_day_checked(api, channel, tz, probe_months=6):
+    """{"day": first recorded day or None, "certain": bool}. `certain` only when every month asked about answered
+    (a refused month reads as "nothing recorded" and would make the answer too late) and the first day isn't in
+    the oldest month probed (recordings may go back further than the probe). Pruning and the roll-off estimate
+    act on a certain answer only — a too-late day would discard events whose footage still exists."""
     today = datetime.datetime.now(tz).date()
     y, m = today.year, today.month
-    earliest = None
+    earliest, all_ok, oldest_month = None, True, None
     for _ in range(probe_months):
         body = f'<?xml version="1.0" encoding="utf-8"?><trackDailyParam><year>{y}</year><monthOfYear>{m}</monthOfYear></trackDailyParam>'
         st, out = api.call(f"/ISAPI/ContentMgmt/record/tracks/{channel * 100 + 1}/dailyDistribution", "POST", body)
@@ -98,7 +109,11 @@ def earliest_recorded_day(api, channel, tz, probe_months=6):
             days = [int(d) for d, r in re.findall(r"<dayOfMonth>(\d+)</dayOfMonth>\s*<record>(\w+)</record>", out) if r == "true"]
             if days:
                 earliest = datetime.date(y, m, min(days))
+        else:
+            all_ok = False
+        oldest_month = (y, m)
         m -= 1
         if m == 0:
             m, y = 12, y - 1
-    return earliest
+    certain = bool(earliest and all_ok and (earliest.year, earliest.month) != oldest_month)
+    return {"day": earliest, "certain": certain}

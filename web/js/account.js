@@ -34,7 +34,7 @@ export function codesBlock(codes) {
 
 export function wireCopy(root) {
   root.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied'); } catch { toast('Copy failed: select and copy the codes by hand', 'bad'); }
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied'); } catch { toast('Copy failed: select the text and copy it by hand', 'bad'); }
   }));
 }
 

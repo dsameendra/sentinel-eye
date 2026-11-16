@@ -104,7 +104,7 @@ export function onboardingDialog(ctx) {
       for (const f of s.found || []) {
         if (used.has(f.channel)) continue;
         const id = 'c' + Math.random().toString(16).slice(2, 8);
-        draft.channels.push({ id, channel: f.channel, name: f.name || `Camera ${f.channel}`, enabled: true, sub_fps: 'auto', main_fps: 'auto', aspect: 'auto', sub_path: '', main_path: '' });
+        draft.channels.push({ id, channel: f.channel, name: f.name || `Camera ${f.channel}`, enabled: true, sub_fps: 'auto', main_fps: 'auto', aspect: 'auto', sub_path: '', main_path: '', playback_path: '' });
         draft.display.order.push(id);
         used.add(f.channel);
       }

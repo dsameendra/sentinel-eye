@@ -7,6 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 ROOT=$(pwd)
 
+# go2rtc release and the SHA-256 of each asset we download (go2rtc_sha256 below). Update BOTH together: a new
+# version needs new hashes (and the same in the Dockerfile), or fetch_go2rtc refuses the download.
 GO2RTC_VERSION="v1.9.14"
 SERVICE=sentinel-eye
 PORT=${SENTINEL_PORT:-8007}
@@ -233,6 +235,33 @@ native_env() {
   export SSL_CERT_FILE SENTINEL_HOST="$HOST" SENTINEL_PORT="$PORT"
 }
 
+# Pinned SHA-256 of the release assets for GO2RTC_VERSION (keep in step with it, and with the Dockerfile).
+go2rtc_sha256() {
+  case "$1" in
+    go2rtc_mac_arm64.zip)  echo 919b78adc759d6b3883d1e1b2ac915ac0985bb903ff1897b4d228527bd64690c ;;
+    go2rtc_mac_amd64.zip)  echo 9b0b9a27a4dc3a5b8b93376e7e8fc2787c6af624a512842622be84aec0171c7a ;;
+    go2rtc_linux_arm64)    echo 359fabade8a7a51e81a55fe6df6b0ef81764a5e1d63179577534eaaa71904b50 ;;
+    go2rtc_linux_amd64)    echo 32d616af226bd731678ffde328b94cfb94e30339bfefc469cfb76323144615a6 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints a file's SHA-256: shasum on macOS, sha256sum on Linux.
+sha256_of() {
+  if have sha256sum; then sha256sum "$1" | awk '{print $1}'
+  elif have shasum; then shasum -a 256 "$1" | awk '{print $1}'
+  else die "need sha256sum or shasum to verify the go2rtc download"
+  fi
+}
+
+# verify_go2rtc <file> <asset>: dies unless the file matches the pinned hash.
+verify_go2rtc() {
+  local want got
+  want=$(go2rtc_sha256 "$2") || die "go2rtc: no pinned SHA-256 for $2"
+  got=$(sha256_of "$1")
+  [[ "$got" == "$want" ]] || die "go2rtc: SHA-256 mismatch for $2 ($GO2RTC_VERSION): expected $want, got $got. Not installing it."
+}
+
 fetch_go2rtc() {
   # bin/go2rtc is .gitignore'd (a binary, and arch-specific), so a fresh clone never has it.
   local arch asset work
@@ -250,6 +279,7 @@ fetch_go2rtc() {
   mkdir -p bin
   work=$(mktemp -d)
   curl -fsSL "https://github.com/AlexxIT/go2rtc/releases/download/$GO2RTC_VERSION/$asset" -o "$work/$asset"
+  verify_go2rtc "$work/$asset" "$asset"   # dies on a mismatch, before anything is installed
   if [[ "$asset" == *.zip ]]; then unzip -q -o "$work/$asset" -d "$work"; mv "$work/go2rtc" bin/go2rtc
   else mv "$work/$asset" bin/go2rtc; fi
   chmod +x bin/go2rtc
@@ -286,11 +316,20 @@ native_run() {
   exec "$VENV/bin/uvicorn" --app-dir app server:app --host "$HOST" --port "$PORT"
 }
 
+# Keeps one old generation (<log>.1) once a log passes ~10 MB, so the append-only logs can't grow forever.
+rotate_log() {
+  local size
+  [[ -f "$1" ]] || return 0
+  size=$(wc -c < "$1" | tr -d ' ')
+  if [[ "$size" -gt 10485760 ]]; then mv -f "$1" "$1.1"; fi
+}
+
 native_start() {
   if native_running; then say "Already running (pid $(native_pid))"; native_status; return 0; fi
   check_ports_free
   native_setup
   say "Starting (log: data/sentinel.log)"
+  rotate_log "$LOGFILE"
   nohup "$VENV/bin/uvicorn" --app-dir app server:app --host "$HOST" --port "$PORT" >>"$LOGFILE" 2>&1 &
   echo $! > "$PIDFILE"
   if wait_healthy 60; then

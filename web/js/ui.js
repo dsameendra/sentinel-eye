@@ -31,13 +31,13 @@ export function compactLayout() {
   return innerWidth <= 640 || touch && innerHeight <= 540 && innerWidth > innerHeight && innerWidth <= 1100;
 }
 export function scopeLayers() {
-  const layer = document.body._openPopover || document.querySelector('#modal-root > *') || document.querySelector('.ev-side.open')
+  const layer = document.body._openPopover || document.querySelector('#modal-root > *') || document.querySelector('.ev-side.open, .pb-sheet.open')
     || [...document.querySelectorAll('.replay-overlay,.focus,.immersive')].at(-1);
   const next = new Set();
   if (layer) for (let node = layer; node?.parentElement && node !== document.body; node = node.parentElement) {
     for (const sibling of node.parentElement.children) {
       // The filter sheet's backdrop remains clickable; a dialog over the sheet owns it instead.
-      const backdrop = layer.matches('.ev-side.open') && sibling.matches('.ev-scrim');
+      const backdrop = layer.matches('.ev-side.open, .pb-sheet.open') && sibling.matches('.ev-scrim, .pb-sheet-scrim');
       if (sibling !== node && !backdrop && !sibling.matches('#statusbar,#toasts,#notifs,script,style,link')) next.add(sibling);
     }
   }
@@ -94,7 +94,7 @@ new MutationObserver(records => {
   if (records.some(r => r.type === 'childList' && [...r.addedNodes, ...r.removedNodes].some(n =>
     n.nodeType === 1 && (n.matches('.topbar,.tabbar,.savebar,.focus,.replay-overlay,.enh2,.xp,.scrim')
       || n.querySelector('.topbar,.tabbar,.savebar,.focus,.replay-overlay,.enh2,.xp,.scrim')))
-    || r.type === 'attributes' && r.target.matches('.ev-side,.immersive,.focus,.replay-overlay,.menu')) ) queue();
+    || r.type === 'attributes' && r.target.matches('.ev-side,.pb-sheet,.immersive,.focus,.replay-overlay,.menu')) ) queue();
 }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 new MutationObserver(queue).observe(root, { attributes: true, attributeFilter: ['class', 'data-theme'] });
 queue();
@@ -202,6 +202,10 @@ const P = {
   pencil: '<path d="M17.2 3.6a2.1 2.1 0 0 1 3 3L8.3 18.5l-4.3 1.2 1.2-4.3Z"/><path d="m15 5.8 3 3"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   clips: '<path d="M4 6h16M4 12h10M4 18h7"/>',
+  // Previous / next event (a bar and a triangle, like a media player's skip) and Skip empty (a jump over a gap).
+  evprev: '<path d="M6 5v14"/><path d="M18 6.5v11L10 12l8-5.5Z"/>',
+  evnext: '<path d="M18 5v14"/><path d="M6 6.5v11L14 12 6 6.5Z"/>',
+  skipgap: '<path d="M3 17h4M17 17h4"/><path d="M7 17c0-6 10-6 10 0"/><polyline points="14 14 17 17 20 14"/>',
 };
 export const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -286,21 +290,24 @@ export function confirmDialog({ title, body, ok = 'Confirm', danger = false }) {
   });
 }
 
-/** Small "bookmark this moment" dialog: title, note, severity. Resolves {title, note, severity} or null on cancel. */
-export function bookmarkDialog({ subtitle = '' } = {}) {
+/** Small "bookmark this moment" dialog: title, note, severity. Resolves {title, note, severity} or null on cancel.
+ * @param initial an existing bookmark's {title, note, severity}: the dialog edits it instead of adding one. */
+export function bookmarkDialog({ subtitle = '', initial = null } = {}) {
   return new Promise((resolve) => {
     const root = modalRoot();
-    root.innerHTML = `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="Add bookmark">
-      <h3>${icon('flag')} Add bookmark</h3>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}
+    const sev = initial?.severity || 'info';
+    const heading = initial ? 'Edit bookmark' : 'Add bookmark';
+    root.innerHTML = `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="${heading}">
+      <h3>${icon('flag')} ${heading}</h3>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}
       <div class="form" style="grid-template-columns:1fr">
-        <div class="field"><label for="bm-title">Title</label><input id="bm-title" type="text" placeholder="What's happening" maxlength="120"></div>
-        <div class="field"><label for="bm-note">Note (optional)</label><textarea id="bm-note" rows="3" maxlength="2000"></textarea></div>
+        <div class="field"><label for="bm-title">Title</label><input id="bm-title" type="text" placeholder="What's happening" maxlength="200" value="${esc(initial?.title || '')}"></div>
+        <div class="field"><label for="bm-note">Note (optional)</label><textarea id="bm-note" rows="3" maxlength="4000">${esc(initial?.note || '')}</textarea></div>
         <div class="field"><span class="lbl" id="bm-sev-l">Severity</span><div class="seg bm-sev" role="radiogroup" aria-labelledby="bm-sev-l">
-          ${[['info', 'Info'], ['warning', 'Warning'], ['critical', 'Critical']].map(([v, l], i) =>
-            `<button type="button" role="radio" data-sev="${v}" aria-checked="${i === 0}" aria-pressed="${i === 0}"><span class="sev-dot ${v}"></span>${l}</button>`).join('')}
+          ${[['info', 'Info'], ['warning', 'Warning'], ['critical', 'Critical']].map(([v, l]) =>
+            `<button type="button" role="radio" data-sev="${v}" aria-checked="${v === sev}" aria-pressed="${v === sev}"><span class="sev-dot ${v}"></span>${l}</button>`).join('')}
         </div></div>
       </div>
-      <div class="row dialog-actions"><button class="btn" data-x="0">Cancel</button><button class="btn primary" data-x="1">${icon('flag')} Save bookmark</button></div></div></div>`;
+      <div class="row dialog-actions"><button class="btn" data-x="0">Cancel</button><button class="btn primary" data-x="1">${icon('flag')} ${initial ? 'Save changes' : 'Save bookmark'}</button></div></div></div>`;
     const done = (v) => { root._dispose = null; root.innerHTML = ''; document.removeEventListener('keydown', onKey, true); resolve(v); };
     root._dispose = () => { root._dispose = null; done(null); };
     const submit = () => done({
@@ -355,7 +362,10 @@ const SHORTCUT_GROUPS = [
     [[',', '.'], 'One frame back / forward'],
     [['Shift', '1', '2', '3'], 'Back 5 s / 10 s / 30 s'],
     [['Shift', '4', '5', '6'], 'Forward 5 s / 10 s / 30 s'],
+    [['[', ']'], 'Previous / next event'],
+    [['S'], 'Skip empty on / off'],
     [['B'], 'Bookmark this moment'],
+    [['L'], 'Bookmarks list'],
     [['F'], 'Full screen'],
   ] },
 ];

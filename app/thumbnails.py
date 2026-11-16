@@ -12,6 +12,8 @@ from pathlib import Path
 import db
 import hikrelay as h
 import playback_session as psess
+import recorder_guard
+import timebase
 from settings import DATA
 
 THUMB_DIR = DATA / "thumbnails"
@@ -38,7 +40,7 @@ def path_for(event_id):
     return THUMB_DIR / f"{event_id}.jpg"
 
 
-def get_or_generate(event, connection_dict, main_path_override, tz_offset_min):
+def get_or_generate(event, connection_dict, playback_path_override, tz_offset_min):
     """event: a dict row from the events table (id, channel, start_utc, end_utc, snapshot_path).
     Serialized per event_id so concurrent requests for the same thumbnail don't each open a DVR session."""
     cached = event.get("snapshot_path")
@@ -60,10 +62,13 @@ def get_or_generate(event, connection_dict, main_path_override, tz_offset_min):
         if not _gen_gate.acquire(timeout=30):
             raise RuntimeError("Too many thumbnails are generating right now — try again shortly")
         try:
-            return _generate(event, connection_dict, main_path_override, tz_offset_min)
+            return _generate(event, connection_dict, playback_path_override, tz_offset_min)
         except Exception as e:
-            with _failed_guard:
-                _failed[event["id"]] = (str(e), time.monotonic())
+            # Not while the recorder is refusing the password: that clears the moment it's fixed in Settings,
+            # and a cached failure would keep every thumbnail blank for another ten minutes after.
+            if not recorder_guard.tripped():
+                with _failed_guard:
+                    _failed[event["id"]] = (str(e), time.monotonic())
             raise
         finally:
             _gen_gate.release()
@@ -71,7 +76,7 @@ def get_or_generate(event, connection_dict, main_path_override, tz_offset_min):
                 _locks.pop(event["id"], None)
 
 
-def _generate(event, connection_dict, main_path_override, tz_offset_min):
+def _generate(event, connection_dict, playback_path_override, tz_offset_min):
     start = datetime.datetime.fromisoformat(event["start_utc"])
     end = datetime.datetime.fromisoformat(event["end_utc"])
     mid = start + (end - start) / 2
@@ -82,33 +87,46 @@ def _generate(event, connection_dict, main_path_override, tz_offset_min):
     if a_const is None:
         raise RuntimeError("This channel has no clock calibration yet")
     tz = datetime.timezone(datetime.timedelta(minutes=tz_offset_min))
-    path = h.playback_path(ch, main_path_override or "")
+    path = h.playback_path(ch, playback_path_override or "")
 
-    reader = psess.PlaybackReader(conn, ch, path, a_const, mid.isoformat(), tz, "1")
+    # The session starts at the keyframe before `mid` — measured up to ~50 s early on this recorder — so take every
+    # frame from there up to the first one at/after `mid` and keep the last decoded picture: the first frame
+    # alone could show the scene long before the event. Up to 4x when the recorder's speed budget allows, so the
+    # pre-roll arrives in seconds rather than a whole keyframe interval — not faster: while a thumbnail holds its
+    # share of the 16-unit budget, a Playback pane's speed change that no longer fits ends that pane.
+    reader = psess.PlaybackReader(conn, ch, path, a_const, mid.isoformat(), tz, "1", adaptive_speeds=("4", "2", "1"))
     reader.start()
-    nal = None
+    aus, codec = [], "hevc"
+    deadline = time.time() + 15 + timebase.PREROLL_MAX_S / 2   # connecting + the pre-roll at 4x, with room for a slower grant
     try:
-        for _ in range(5):  # the first access unit should already be a decodable keyframe (StartGate)
-            item = reader.q.get(timeout=15)
+        while time.time() < deadline:
+            try:
+                item = reader.q.get(timeout=15)
+            except Exception:
+                break
             if item is None:
                 break
             if item[0] == "error":
                 raise RuntimeError(item[1])
-            nal = item[2]
-            break
+            codec = item.seg["codec"]
+            aus.append(item.data)
+            if not item.pre:
+                break
     finally:
         reader.stop()
-    if nal is None:
+    if not aus:
         raise RuntimeError("No frame available at that time")
 
     THUMB_DIR.mkdir(parents=True, exist_ok=True)
     out_path = path_for(event["id"])
-    with tempfile.NamedTemporaryFile(suffix=".hevc", delete=False) as f:
-        f.write(nal)
+    fmt = "h264" if codec == "h264" else "hevc"
+    with tempfile.NamedTemporaryFile(suffix="." + fmt, delete=False) as f:
+        f.write(b"".join(aus))
         tmp = f.name
     try:
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "hevc", "-i", tmp, "-frames:v", "1",
-                         "-vf", "scale=320:-1", "-q:v", "5", str(out_path)], check=True, timeout=20)
+        # -update 1: every decoded frame overwrites the image, so the file ends up holding the last one.
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", fmt, "-i", tmp, "-vf", "scale=320:-1", "-q:v", "5",
+                        "-update", "1", str(out_path)], check=True, timeout=60)
     finally:
         Path(tmp).unlink(missing_ok=True)
 

@@ -6,6 +6,7 @@
 import { authApi, getJSON } from './api.js';
 import { avatarInner as personAvatar } from './avatar.js';
 import { closePopover, esc, icon, openPopover, toast } from './ui.js';
+import { exportsButtonHTML, wireExports } from './exportsTray.js';
 
 /**
  * @param o.lead     'brand' (Live, home) or 'back'
@@ -67,7 +68,7 @@ const KIND_LABEL = { motion: 'Motion', line: 'Line cross', intrusion: 'Intrusion
 const KIND_DOT = { motion: 'var(--ev-motion)', line: 'var(--ev-line)', intrusion: 'var(--ev-line)', tamper: 'var(--tamper)', videoloss: 'var(--ev-videoloss)', bookmark: 'var(--ev-bookmark)' };
 
 export function globalActionsHTML(ctx) {
-  return `${ctx.can('operator') ? `<button class="btn icon ghost gbtn" data-g="bell" title="Notifications" aria-label="Notifications" aria-haspopup="true">${icon('bell')}<span class="bell-dot" hidden></span></button>` : ''}
+  return `${ctx.can('operator') ? exportsButtonHTML() : ''}${ctx.can('operator') ? `<button class="btn icon ghost gbtn" data-g="bell" title="Notifications" aria-label="Notifications" aria-haspopup="true">${icon('bell')}<span class="bell-dot" hidden></span></button>` : ''}
     <button class="avatar" data-g="me" aria-haspopup="menu" aria-label="Account">${avatarInner(ctx)}</button>`;
 }
 
@@ -89,6 +90,7 @@ export function wireGlobal(root, ctx) {
   root.querySelector('[data-g=events]')?.addEventListener('click', () => (ctx.can('operator') ? ctx.go('#/events') : locked('Events')));
   const bell = root.querySelector('[data-g=bell]');
   if (bell) bell.addEventListener('click', () => openBell(bell, ctx));
+  wireExports(root);
   root.querySelector('[data-g=me]')?.addEventListener('click', (e) => openMe(e.currentTarget, ctx));
 }
 

@@ -34,10 +34,7 @@ class Connection(BaseModel):
     @field_validator("channel_zero_path")
     @classmethod
     def _czp(cls, v):
-        v = v.strip()
-        if v and not v.startswith("/"):
-            raise ValueError("A stream path starts with /")
-        return v
+        return _stream_path(v)
 
     @field_validator("host")
     @classmethod
@@ -53,6 +50,17 @@ class Connection(BaseModel):
         if len(v.encode()) > 16:
             raise ValueError("The verification code is at most 16 characters")
         return v
+
+
+def _stream_path(v):
+    """An optional RTSP path override. It is written into the RTSP request line, so no spaces or control
+    characters (a CR/LF would start a header of its own)."""
+    v = v.strip()
+    if v and not v.startswith("/"):
+        raise ValueError("A stream path starts with /")
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in v):
+        raise ValueError("A stream path can't contain spaces or control characters")
+    return v
 
 
 def _fps(v):
@@ -77,6 +85,10 @@ class Channel(BaseModel):
     aspect: Literal["auto", "16:9", "4:3", "native"] = "auto"   # picture shape; auto = 16:9 when the SD frame is squeezed 2:1
     sub_path: str = ""   # optional RTSP path override (non-Hikvision sources)
     main_path: str = ""
+    # Recordings live on a different RTSP endpoint from live view (hikrelay.playback_path: /Streaming/tracks/…),
+    # so they get their own override. Playback, thumbnails and exports used to take main_path here, and a live
+    # path given a playback range just serves live video, silently.
+    playback_path: str = ""
 
     @field_validator("id")
     @classmethod
@@ -90,13 +102,10 @@ class Channel(BaseModel):
     def _f(cls, v):
         return _fps(v)
 
-    @field_validator("sub_path", "main_path")
+    @field_validator("sub_path", "main_path", "playback_path")
     @classmethod
     def _p(cls, v):
-        v = v.strip()
-        if v and not v.startswith("/"):
-            raise ValueError("A stream path starts with /")
-        return v
+        return _stream_path(v)
 
 
 class Display(BaseModel):

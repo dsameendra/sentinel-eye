@@ -12,11 +12,12 @@ CLI (all take --settings path/to/settings.json):
   probe    --channel-id ID --kind main|sub                  print a JSON report
 """
 import argparse, base64, hashlib, json, os, re, signal, socket, statistics, struct, subprocess, sys, tempfile, threading, time
-import urllib.request
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 
 import hwaccel
+import isapi
+import recorder_guard
 
 MAX_ENC = 4096
 START = b"\x00\x00\x00\x01"
@@ -49,11 +50,30 @@ def load_settings(path):
 
 # --------------------------------------------------------------------------- RTSP
 
-class RtspClient:
-    """Minimal RTSP/TCP client (digest auth, interleaved RTP) for one video track."""
+def _no_crlf(what, v):
+    """Refuse a value that would end an RTSP header line early. Everything here is written straight into the
+    request text, so a CR/LF smuggled into a speed, range or path would inject headers of its own (the server
+    validates its inputs too; this is the last line)."""
+    if v is not None and ("\r" in str(v) or "\n" in str(v)):
+        raise RelayError(f"Invalid {what}")
 
-    def __init__(self, host, port, user, pw, path, timeout=10):
+
+class RtspClient:
+    """Minimal RTSP/TCP client (digest auth, interleaved RTP) for one video track.
+
+    `guarded` (the default): honour and trip the recorder lockout breaker (recorder_guard) — a rejected password
+    stops every automatic login instead of locking the account. Only the interactive admin tools (probe and
+    discover, behind /api/test and /api/discover) pass guarded=False: they are how the admin finds the right
+    password, so they must work while the breaker is tripped and must not trip it with trial credentials."""
+
+    def __init__(self, host, port, user, pw, path, timeout=10, guarded=True):
+        for what, v in (("host", host), ("username", user), ("stream path", path)):
+            _no_crlf(what, v)
+        if " " in str(path):
+            raise RelayError("Invalid stream path")
         self.host, self.port, self.user, self.pw, self.path = host, int(port), user, pw, path
+        self.guarded = guarded
+        self.fp = recorder_guard.fingerprint(host, user, pw)
         self.url = f"rtsp://{host}:{self.port}{path}"
         self.timeout = timeout
         self.buf = b""
@@ -63,6 +83,9 @@ class RtspClient:
         self.auth = None
         self.codec = None
         self.sdp = ""
+        # Video packets that arrived ahead of a reply (see _resp): the stream carrying on, handed out by packets()
+        # before anything newer.
+        self.pending = []
 
     @staticmethod
     def _md5(s):
@@ -86,11 +109,13 @@ class RtspClient:
         self.buf += d
 
     def _resp(self):
-        """Read one RTSP text response. Mid-session (e.g. reissuing PLAY to seek), interleaved RTP frames
-        for the still-flowing old range can arrive ahead of the reply on the same socket — those are
-        binary ($-prefixed) and must be skipped, or they get misread as response text (a real bug this
-        once produced: garbage binary decoded as a header, no error until a caller checked the status
-        line)."""
+        """Read one RTSP text response. Mid-session (reissuing PLAY to seek or change speed, PAUSE, a keep-alive),
+        interleaved RTP frames for the still-flowing stream can arrive ahead of the reply on the same socket —
+        binary ($-prefixed), so they must not be read as response text (a real bug this once produced: garbage
+        binary decoded as a header, no error until a caller checked the status line). Video ones are kept in
+        `pending` rather than thrown away: after a speed change or a pause they are the stream continuing
+        (measured: up to 33 packets ahead of a PLAY reply at 1x), and dropping them broke every frame up to the
+        next keyframe. A seek clears them (play(keep=False)) — they belong to the old position."""
         while True:
             while not self.buf:
                 self._recv()
@@ -100,6 +125,8 @@ class RtspClient:
                 ln = struct.unpack(">H", self.buf[2:4])[0]
                 while len(self.buf) < 4 + ln:
                     self._recv()
+                if self.buf[1] == 0:
+                    self.pending.append(self.buf[4:4 + ln])
                 self.buf = self.buf[4 + ln:]
                 continue
             break
@@ -124,21 +151,32 @@ class RtspClient:
         """Connect, DESCRIBE, SETUP and PLAY. `play_range` is `npt=0.000-` for live, or
         `clock=<start>-[<end>]` (Hikvision playback, UTC compact form `YYYYMMDDTHHMMSSZ`) for a recording.
         `scale` sends an RTSP `Scale:` header (DVR playback speed; ignored/irrelevant for live)."""
+        _no_crlf("range", play_range)
+        _no_crlf("speed", scale)
+        if self.guarded and recorder_guard.tripped(self.fp):
+            raise RelayError(recorder_guard.MESSAGE)
         try:
             self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         except OSError as e:
             raise RelayError(f"Cannot reach {self.host}:{self.port} ({e.strerror or e})")
         try:
-            head, body = self._describe()
-            if head.startswith("RTSP/1.0 401"):
-                m = re.search(r'realm="([^"]+)".*?nonce="([^"]+)"', head, re.S)
-                if not m:
-                    raise RelayError("Recorder requires an unsupported authentication method")
-                self.auth = (m.group(1), m.group(2))
+            # One guarded login at a time across processes, and none once a rejection has tripped the breaker
+            # (recorder_guard.login_lock) — held after connecting, until the answer to the credentials is known.
+            with recorder_guard.login_lock(self.fp if self.guarded else None):
                 head, body = self._describe()
-            status = head.split("\r\n")[0]
-            if status.startswith("RTSP/1.0 401"):
-                raise RelayError("Authentication failed: check the username and password")
+                if head.startswith("RTSP/1.0 401"):
+                    m = re.search(r'realm="([^"]+)".*?nonce="([^"]+)"', head, re.S)
+                    if not m:
+                        raise RelayError("Recorder requires an unsupported authentication method")
+                    self.auth = (m.group(1), m.group(2))
+                    head, body = self._describe()
+                status = head.split("\r\n")[0]
+                if status.startswith("RTSP/1.0 401"):
+                    # A 401 *after* answering the challenge: the credentials themselves were refused.
+                    if self.guarded:
+                        recorder_guard.trip(self.fp, "rtsp")
+                        raise RelayError(recorder_guard.MESSAGE)
+                    raise RelayError("Authentication failed: check the username and password")
             if status.startswith("RTSP/1.0 404"):
                 raise RelayError(f"Stream not found ({self.path})")
             if not status.startswith("RTSP/1.0 200"):
@@ -166,6 +204,9 @@ class RtspClient:
                 if "453" in status:   # "Not Enough Bandwidth": its playback speed budget is used up
                     raise RelayError("The recorder can't play this many cameras this fast — lower the speed, or show fewer cameras.")
                 raise RelayError("PLAY failed: " + status)
+        except recorder_guard.RecorderAuthBlocked:
+            self.close()   # another login was rejected while this one waited for the lock
+            raise RelayError(recorder_guard.MESSAGE)
         except (ConnectionError, OSError) as e:
             self.close()
             raise RelayError(f"Connection problem: {e}")
@@ -175,12 +216,17 @@ class RtspClient:
         self.sock.settimeout(idle_timeout)
         return self
 
-    def play(self, range_="npt=0.000-", scale=None):
-        """(Re)issue PLAY on an already-set-up session — used to seek within a playback session.
-        Returns the RTSP status line."""
+    def play(self, range_="npt=0.000-", scale=None, keep=False):
+        """(Re)issue PLAY on an already-set-up session — to seek within a playback session (keep=False: video
+        that arrived meanwhile belongs to the old position and is dropped), or with `npt=now-` to change speed or
+        resume after PAUSE in place (keep=True). Returns the RTSP status line."""
+        _no_crlf("range", range_)
+        _no_crlf("speed", scale)
         extra = f"Range: {range_}\r\n" + (f"Scale: {scale}\r\n" if scale else "")
         self._send("PLAY", self.url, extra)
         head, _ = self._resp()
+        if not keep:
+            self.pending.clear()
         return head.split("\r\n")[0]
 
     def pause(self):
@@ -188,10 +234,18 @@ class RtspClient:
         head, _ = self._resp()
         return head.split("\r\n")[0]
 
+    def keepalive(self):
+        """OPTIONS, awaited — keeps a paused session alive (nothing else is flowing to show it's in use)."""
+        self._send("OPTIONS", self.url)
+        head, _ = self._resp()
+        return head.split("\r\n")[0]
+
     def packets(self):
         """Yield interleaved RTP packets on channel 0 (video)."""
         last_ka = time.time()
         while True:
+            while self.pending:
+                yield self.pending.pop(0)
             while len(self.buf) < 4:
                 self._recv()
             if self.buf[0] != 0x24:  # a keep-alive reply between media packets
@@ -505,7 +559,7 @@ def probe(conn, path, seconds=8):
     res = {"ok": False}
     client = None
     try:
-        client = RtspClient(conn["host"], conn["port"], conn["user"], conn["pw"], path).open()
+        client = RtspClient(conn["host"], conn["port"], conn["user"], conn["pw"], path, guarded=False).open()
         res["codec"] = "H.265" if client.codec == "hevc" else "H.264"
         aes = make_aes(conn["key"]) if conn["encrypted"] else None
         dp = Depacketizer(client.codec, aes)
@@ -553,9 +607,9 @@ def probe(conn, path, seconds=8):
 def isapi_channels(conn, timeout=5):
     """Camera names from a Hikvision recorder's ISAPI (HTTP, digest auth): {channel_number: name}. {} if unavailable."""
     url = f"http://{conn['host']}:{conn.get('http_port', 80)}/ISAPI/System/Video/inputs/channels"
-    mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    mgr.add_password(None, url, conn["user"], conn["pw"])
-    opener = urllib.request.build_opener(urllib.request.HTTPDigestAuthHandler(mgr))
+    # isapi's opener answers the digest challenge once: the stdlib one re-sends a wrong password ~6 times per
+    # request, which alone can lock the account.
+    opener = isapi.digest_opener(url, conn["user"], conn["pw"])
     try:
         root = ET.fromstring(opener.open(url, timeout=timeout).read())
     except (OSError, ET.ParseError, ValueError):
@@ -576,7 +630,7 @@ def discover(conn, max_channel=16):
     names = isapi_channels(conn)
     found = []
     for n in range(1, max_channel + 1):
-        c = RtspClient(conn["host"], conn["port"], conn["user"], conn["pw"], stream_path(n, "sub"), timeout=5)
+        c = RtspClient(conn["host"], conn["port"], conn["user"], conn["pw"], stream_path(n, "sub"), timeout=5, guarded=False)
         try:
             c.open()
             found.append({"channel": n, "name": names.get(n, "")})
@@ -600,6 +654,9 @@ def main():
             sp.add_argument("--out", required=True)
             sp.add_argument("--transcode", action="store_true", help="re-encode to H.264")
     a = ap.parse_args()
+    # The lockout breaker's marker lives next to the settings file (the data dir): this process is spawned by
+    # go2rtc, not the server, so it finds it from its own --settings argument.
+    recorder_guard.configure(os.path.dirname(os.path.abspath(a.settings)))
     s = load_settings(a.settings)
     ch = next((c for c in s["channels"] if c["id"] == a.channel_id), None)
     # Channel-zero (app/settings.py's channel_zero_channel) isn't a real entry in s["channels"] — same
@@ -616,6 +673,12 @@ def main():
         print(json.dumps(probe(conn, path)))
         return
     fps = ch.get(f"{a.kind}_fps")
+    if recorder_guard.tripped(recorder_guard.fingerprint(conn["host"], conn["user"], conn["pw"])):
+        # Don't log in at all while the recorder is rejecting these credentials. go2rtc re-spawns this relay
+        # whenever someone is watching; the pause keeps that from becoming a tight loop of no-op processes.
+        print(f"relay stopped: {recorder_guard.MESSAGE}", file=sys.stderr, flush=True)
+        time.sleep(5)
+        sys.exit(1)
     try:
         run_stream(conn, path, a.out, float(fps) if fps not in (None, "", "auto") else None, a.transcode)
     except (RelayError, ConnectionError, OSError) as e:

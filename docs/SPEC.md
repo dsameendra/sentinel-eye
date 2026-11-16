@@ -47,7 +47,7 @@ Everything below was measured on your DVR with read-only requests, most of it tw
 | The 4-session cap is **playback-only** — confirmed separately with zero live sessions running (still 4), and with 4 playback sessions held open, all 8 live sessions still connected fine. | isolated re-tests | Watching live video never competes with reviewing recordings; the two use different budgets. |
 | Seek inside a session is fast: first frame in **70–100 ms**. `PAUSE`/resume work. | seek test | Scrubbing is smooth for however many channels you have open (≤4). |
 | Speed via `Scale:` **⅛×, ¼×, ½×, 1×, 2×, 4×, 8×, 16×** work. **32×/64× → 453 Not Enough Bandwidth.** **Reverse (`Scale: -1`) → 400 Bad Request.** | scale sweep | Reverse play and ≥32× speed do not exist on the wire; we build both ourselves on top of the forward feed (section 5.4–5.5). |
-| Playback starts at the **previous keyframe**, 2–9 s before the time you asked for (channel 5 was 9 s early in one test). | requested 20:40:00, on-screen clocks read 20:39:58 / :57 / :49 / :56 across 4 channels | "Frame-exact" seek means: start a bit early, decode forward, discard until the exact target frame. Budget up to ~9 s of throwaway decode per seek. |
+| Playback starts at the **previous keyframe** before the time you asked for. First measured as 2–9 s early (2026-09); re-measured 2026-11-15 against the on-screen clock: **4.8–13.3 s early in 6 runs** (ch 1 and 5, footage from 10 min to 10 days old), 19.1 s once — and the keyframe interval is now **14–20 s on ch 1/4 and 50 s on ch 2** (playback at 8×/16×, keyframe-to-keyframe), so a session can start up to ~a minute early. | first run: requested 20:40:00, on-screen clocks read 20:39:58 / :57 / :49 / :56 across 4 channels; second: `tools/measure_playback_time.py` | Frames before the request are kept (decoding needs them) and labelled with their true recorded time (2.4); the player shows them leading up to the request rather than a blank pane (at 1× that could be ~50 s), and a paused seek stops on the requested frame. Exports start at that keyframe and say so. |
 
 ### 2.3 Events
 
@@ -65,25 +65,41 @@ Everything below was measured on your DVR with read-only requests, most of it tw
 * The DVR's `…Z` timestamps are **DVR local time (UTC+5:30, no DST) mislabelled as Z**. We store UTC internally and convert only at the edges (display, DVR requests).
 * Playback carries no RTCP clock, but **RTP timestamps behave as one shared 90 kHz clock across channels and sessions.** Verified at **two moments 13.7 hours apart** (crossing the 32-bit counter's ~13.25 h wrap once), cross-checked against each channel's burned-in clock: offsets matched to within about a frame every time. Not yet proven over days or across a DVR reboot — the calibration is re-checked continuously in M0 and any jump is flagged, never silently absorbed.
 * One calibration constant converts an RTP timestamp to an absolute time, accurate to about one frame (67 ms). That is the basis for frame-locked multi-camera playback.
-* **Update, found during later use, not at M0:** that one-frame accuracy is real for playback *near the time a
-  channel's `a_const` was (re)calibrated* — recalibration runs every 6 hours per channel and is exactly as
-  accurate as originally measured. It is **not** proven, and turned out **not to hold**, for footage recorded
-  many calibration cycles ago. Seeking to exact DVR-local midnight on a day ~10 days back: the DVR served the
-  exact requested content (confirmed against the frame's own burned-in OSD timestamp, which read the requested
-  instant precisely), but this app's own computed absolute time for that same frame was off by roughly 1–2
-  hours — varying in size and direction across different days, ruling out a simple fixed offset or an RTP
-  32-bit-wrap unwrap picking the wrong period (that would show as a near-multiple of the ~13.26h wrap, which
-  this isn't). Coverage and event positions on the timeline are unaffected (they come from the DVR's log/search
-  APIs with a fixed, known UTC offset, not from RTP timestamps at all) — this is specific to the *video
-  player's* displayed/decoded time, and by extension the exact time range claimed in an export's manifest for
-  old footage. Root cause not yet found; likely candidate is that a single `a_const` doesn't stay valid across
-  the channel's own RTP-clock behavior over many calibration cycles (drift, or a discontinuity too small to
-  trip the existing >2s single-step discontinuity check but real once accumulated). Needs its own investigation
-  — a time-varying calibration (store history, use whichever `a_const` was valid when the footage was recorded,
-  not always the latest one) is the likely direction, not confirmed. (A related but distinct frontend bug —
-  picking a new position while paused updated the displayed playhead without actually repositioning the
-  player, so pressing Play resumed from a stale position instead — was found and fixed separately; it does not
-  explain or resolve this calibration-drift issue, which is still open.)
+* **Update — measured and fixed (2026-11-15, `tools/measure_playback_time.py`).** The one-frame accuracy held only
+  near the calibration's own measurement, and the player's time for older footage could be hours off. Measured
+  against the recorder's on-screen clock, with the calibration history the app had stored since 2026-09-26:
+  * **Recordings keep the RTP timestamps they were recorded with.** Footage from 2026-10-15 converts to within
+    ±1 s of its on-screen clock using calibrations measured 2026-10-14 to 10-16, and is off by days using today's.
+  * **The RTP base resets for the whole recorder at once** every so often (probably on reboots). Every channel
+    jumps together — `a_const` mod the 32-bit wrap period went 10916 → 1058 → 29377 → 39865 → 3976 → 45607 →
+    14089 → 6489 s over seven weeks. Between resets it drifts about 0.4 s/day, and single measurements scatter
+    about ±1 s (not one frame). Picking the calibration *nearest in time* (the previous behaviour) crosses a reset
+    whenever one lies between the footage and the measurement — footage from 2026-11-05 came out 4.1 h (−14909 s)
+    early with the 11-14 calibration. That was the "1–2 hours off, varying by day" symptom.
+  * **The label used to hide it:** every segment's first frame was stamped with the requested time, so the
+    on-screen clock, multi-camera sync and an export's time range were all wrong by the keyframe pre-roll (above:
+    up to ~a minute), however good the calibration.
+  * **Asked for a time it has no recording of, the recorder silently serves the next one it has** — asked for
+    10-09 (older than its oldest recording), it served 10-15, six days later, with a 200 OK.
+
+  **What the app does now** (`timebase.choose_label`, used by playback, thumbnails and export alike): the stored
+  history is split into regimes at resets (a lone disagreeing measurement is treated as a bad reading, not a
+  reset). A regime's answer for the first frame is trusted only if it falls in the plausible window — from 60 s
+  before the request to 3 s after — and the regime was demonstrably in force when the footage was recorded: it has
+  measurements on both sides of that time, or it is the newest regime and the footage is newer than its first
+  measurement. Then every frame gets its true recorded time (`time_source: calibration`, ± about 1.5 s plus
+  0.4 s/day beyond the nearest measurement). Otherwise — footage in a gap between regimes, older than every
+  calibration, or served from much later than asked — the first frame is labelled as the requested time and the
+  segment is flagged approximate (`time_source: anchor`; the player shows "≈", the export manifest says so, and an
+  anchored export of a time the coverage index says wasn't recorded is refused). Re-checked after the change: every
+  calibrated first frame was within 0.7 s of the on-screen clock, including 30-day-old footage from an earlier
+  regime; the 11-05 footage (no calibration in its regime) is flagged approximate.
+
+  Since then (7.2): one master clock across panes, and every channel's calibrations pooled per round — the RTP
+  clock is shared, single readings scatter ±0.5 s per channel (σ 0.35–0.98 s around their round's median, no channel
+  more than 0.3 s off on average), so labelling each camera from its own rows let two cameras disagree by up to
+  ~1.6 s about the same instant. Still open: footage in an uncalibrated regime stays approximate (a calibration can only be
+  measured live, so a regime nobody calibrated during can't be recovered later).
 
 ### 2.5 This Mac
 Apple M3 Pro, 18 GB RAM, 190 GB free. Not a constraint for a DVR-playback-only design — no large local archive is being written (section 4). Small amounts of disk (event thumbnails, exported clips you choose to keep) are the only storage this feature adds.
@@ -166,7 +182,7 @@ Legend: ✅ works as asked · 🟡 works with a stated limit · 🔬 needs the a
 | 3 | Instant asynchronous review (detach a pane, grid keeps monitoring) | ✅ | Per-pane clock; a pane switches live↔playback independently of its neighbours. |
 | 4 | Empty-footage skipping | 🟡 | Instant and precise once a channel's AI index exists (4.2). Before that, only as precise as the DVR's alarm log — which only exists for channels with motion/line-crossing *enabled on the DVR* (today: motion ch 1,2,3,7; line-crossing ch 4). The UI always labels which case applies to the footage you're viewing. |
 | 5 | Speed 2×–64× and ½×–⅛× | 🟡 | ⅛×…16× native from the DVR. 32×/64× and reverse speeds are built by us on the decoded feed (5.4); DVR itself refuses ≥32× and reverse outright. |
-| 6 | Strict frame-by-frame, forward **and backward** | ✅ | Forward = next decoded frame. Backward = decode the preceding GOP (≤ ~9 s) into memory and step through it — the DVR has no reverse primitive, so this is entirely client-side. |
+| 6 | Strict frame-by-frame, forward **and backward** | ✅ | Forward = next decoded frame. Backward = decode the preceding GOP (14–50 s on this recorder, 2.2) into memory and step through it — the DVR has no reverse primitive, so this is entirely client-side. |
 | 7 | Instant rewind macros (−5/−10/−30 s, custom) | ✅ | Hotkeys + configurable buttons; DVR seek is 70–100 ms. |
 | 8 | Draw a box → find clips with change there | 🟡 | **Instant** for anything after a channel's AI index existed (4.2 — a bitmask over a 16×9 motion grid). **Older history:** background scan job through the DVR (≤4 sessions, ≤16× speed) — a progress bar, not instant, and it competes with any live review for the same 4 sessions. The `smartSearch` spike (2.3) may remove this limitation entirely if it works. |
 | 9 | Attribute/category search (human/vehicle/two-wheeler/colour/backpack) | 🟡 | Our own AI, only on footage that passed through the live index (4.2) or was explicitly re-scanned. Attribute reliability (backpack, body type) is lower at SD/night than object class. |
@@ -247,6 +263,45 @@ ch 1, 2, 3, 7, and can be extended to the rest with no trade-off.
 * **Strict-sync toggle:** ON waits for the slowest pane ("buffering CH5"); OFF lets panes skip to stay closer to real time.
 * **Detach pane:** a pane keeps its own clock once detached; "sync to group" re-attaches it.
 
+**Status (2026-11): one master clock is built; strict sync only (no toggle, no detach).** `web/js/masterclock.js` (pure,
+tested by `tools/test_masterclock.mjs`) holds the clock and the scheduling decisions; `web/js/wcplayer.js` is a
+passive renderer of it; Playback's one animation-frame loop asks every pane where it stands at `T`, holds the clock
+while any pane can't show `T` yet (the bar says "Buffering *camera*", the pane says so too), then paints every pane's
+newest decoded frame ≤ `T`. A single pane takes the same path. Measured on the recorder in Chrome
+(`tools/e2e_playback_sync.py`, footage ~15 min old, frames here 40 or 80 ms apart around 15 fps):
+* 1 camera at 1×: the frame shown is at most 93 ms behind `T` (median 46 ms) — always the newest one ≤ `T`; `T` runs
+  at 0.5/1/2× exactly; ±1 frame steps move the picture one frame each (40/80 ms) and back through the same frames; a
+  paused seek lands on the newest frame ≤ the requested time.
+* 2 cameras at 1× (1 min sampled every 100 ms): cross-pane spread median 1 ms, p95 41 ms, max 80 ms; shown frame
+  behind `T` median 38 ms. At 4×: spread median 2 ms, max 41 ms; the clock waited 19% of the time for the recorder.
+  The burned-in clocks of both panes read the same second as the readout in the screenshot taken.
+* 4 cameras at 1× (1.8 min): spread median 29 ms, p95 68 ms, max 77 ms; behind `T` median 40 ms, max 95 ms; the
+  clock waited 2% of the time. At 4× (1.2 min): spread median 64 ms, max 75 ms (at 4× `T` moves ~67 ms per screen
+  refresh, so panes land on neighbouring frames); waited 29% of the time — the recorder's delivery, not the player.
+  All four burned-in clocks matched the readout to the second. Start: 14 s to get all four to `T` (7.7 s for two).
+* Seeks with 4 cameras: ±10 s within what's buffered re-decodes from each camera's keyframe (ch 2's is 50 s
+  back): 2.6–5.5 s; paused, every pane landed on its newest frame ≤ `T` (23–55 ms before it). One that needs fresh
+  sessions took up to 17 s (four logins one at a time, then the pre-roll).
+* Memory, 4 cameras for 5 min: 76 open `VideoFrame`s throughout, JS heap 7–17 MB, ~10 MB of encoded video held.
+* Re-run on the final code at about 03:00 recorder time, with the recorder slow (a probe asked for 4× got under 1×):
+  4 cameras at 1× spread median 25 ms, max 66 ms, the clock waiting 28% of the time; at 4× it waited 90%. Sync held;
+  only throughput fell. The skew numbers depend on the player, the waiting on the recorder.
+
+How a pane gets to `T`: each session still starts at its own camera's keyframe before `T` (2.2); its frames before
+`T` are decoded and closed unseen, and the clock starts when every pane can show `T`. The pre-roll comes at the
+feed's speed, so the feed starts as fast as the recorder's budget allows for this many cameras (16× alone, 4× with
+four; stepped down at once if the recorder answers 453) and drops to twice the playing speed once comfortably
+ahead. What arrives is kept encoded (~5 KB a frame): up to ~14 s of playing time ahead of `T` — then the recorder's
+feed is paused (RTSP PAUSE, kept alive, resumed with `PLAY npt=now-`: real back-pressure, nothing is ever dropped;
+a consumer that stops reading for 5 s gets its feed paused for it) — and a minute behind it for stepping back. Only
+a few frames around `T` are decoded at once (6–48 ahead by speed, 12 behind); open `VideoFrame`s stay around 20 a
+pane. All panes in a recording gap: `T` jumps to the first footage after it. A pane whose labels are approximate
+(`anchor`, 2.4) is placed on the clock by those labels — it can be up to a keyframe interval off the others, and its
+"≈" tooltip says so. Labels themselves come from every channel's calibrations pooled (2.4), so two cameras' labels
+for one instant agree. A session that ends cleanly (server restart, network blip, the page coming back from the
+back/forward cache — leaving the page closes its sessions) reopens at `T` as `T` reaches the end of what it has; one
+refused because the server isn't ready yet (just started) is retried every 2 s for a minute.
+
 ### 7.3 Session scheduling
 Every consumer of DVR history — a playback pane, a background search scan, an export job — draws from the same
 4-session pool. A fair-share queue serves them in request order, a maximised/focused pane gets priority over a
@@ -256,17 +311,54 @@ background scan, and the UI always shows *why* something is waiting ("3 of 4 ses
 ⅛×–16× via the DVR's own `Scale` header. 32×/64× ("scan speed") and all reverse speeds are built by decimating or
 walking the decoded frames ourselves, because the DVR refuses both on the wire (2.2). No audio (none is recorded).
 
+**Status (2026-11): ⅛×–16× built; 32×/64× and reverse are not.** The playing speed is the master clock's (7.2);
+the recorder's feed speed is separate and steered by the player (fast while short of footage, 2× the playing speed
+when ahead, paused when far enough ahead). A feed speed change used to re-`PLAY` with `Range: clock=<current>`, and
+the recorder restarted from the keyframe before it — the picture jumped back up to a keyframe interval and replayed
+it. Measured candidates (`tools/NOTES.md`): `PLAY` with `Range: npt=now-` and the new `Scale:` carries on from the
+next frame at every speed, with the shortest hold (≤ 0.8 s) — that is what the server sends now, keeping the video
+that arrives ahead of the reply. If a recorder ever refused it, the server reopens at the newest frame it handed out
+and flags the replayed pre-roll; the player never shows a frame older than `T` anyway, so the picture can only hold,
+never jump back. Changing 1×→4×→1×→8× while playing with 2 cameras: `T` and every pane's picture never went
+backwards; the picture held at most 3.8 s (at 8× with 2 cameras the recorder delivered well under 8× here — the clock
+waited 66% of that stretch, and the bar said so). The delivered rate at high speed is the recorder's: ch 1 averaged
+~3-3.5× when asked for 8–16×.
+
 ### 7.5 Frame stepping and reverse
-Forward step = next decoded frame. Backward step / reverse play = decode the preceding GOP (≤ ~9 s ⇒ ≤135 frames)
+Forward step = next decoded frame. Backward step / reverse play = decode the preceding GOP (14–50 s ⇒ up to ~750 frames, 2.2)
 into memory and walk it backwards; the next GOP back is pre-fetched at the boundary. Reverse at ≤4× is smooth on
 this hardware; faster reverse uses keyframe-stride "scan" mode.
+
+**Status (2026-11): stepping built, reverse play not.** A step moves the master time to the next/previous frame of
+the focused pane (the enlarged one, else the first) and every pane shows its frame for that instant. The 12 frames
+behind `T` stay decoded (instant); further back, the pane re-decodes from the keyframe before, out of the encoded
+minute it keeps — no recorder round trip; past that minute a step back is a paused seek. A step forward past the
+newest frame waits up to 3 s for it.
 
 ### 7.6 Rewind macros
 Default −5 s / −10 s / −30 s (`1`/`2`/`3` with Shift), fully configurable, plus "jump to previous/next event".
 
+**Status (2026-11):** −5/−10/−30 and +5/+10/+30 are built (not yet configurable). Previous/next event is built
+(transport buttons and `[` / `]`): one indexed query (`GET /api/timeline/events?order=asc&after=…&limit=1`, or
+newest-first with `before=`) across the selected cameras, any kind, bookmarks included; it seeks to 3 s before the
+event's start. Because a seek starts at the keyframe before the target (up to ~a minute early, 2.2), the next press
+steps from the event it last jumped to, not from the pre-rolled playhead (`web/js/eventspans.js eventJumpRef`).
+
 ### 7.7 Skip-empty
 Toggle. Uses the unified event index (section 8); "not empty" = any motion/AI/alarm span, padded by a configurable
 pre/post-roll (default 3 s / 5 s), merged if closer than 10 s. The jump itself is visible on the timeline, never silent.
+
+**Status (2026-11): built** (Playback's timeline header, More menu, `S`; remembered per device). "Not empty" =
+motion, line-crossing, intrusion, tamper or bookmark on any selected camera, padded 3 s / 5 s (not yet
+configurable), merged under 10 s — a pure module, `web/js/eventspans.js`, tested by `tools/test_eventspans.mjs`.
+Events are fetched oldest-first from just before the playhead to the present (a newest-first capped fetch would
+drop the rows nearest the playhead); a fetch cut short by its 5,000-row limit is extended as the playhead nears
+its end. A gap is skipped only when it is longer than 30 s × max(1, speed) — a seek reconnects the recorder and
+replays up to a minute of keyframe pre-roll, so shorter gaps are faster to play through. Every skip flashes the
+skipped stretch on the timeline (and a toast, at most every few seconds). It never acts within 8 s of a deliberate
+seek, while scrubbing, during a segment's keyframe pre-roll, or before the playhead reaches its last skip's
+target; with no events ahead (or none at all) it says so once and plays on rather than jumping to the end. It
+relies on the recorder's own motion/alarm log — no AI index exists yet (M3).
 
 ### 7.8 AI frame enhancer (tier L2)
 
@@ -565,6 +657,22 @@ One table, one search box:
 | `scan-ai` | same kinds, for a chosen historical window | On-demand background job, reads DVR history through the session queue (7.3), decodes and runs the same detector; used for "search before the index existed" or explicit re-analysis of a specific window. |
 | `manual` | bookmark, incident | Operators (section 9). |
 
+**Status (2026-11):** `dvr-live`, `dvr-log` and `manual` are built. The recorder reports each event twice (live,
+then in its log); rows of either source whose starts are within 2 s are one event (`db.upsert_event`; a one-time
+clean-up merged the duplicates stored before). Backfill runs at start and hourly, re-reading today each time, and a
+day is only marked complete once fully fetched; events still open at midnight stay one span. A live event that
+stops sending "active" closes 120 s after the last one. Search pages newest first with a keyset cursor
+(`before=<start_utc>,<id>`; `order=asc` + `after=` for looking forward), `channel` and `kind` may repeat, at most
+5,000 rows a request; `GET /api/timeline/events.csv` streams every matching row as CSV (recorder-local and UTC
+times, camera, kind, source, duration, bookmark fields; formula-like cells prefixed with `'`; capped at 100,000
+rows with a closing note; operator role; audited `events.export_csv`). A daily clean-up
+(`PlaybackService.prune_pass`) deletes `dvr-live`/`dvr-log` rows, their thumbnails and cached coverage from before
+the oldest recorded day minus 2 days — per channel, only once a full coverage pass has established that day for
+certain (every month probe answered, and the first day not in the oldest month probed); never `manual` rows or
+`calibration_history`, which `timebase.regimes` needs whole. `GET /api/timeline/retention` reports, per channel,
+the oldest recording still on the recorder (from the oldest day's own spans, re-read every coverage pass) — the
+basis of Playback's roll-off warning and the Events "overwritten" tags.
+
 Search = filters (channel(s), time range, kind, attribute, region box, minimum duration) → ranked, grouped clips
 (adjacent events merged with pre/post-roll) → click opens the player at that clip. Results also draw as a dedicated
 lane on the timeline, and every result is labelled with which of the five sources produced it.
@@ -581,6 +689,14 @@ lane on the timeline, and every result is labelled with which of the five source
   your own cert/reverse proxy if you have one). An **audit log** records who viewed or exported what, when.
 * **Live sync:** one WebSocket carries `bookmark.created`, `incident.note`, and lightweight presence ("Operator X
   is reviewing CH3 at 21:05") to every connected browser.
+
+**Status (2026-11):** bookmarks are built — created from Live or Playback, listed in Playback's Bookmarks panel
+(this day or all, search, severity filter, jump-to that adds the bookmark's cameras, edit, delete) and in Events.
+`PATCH /api/bookmarks/{id}` edits title/note/severity (same validation as create; the mirrored `events` rows
+follow; `edited_by`/`edited_utc` kept; audited `bookmark.update`). With sign-in on, operators may edit or delete
+their own bookmarks (matched by account id, `author_user_id`) and admins anyone's; bookmarks from before account
+ids were recorded are admin-only; sign-in off allows everything as before. Bookmarks on the exported cameras inside
+an export's range go into its signed manifest (10). Incidents and live sync are not built.
 
 ---
 
@@ -606,6 +722,23 @@ job, run in order through the existing 4-session queue, never in parallel); ③ 
 native-download endpoint, not yet reverse-engineered); the optional `player.html` is not built.
 `manifest.json` does not yet carry "any enhancement applied" (7.8's L2 tier is built, but export and the AI
 enhancer remain deliberately separate pipelines — 7.8.6).
+
+**Status (evidence and time accuracy, 2026-11):** the manifest is version 2 (additive — version 1 packages still
+verify): per clip the codec, picture size, the first and last frame's recorded time in UTC and DVR-local time with
+the recorder's UTC offset, the keyframe pre-roll before the requested start, `time_source` (calibration | anchor)
+and a plain-language accuracy statement (2.4); top level the app version, the recorder's model/serial/firmware
+when it answers, and the signing key's fingerprint (SHA-256 of the raw public key). `verify.html` shows the
+fingerprint and asks the recipient to compare it with "Evidence signing key" in the exporting install's Settings
+(Status for admins, This device for operators). H.264 recordings export, play and thumbnail like H.265 ones. Clips are muxed as frames arrive (memory
+stays flat) and stored uncompressed in the zip. A queued or running export can be cancelled
+(`DELETE /api/export/{id}`), which releases its recorder session and removes its partial files. Exports run one at a
+time in request order on a single server-side worker (they used to start at once and compete for the recorder's
+playback sessions), so a batch survives its browser tab; `GET /api/export` lists every job with its queue
+position, percent and expiry, shown by the Exports panel in the top bar, and the list is kept in
+`exports/jobs.json` across restarts (unfinished jobs come back as interrupted). Bookmarks on the
+exported cameras inside the range are listed in the manifest (`bookmarks: [{id, time_utc, time_local, cameras,
+title, severity, note, author, created_utc, edited_by?, edited_utc?}]`, additive — absent when there are none) and
+shown by `verify.html`. Export refuses a range with no recording.
 
 ---
 
@@ -657,8 +790,9 @@ to build as written.
 | **M6 AI depth + L2** | Attribute model, loitering/counter-flow, ML enhancement (super-resolution, low-light, denoise) | Precision/recall reported on a hand-labelled 1-hour sample from your cameras; every L2 output is tagged "ENHANCED" and ships with the untouched original |
 
 **Status:** M0-M2 complete and verified. **M3 is only partially built** — the alarm/log event search UI
-(camera/kind/date-range filters, deep-links into playback, a thumbnail per event) is done; live-forward AI
-indexing, region/attribute search, and skip-empty are not started (they need a detector/tracker choice and
+(camera/kind/date-range filters, deep-links into playback, a thumbnail per event, server-side paging and CSV
+export) is done, and skip-empty and previous/next event are built on the recorder's own event log (7.6, 7.7);
+live-forward AI indexing and region/attribute search are not started (they need a detector/tracker choice and
 per-channel CPU budget decisions, section 12.1, before code); the background scan job is not built; **the
 `smartSearch` spike ran and is closed, inconclusive** (2.3) — the endpoint is real but its schema couldn't
 be recovered by black-box probing, so region/motion search over pre-AI-index history will go through the
@@ -680,6 +814,19 @@ need the live-forward AI index from M3 as their input, which isn't built. M5's L
 fusion/denoise, no ML) is also not built; the multi-frame handling that exists now is the enhancer's own
 classical align-and-fuse pre-step (7.8.2d), not a general-purpose L1 tier. The live L0 filter chain has since
 grown noise reduction and auto white balance beyond its original set, still real-time and zero-cost when off.
+
+**Operations (2026-11).** A recorder-lockout breaker (`app/recorder_guard.py`): the first rejection of credentials
+actually sent stops every automatic login — background loops, the alertStream, live relays, playback, thumbnails —
+until Settings are saved or an admin calls `POST /api/recorder/retry` (marker `data/recorder_auth_failed.json`,
+holding only a short fingerprint of the rejected credentials; `/api/status` reports `recorder_auth_failed`). Logins
+are serialised across processes so the first rejection stops the rest. Connection and channel changes apply without
+a restart. Nothing guesses the recorder's time zone: playback, exports and thumbnails answer 503 until its UTC
+offset is read, and it is re-read hourly. Settings → Status shows the recorder's health in plain words (reachable,
+sign-in, live events, event-history sync, recording index, per-camera clock calibration ok/approximate/failed, UTC
+offset, oldest recording, daily clean-up) — `/api/status` gives viewers and operators only yes/no answers, since
+raw errors can name the recorder's address; Live and Playback show a dismissible notice when the recorder is
+unreachable or rejected the sign-in. The daily clean-up is described in section 8. go2rtc is pinned by version and
+SHA-256 in `run.sh` and the Dockerfile; logs keep one older generation past 10 MB; CI runs every recorder-free suite.
 
 ---
 

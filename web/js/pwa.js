@@ -7,7 +7,7 @@
   root.classList.toggle('ios-pwa', installed);
   // Desktop-style hover rules must never remove touch affordances from iPad Safari or its PWA.
   root.classList.toggle('apple-touch-device', appleTouch);
-  const revision = 'adaptive-v33';
+  const revision = 'adaptive-v35';
   root.dataset.pwaRevision = revision;
 
   function syncTheme() {

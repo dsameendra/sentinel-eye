@@ -15,7 +15,7 @@ const context = { URL, location:{origin:'https://sentinel.test'}, fetch:(...args
 runInNewContext(readFileSync(new URL('../web/sw.js',import.meta.url),'utf8'),context);
 let count=0;
 const check=(name,ok)=>{assert.ok(ok,name);count++;};
-check('worker and CSS declare the current shell revision',readFileSync(new URL('../web/sw.js',import.meta.url),'utf8').includes('sentinel-eye-shell-v33')&&readFileSync(new URL('../web/css/app.css',import.meta.url),'utf8').includes('--shell-revision: adaptive-v33'));
+check('worker and CSS declare the current shell revision',readFileSync(new URL('../web/sw.js',import.meta.url),'utf8').includes('sentinel-eye-shell-v35')&&readFileSync(new URL('../web/css/app.css',import.meta.url),'utf8').includes('--shell-revision: adaptive-v35'));
 check('PWA route swaps avoid black-fade and overlapping view transitions',!readFileSync(new URL('../web/js/main.js',import.meta.url),'utf8').includes('startViewTransition')&&!readFileSync(new URL('../web/css/app.css',import.meta.url),'utf8').includes('route-view-out'));
 let activation;handlers.activate({waitUntil:p=>activation=p});await activation;
 check('activation removes old shells and claims clients',removed.join()==='sentinel-eye-shell-v10,sentinel-eye-shell-v11,sentinel-eye-shell-v12,sentinel-eye-shell-v13,sentinel-eye-shell-v14,sentinel-eye-shell-v15,sentinel-eye-shell-v16,sentinel-eye-shell-v17,sentinel-eye-shell-v18,sentinel-eye-shell-v19,sentinel-eye-shell-v20,sentinel-eye-shell-v21,sentinel-eye-shell-v22,sentinel-eye-shell-v23,sentinel-eye-shell-v24,sentinel-eye-shell-v25,sentinel-eye-shell-v26,sentinel-eye-shell-v27,sentinel-eye-shell-v28,sentinel-eye-shell-v29,sentinel-eye-shell-v30,sentinel-eye-shell-v31,sentinel-eye-shell-v32'&&claimed);
@@ -75,7 +75,7 @@ function visit(relative) {
 for(const entry of ['index.html','login.html','pair.html']) {
   const html=readFileSync(new URL('../web/'+entry,import.meta.url),'utf8');
   check(`${entry} loads adaptive styling`,html.includes('css/app.css') && readFileSync(new URL('../web/css/app.css',import.meta.url),'utf8').includes('Shared adaptive contract'));
-  check(`${entry} carries the current diagnostic version`,html.includes('adaptive-v33'));
+  check(`${entry} carries the current diagnostic version`,html.includes('adaptive-v35'));
   for(const match of html.matchAll(/(?:src|href)="((?:js|css)\/[^"?]+)"/g))visit(match[1]);
 }
 const manifest=JSON.parse(readFileSync(new URL('../web/manifest.json',import.meta.url),'utf8'));
