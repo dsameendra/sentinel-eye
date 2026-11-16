@@ -117,8 +117,9 @@ export class SettingsView {
     clearInterval(this.statusTimer);
     this.security?.destroy(); this.security = null;
     this.account?.destroy(); this.account = null;
-    const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', account: () => '', device: () => this.deviceTab() }[this.tab];
-    this.pane.innerHTML = fn();
+    const tabRenderers = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', account: () => '', device: () => this.deviceTab() };
+    const fn = Object.prototype.hasOwnProperty.call(tabRenderers, this.tab) ? tabRenderers[this.tab] : null;
+    this.pane.innerHTML = typeof fn === 'function' ? fn() : '';
     this.pane.classList.toggle('wide', this.tab === 'channels' || this.tab === 'status');
     if (this.tab === 'security') { this.bar.hidden = true; this.security = new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
     if (this.tab === 'enhancement' && this.models === undefined && !this._modelsLoading) { this._modelsLoading = true; this.loadModels().finally(() => { this._modelsLoading = false; }); }
