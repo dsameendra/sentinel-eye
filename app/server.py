@@ -93,6 +93,13 @@ app = FastAPI(title="Sentinel Eye", lifespan=lifespan)
 app.middleware("http")(auth_api.gate)
 
 
+# An inline script in one of our own pages: a <script> start tag without a src attribute, and its body. Matched
+# loosely on purpose (any case, other attributes, "</script >"): a script this missed would get no hash in the
+# policy and the browser would silently refuse to run it. This reads our own static files to build an
+# allow-list; it is not, and must never be used as, a filter for untrusted HTML.
+INLINE_SCRIPT = re.compile(r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\b[^>]*>", re.I | re.S)
+
+
 def _content_security_policy() -> str:
     """The pages may only load and talk to this server itself: the project's "nothing leaves the LAN" rule
     (no CDNs, remote fonts, telemetry or cloud APIs) enforced by the browser, not just by review — and an
@@ -106,7 +113,7 @@ def _content_security_policy() -> str:
     import base64, hashlib
     hashes = set()
     for page in sorted((cfg.ROOT / "web").glob("*.html")):
-        for body in re.findall(r"<script>(.*?)</script>", page.read_text(), re.S):   # inline only: no src=
+        for body in INLINE_SCRIPT.findall(page.read_text()):
             hashes.add("'sha256-" + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode() + "'")
     return "; ".join([
         "default-src 'self'",

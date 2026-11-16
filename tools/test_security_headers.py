@@ -56,12 +56,21 @@ def main():
         inline = set()
         for page in sorted((ROOT / "web").glob("*.html")):
             html = page.read_text()
-            for body in re.findall(r"<script>(.*?)</script>", html, re.S):
+            for body in server.INLINE_SCRIPT.findall(html):
                 inline.add("'sha256-" + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode() + "'")
             check(f"{page.name}: no inline event handlers or javascript: URLs (the policy would block them)",
                   not re.search(r"\son[a-z]+\s*=|javascript:", html, re.I))
             check(f"{page.name}: loads nothing from another host",
                   not re.search(r"""(?:src|href)\s*=\s*["'](?:https?:)?//""", html, re.I))
+        find = server.INLINE_SCRIPT.findall
+        check("inline-script pattern: plain, upper-case, with attributes, and '</script >' all match",
+              find("<script>a()</script>") == ["a()"] and find("<SCRIPT>b()</SCRIPT>") == ["b()"]
+              and find('<script type="text/javascript" nonce="x">c()</script >') == ["c()"]
+              and find("<script>\nd()\n</script\n>") == ["\nd()\n"])
+        check("inline-script pattern: a script with src= is not inline",
+              find('<script src="js/pwa.js"></script>') == [] and find('<script type="module" SRC = "js/main.js"></script>') == []
+              and find('<script src="a.js"></script><script>e()</script>') == ["e()"])
+        check("inline-script pattern: other tags don't match", find("<scripted>x</scripted>") == [] and find("<style>x</style>") == [])
         check("the pages do carry an inline bootstrap script", len(inline) >= 1, len(inline))
         check("every inline script's hash is in script-src, and no stale ones", set(d["script-src"]) - {"'self'"} == inline,
               (d["script-src"], inline))

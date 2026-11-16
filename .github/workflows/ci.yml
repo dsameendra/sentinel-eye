@@ -12,6 +12,10 @@ on:
   pull_request:
     branches: [main]
 
+# The jobs only read the repository: no write access for the workflow's token.
+permissions:
+  contents: read
+
 jobs:
   syntax-check:
     name: Syntax check (Python + JS)

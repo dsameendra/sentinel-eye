@@ -19,11 +19,12 @@ and by the admin's explicit retry (POST /api/recorder/retry).
 
 The marker also records a short fingerprint of the credentials that were rejected, so a rejection of credentials
 that are no longer the saved ones (a request still in flight when the admin saved new ones, or a settings file
-edited by hand) never blocks the new ones. The fingerprint is a truncated SHA-256 and lives next to
-settings.json, which holds the password itself in clear anyway — so, like settings.json, the marker is
-readable by the owner only (0600); the password is never written here or logged.
+edited by hand) never blocks the new ones. The fingerprint is a short scrypt digest (see fingerprint()), so the
+marker on its own doesn't make the password cheap to guess; like settings.json, which holds the password itself,
+the marker is readable by the owner only (0600). The password is never written here or logged.
 """
 import contextlib
+import functools
 import hashlib
 import json
 import os
@@ -65,8 +66,18 @@ def marker_path() -> Path:
     return _data_dir() / MARKER_NAME
 
 
+@functools.lru_cache(maxsize=16)
 def fingerprint(host, user, pw) -> str:
-    return hashlib.sha256(f"{host}\0{user}\0{pw}".encode()).hexdigest()[:16]
+    """Short, stable id for one set of recorder credentials — the same in the server and in every relay
+    process, which is why it can't use a per-process secret.
+
+    It is derived from the password with scrypt, not a plain hash: the marker file could travel without
+    settings.json (a backup, a support bundle), and a fast hash there would let the recorder password be guessed
+    offline at billions of tries a second. The salt is the host and username, so equal passwords on different
+    recorders don't share a fingerprint. Cached, because it is asked for on every status request and background
+    pass (~25 ms otherwise); the cache holds nothing the process doesn't already have in its settings."""
+    salt = hashlib.sha256(f"sentinel-eye recorder credentials\0{host}\0{user}".encode()).digest()[:16]
+    return hashlib.scrypt(str(pw).encode(), salt=salt, n=2 ** 14, r=8, p=1, dklen=8).hex()
 
 
 def info() -> dict | None:
