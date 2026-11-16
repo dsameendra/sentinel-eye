@@ -112,6 +112,8 @@ class FakeReader:
     preroll = 7.0
     until = None
     delay = 0.0
+    feed_notes = False     # interleave ("feed", …) queue items with the frames
+    time_source = "calibration"
     instances = []
 
     def __init__(self, conn, channel, path, a_const, start_utc, tz, speed="1", adaptive_speeds=None):
@@ -121,7 +123,7 @@ class FakeReader:
         self.waiting_for_slot = False
         self.start_t = datetime.datetime.fromisoformat(start_utc).timestamp()
         self.stopped = threading.Event()
-        self.seg = {"codec": FakeReader.codec, "time_source": "calibration", "approx": False, "target": self.start_t,
+        self.seg = {"codec": FakeReader.codec, "time_source": FakeReader.time_source, "approx": FakeReader.time_source != "calibration", "target": self.start_t,
                     "display_from": self.start_t, "first_utc": self.start_t - FakeReader.preroll, "bound_s": 1.6,
                     "_a": 0.0, "_offset": 0.0, "_cal": {"a_const": 1.0, "measured_utc": "2026-10-14T00:00:00+00:00",
                                                          "method": "osd_tick", "error_estimate": 0.12}}
@@ -138,6 +140,9 @@ class FakeReader:
                 self.q.put(None)
                 return
             key, data = units[i % len(units)]
+            if FakeReader.feed_notes and i % 20 == 0:
+                # What the real reader sends when it pauses/resumes the recorder's feed or changes its speed.
+                self.q.put(("feed", {"scale": self.speed, "hold": False}))
             self.q.put(psess.Frame(t, key, data, self.seg, t < self.start_t - 0.02))
             t += 1 / FPS
             i += 1
@@ -152,6 +157,8 @@ class FakeReader:
             pass
 
 
+# thumbnails take the settings-shaped connection (hikrelay.conn_of reads it)
+CONN_DICT_FULL = {"host": "10.0.0.9", "rtsp_port": 554, "http_port": 80, "username": "u", "password": "p", "encrypted": False, "key": ""}
 CONN_DICT = {"host": "10.0.0.9", "rtsp_port": 554, "http_port": 80, "username": "u", "password": "p", "encrypted": False, "key": ""}
 
 
@@ -344,6 +351,75 @@ def provenance():
     check("deadline covers pre-roll at the granted speed", export.export_deadline_s(3600, "16") == (3600 + 60) / 16 * 3 + 60 and export.export_deadline_s(3600, "1") == (3600 + 60) * 3 + 60)
 
 
+def feed_notes_and_thumbnails(units):
+    """The reader's queue also carries ("feed", …) notes for the browser player. Exports and thumbnails must
+    pass over them (reading one as a frame used to fail the export), and a thumbnail must not be made from
+    footage the recorder substituted for a time it never recorded."""
+    import coverage
+    import thumbnails
+    real = psess.PlaybackReader
+    psess.PlaybackReader = FakeReader
+    FakeReader.units, FakeReader.until, FakeReader.delay, FakeReader.feed_notes = units, None, 0.0, True
+    start = datetime.datetime(2026, 11, 10, 8, 41, 47, tzinfo=UTC)
+    end = start + datetime.timedelta(seconds=6)
+    ch = {"id": "c1", "channel": 1, "name": "Feed", "_tz_offset_min": 330}
+    try:
+        job_dir = export.EXPORT_DIR / "feed1"
+        job_dir.mkdir(parents=True, exist_ok=True)
+        check("is_frame: only pictures", psess.is_frame(psess.Frame(1.0, True, b"", {}, False)) and not psess.is_frame(("feed", {}))
+              and not psess.is_frame(("error", "x")) and not psess.is_frame(None))
+        try:
+            clip = export._export_one_channel(job_dir, ch, start.isoformat(), end.isoformat(), CONN_DICT)
+            info, _ = probe(job_dir / clip["file"])
+            check("export: feed notes in the queue are passed over, the clip is whole",
+                  clip["frame_count"] == int(info["nb_read_frames"]) and clip["frame_count"] >= 6 * FPS, (clip["frame_count"], info))
+        except Exception as e:
+            check("export: feed notes in the queue are passed over, the clip is whole", False, f"{type(e).__name__}: {e}")
+
+        # Thumbnails: same queue, same notes.
+        db.write("INSERT INTO events(source, channel, kind, start_utc, end_utc, created_utc) VALUES (?,?,?,?,?,?)",
+                 ("dvr-log", 1, "motion", start.isoformat(), end.isoformat(), start.isoformat()))
+        ev = dict(db.one("SELECT * FROM events WHERE channel=1 AND kind='motion' ORDER BY id DESC LIMIT 1"))
+        try:
+            p = thumbnails.get_or_generate(ev, CONN_DICT_FULL, "", 330)
+            check("thumbnail: made despite feed notes in the queue", p.exists() and p.stat().st_size > 200, p)
+        except Exception as e:
+            check("thumbnail: made despite feed notes in the queue", False, f"{type(e).__name__}: {e}")
+
+        # An anchored segment at a time the coverage index says was never recorded: refuse, like exports do.
+        FakeReader.time_source = "anchor"
+        day = (start + datetime.timedelta(hours=5, minutes=30)).date()
+        tz = datetime.timezone(datetime.timedelta(minutes=330))
+        other = (start - datetime.timedelta(hours=3)).isoformat(), (start - datetime.timedelta(hours=2)).isoformat()
+        db.write("INSERT OR REPLACE INTO coverage_days(channel, day, spans_json, refreshed_utc) VALUES (?,?,?,?)",
+                 (1, day.isoformat(), json.dumps([list(other)]), start.isoformat()))
+        mid = start + (end - start) / 2
+        check("coverage.not_recorded: outside every cached span", coverage.not_recorded(1, mid, tz) is True)
+        check("coverage.not_recorded: inside a span", coverage.not_recorded(1, start - datetime.timedelta(hours=2, minutes=30), tz) is False)
+        check("coverage.not_recorded: a day with no cached coverage is not judged", coverage.not_recorded(2, mid, tz) is False)
+        db.write("INSERT INTO events(source, channel, kind, start_utc, end_utc, created_utc) VALUES (?,?,?,?,?,?)",
+                 ("dvr-log", 1, "line", start.isoformat(), end.isoformat(), start.isoformat()))
+        ev2 = dict(db.one("SELECT * FROM events WHERE channel=1 AND kind='line' ORDER BY id DESC LIMIT 1"))
+        try:
+            thumbnails.get_or_generate(ev2, CONN_DICT_FULL, "", 330)
+            check("thumbnail: refused for a time that was never recorded", False, "a picture was made")
+        except RuntimeError as e:
+            check("thumbnail: refused for a time that was never recorded", "no recording" in str(e).lower(), e)
+        check("thumbnail: nothing written for the refused one", not thumbnails.path_for(ev2["id"]).exists())
+        # ...but where coverage doesn't know (another camera), an anchored thumbnail is still made.
+        db.write("INSERT INTO events(source, channel, kind, start_utc, end_utc, created_utc) VALUES (?,?,?,?,?,?)",
+                 ("dvr-log", 2, "motion", start.isoformat(), end.isoformat(), start.isoformat()))
+        db.set_calibration(2, 1.0, 0.12, "osd_tick")
+        ev3 = dict(db.one("SELECT * FROM events WHERE channel=2 ORDER BY id DESC LIMIT 1"))
+        try:
+            check("thumbnail: still made when coverage doesn't know", thumbnails.get_or_generate(ev3, CONN_DICT_FULL, "", 330).exists())
+        except Exception as e:
+            check("thumbnail: still made when coverage doesn't know", False, f"{type(e).__name__}: {e}")
+    finally:
+        psess.PlaybackReader = real
+        FakeReader.feed_notes, FakeReader.time_source = False, "calibration"
+
+
 def job_queue(units):
     """Jobs run one at a time in request order, are listed with their place in the queue and progress, a queued
     one can be cancelled without ever reaching the recorder, and the list survives a restart."""
@@ -422,6 +498,15 @@ def job_queue(units):
         check("restart: a corrupt jobs.json is ignored, not fatal", export.list_jobs() == [])
         export.start_export("q4", chan("After"), start.isoformat(), short_end, "plain", "opal", CONN_DICT)
         check("queue: still works after a reload", wait_job("q4")["state"] == "done")
+        check("active_count: nothing waiting or running now", export.active_count() == 0)
+        with export._jobs_lock:
+            export._jobs["w1"] = {"state": "queued", "_created": time.time()}
+            export._jobs["w2"] = {"state": "running", "_created": time.time()}
+            export._jobs["w3"] = {"state": "done", "_created": time.time()}
+        check("active_count: counts waiting and running, not finished", export.active_count() == 2)
+        with export._jobs_lock:
+            for k in ("w1", "w2", "w3"):
+                export._jobs.pop(k)
     finally:
         psess.PlaybackReader, export.recorder_info, export.app_version = real_reader, real_info, real_ver
         FakeReader.delay = 0.0
@@ -460,6 +545,7 @@ def main():
             whole_export(units)
             signed_package(units)
             cancel(units)
+            feed_notes_and_thumbnails(units)
             job_queue(units)
         else:
             skip("whole export / signed package / cancel / job queue", "needs an H.264 encoder for the synthetic clip")

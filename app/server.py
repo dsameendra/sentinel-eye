@@ -243,9 +243,11 @@ async def put_settings(new: cfg.Settings, request: Request):
     recorder_changed = (new.connection.host, new.connection.http_port) != (old.connection.host, old.connection.http_port)
     cfg.save(new)
     state["settings"] = new
-    # Saving Settings is how the admin fixes a password the recorder rejected: lift the lockout breaker so
-    # everything may log in once more (it trips again on the first rejection).
-    was_blocked = recorder_guard.clear()
+    # Saving a changed connection is how the admin fixes a password the recorder rejected: lift the lockout
+    # breaker so everything may log in once more (it trips again on the first rejection). A save that leaves the
+    # connection alone (a camera renamed) must not: each lift costs the account one more failed login, and a
+    # handful of those locks it. "Try again" (POST /api/recorder/retry) is the way to retry the same credentials.
+    was_blocked = recorder_guard.clear() if conn_changed else False
     p = state["playback"]
     if p and (streams_changed or was_blocked):
         p.reload(connection_changed=recorder_changed)   # new connection / channels apply now, not after a restart
@@ -325,7 +327,7 @@ async def status(request: Request):
     health = await run_in_threadpool(p.health) if p else None
     out = {"go2rtc": bool(streams) or await run_in_threadpool(g.up), "streams": streams,
            "hwaccel": hwaccel.current()[0],
-           # The recorder rejected the saved username/password: nothing logs in until Settings are saved or an
+           # The recorder rejected the saved username/password: nothing logs in until the connection is changed in Settings or an
            # admin retries (POST /api/recorder/retry). A yes/no only — no credentials, so fine for any role.
            "recorder_auth_failed": _recorder_blocked()}
     if not principal.can("admin"):
@@ -689,6 +691,8 @@ async def create_export(req: ExportRequest, request: Request):
     tz = _dvr_tz()
     if tz is None:
         raise HTTPException(503, TZ_UNKNOWN)
+    if exportmod.active_count() >= exportmod.MAX_ACTIVE_JOBS:
+        raise HTTPException(429, f"{exportmod.MAX_ACTIVE_JOBS} exports are already waiting — let some finish, or cancel them, first")
     channel_dicts = [{**c.model_dump(), "_tz_offset_min": _tz_offset_min(tz)} for c in chans]
     job_id = _secrets.token_hex(8)
     start_utc, end_utc = start_dt.isoformat(), end_dt.isoformat()

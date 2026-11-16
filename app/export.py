@@ -225,6 +225,14 @@ def get_job(job_id):
         return _public(job_id, j) if j is not None else None
 
 
+MAX_ACTIVE_JOBS = 50   # waiting + running: far beyond any real batch, and a bound on what one click-loop can queue
+
+
+def active_count():
+    with _jobs_lock:
+        return sum(1 for j in _jobs.values() if j.get("state") in ACTIVE)
+
+
 def list_jobs():
     """Every export this install still knows about, newest first; queued ones carry their place in the queue
     (1 = next). What the Exports panel shows."""
@@ -488,26 +496,6 @@ def export_deadline_s(span_s, speed):
     return max(60.0, (span_s + timebase.PREROLL_MAX_S) / psess.units(speed) * 3 + 60)
 
 
-def _not_recorded(channel, at_utc, tz):
-    """True when the cached coverage index says `at_utc` is not inside any recorded span (False when it is, or
-    when that day's coverage isn't cached — not knowing is not a refusal). Today's index trails the recorder,
-    so only footage older than two hours is judged."""
-    if time.time() - at_utc.timestamp() < 7200:
-        return False
-    day = at_utc.astimezone(tz).date()
-    try:
-        cached = coverage.cached_range(channel, day - datetime.timedelta(days=1), day + datetime.timedelta(days=1))
-    except Exception:
-        return False
-    if day.isoformat() not in cached:
-        return False
-    for spans in cached.values():
-        for s, e in spans:
-            if datetime.datetime.fromisoformat(s) <= at_utc <= datetime.datetime.fromisoformat(e):
-                return False
-    return True
-
-
 def _distance(seconds):
     if seconds < 3600:
         return "under an hour"
@@ -595,9 +583,13 @@ def _export_one_channel(job_dir, ch, start_utc, end_utc, connection_dict, job_id
                 rescaled = True
             if item[0] == "error":
                 raise RuntimeError(item[1])
+            if not psess.is_frame(item):
+                # A note about the feed (auto-paused while this loop was slow to read, then resumed): it carried
+                # on from the next frame, nothing was lost. Reading it as a frame failed the whole export.
+                continue
             if seg is None:
                 seg = item.seg
-                if seg["time_source"] == "anchor" and _not_recorded(ch["channel"], start_dt, tz):
+                if seg["time_source"] == "anchor" and coverage.not_recorded(ch["channel"], start_dt, tz):
                     # The recorder serves the next footage it has (days later, before its oldest recording) and
                     # nothing here can tell how much later — never sign that as the requested time.
                     raise RuntimeError(f"There is no recording at {start_dt.astimezone(tz):%Y-%m-%d %H:%M:%S} "

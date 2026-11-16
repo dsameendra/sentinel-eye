@@ -70,7 +70,7 @@
    * See the .glass/.glass-heavy rules below for the required @supports fallback and tv-mode/
    * reduced-transparency guardrails before this is applied to anything. */
   --glass-fill: rgba(28, 28, 31, .66); --glass-fill-heavy: rgba(18, 18, 20, .86);
-  --shell-revision: adaptive-v35;
+  --shell-revision: adaptive-v36;
   --safe-top: env(safe-area-inset-top, 0px);
   --header-inset-top: var(--safe-top);
   --pwa-blur-gap: 0px;

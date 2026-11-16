@@ -14,7 +14,7 @@ before any had written the marker. With it, the first rejection trips the breake
 It is a marker file in the data directory, not process memory, because the live relays are separate processes
 (go2rtc runs `hikrelay.py stream --settings <data>/settings.json`): they configure() it from the settings file's
 own directory, so nothing here imports the server's state. The interactive admin tools (/api/test, /api/discover)
-never check or trip it — that's how the admin finds the right password. It is cleared when settings are saved
+never check or trip it — that's how the admin finds the right password. It is cleared when a changed connection is saved in Settings
 and by the admin's explicit retry (POST /api/recorder/retry).
 
 The marker also records a short fingerprint of the credentials that were rejected, so a rejection of credentials
@@ -123,7 +123,7 @@ def trip(fp: str | None, source: str) -> None:
             print(f"recorder_guard: couldn't write {path}: {e}", file=sys.stderr, flush=True)
             return
     print(f"recorder_guard: the recorder rejected the saved credentials ({source}); "
-          "pausing every automatic login until Settings are saved or the admin retries", file=sys.stderr, flush=True)
+          "pausing every automatic login until the connection is fixed in Settings or the admin retries", file=sys.stderr, flush=True)
 
 
 @contextlib.contextmanager

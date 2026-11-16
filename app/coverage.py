@@ -1,6 +1,7 @@
 """Coverage index: which time ranges the DVR actually has recordings for, per channel per day.
 Built from ContentMgmt/search (merged spans, not per-second) and cached in the DB (section 8/2.1)."""
 import datetime
+import time
 import json
 import re
 import uuid
@@ -117,3 +118,23 @@ def earliest_recorded_day_checked(api, channel, tz, probe_months=6):
             m, y = 12, y - 1
     certain = bool(earliest and all_ok and (earliest.year, earliest.month) != oldest_month)
     return {"day": earliest, "certain": certain}
+
+
+def not_recorded(channel, at_utc, tz):
+    """True when the cached coverage index says `at_utc` is not inside any recorded span (False when it is, or
+    when that day's coverage isn't cached — not knowing is not a refusal). Today's index trails the recorder,
+    so only footage older than two hours is judged."""
+    if time.time() - at_utc.timestamp() < 7200:
+        return False
+    day = at_utc.astimezone(tz).date()
+    try:
+        cached = cached_range(channel, day - datetime.timedelta(days=1), day + datetime.timedelta(days=1))
+    except Exception:
+        return False
+    if day.isoformat() not in cached:
+        return False
+    for spans in cached.values():
+        for s, e in spans:
+            if datetime.datetime.fromisoformat(s) <= at_utc <= datetime.datetime.fromisoformat(e):
+                return False
+    return True

@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 
+import coverage
 import db
 import hikrelay as h
 import playback_session as psess
@@ -108,6 +109,12 @@ def _generate(event, connection_dict, playback_path_override, tz_offset_min):
                 break
             if item[0] == "error":
                 raise RuntimeError(item[1])
+            if not psess.is_frame(item):
+                continue   # a note about the feed, not a picture
+            if not aus and item.seg["time_source"] == "anchor" and coverage.not_recorded(ch, mid, tz):
+                # Asked for a time it has no recording of, the recorder serves the next footage it has — possibly
+                # days later. Better no picture than one of the wrong moment (exports refuse the same way).
+                raise RuntimeError("There is no recording at that time")
             codec = item.seg["codec"]
             aus.append(item.data)
             if not item.pre:

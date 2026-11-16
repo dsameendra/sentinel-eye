@@ -91,6 +91,7 @@ Also run the suites for the area you touched. None of them needs a recorder:
 | Playback master clock (frame choice, buffering) | `node tools/test_masterclock.mjs` |
 | Playback feed (hold/resume, in-place speed change) | `.venv/bin/python3 tools/test_playback_feed.py` |
 | Exports panel (queue wording) | `node tools/test_exportjobs.mjs` |
+| Sign-in redirect (`safeNext`) | `node tools/test_safenext.mjs` |
 | Security headers / CSP | `.venv/bin/python3 tools/test_security_headers.py` |
 | Encoder selection | `.venv/bin/python3 tools/test_hwaccel.py` |
 | AI enhancer | `.venv/bin/python3 tools/test_enhance_models.py`, `tools/test_enhance_ai.py` |
@@ -185,7 +186,7 @@ user asks.
   its dependencies are missing (see `tools/test_enhance_ai.py`).
 - **Ports:** native and Docker instances share ports. Only one can run at a time.
 - **Recorder lockout breaker:** every automatic recorder login goes through `app/recorder_guard.py` (marker
-  `data/recorder_auth_failed.json`; cleared by saving Settings or `POST /api/recorder/retry`). Never add a
+  `data/recorder_auth_failed.json`; cleared by saving a changed connection in Settings or `POST /api/recorder/retry`). Never add a
   recorder login path that bypasses it — a wrong password retried by several loops locks the DVR account.
 - **Recorder time:** the recorder's UTC offset comes from the recorder; playback, export and thumbnails answer
   503 until it is known. Never default a time zone.
@@ -196,11 +197,13 @@ user asks.
 - **Clock periods:** recordings keep their recorded RTP timestamps, and the recorder resets that clock on all
   channels at once, so a calibration is only valid within its own clock period. Label footage with
   `timebase.choose_label`, never the nearest calibration by time. `calibration_history` is never pruned.
-- **Playback reader queue** items are `playback_session.Frame` tuples (plus `("error", msg)` and `None`).
+- **Playback reader queue** items are `playback_session.Frame` tuples, plus `("error", msg)`, `("feed", {...})`
+  notes meant for the browser player, and `None`. Any consumer other than the playback WebSocket must skip
+  what `playback_session.is_frame` rejects (after checking for the error).
 - **Events search** pages newest first by `(start_utc, id)`; look forward with `order=asc` (a newest-first
   capped fetch drops the rows nearest a playhead). Keep the response a bare array — timeline, Live, the bell
   and Events all read it.
-- **Shell revision:** currently `adaptive-v35` (kept in sync across `web/sw.js`, `web/css/app.css`,
+- **Shell revision:** currently `adaptive-v36` (kept in sync across `web/sw.js`, `web/css/app.css`,
   `tools/test_shell_update.mjs`, and `README.md`).
 
 ## Commits and pull requests

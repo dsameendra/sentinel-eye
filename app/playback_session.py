@@ -41,7 +41,14 @@ AUTO_HOLD_S = 5          # a consumer that stops reading for this long gets the 
 # seg = the segment's shared metadata dict (see PlaybackReader._new_segment), pre = recorded before the requested
 # instant (only there because the session starts at the previous keyframe: decode it, don't show it as "the
 # requested moment"). Error items stay ("error", message) tuples — every consumer checks item[0] == "error".
+# The queue also carries ("feed", {...}) notes about the feed itself (paused, resumed, speed): only the browser
+# player wants those, so every other consumer must pass over anything that isn't a Frame (is_frame).
 Frame = collections.namedtuple("Frame", "t key data seg pre")
+
+
+def is_frame(item):
+    """True for a picture; False for the queue's other items (None at the end, ("error", …), ("feed", …))."""
+    return isinstance(item, Frame)
 
 
 class AccessUnits:
