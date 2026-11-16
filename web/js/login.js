@@ -1,6 +1,6 @@
 // Sign-in page (/login): password, then a 2FA code when the account has one, or "pair this device" for a TV
 // that shows a code for an admin to approve from their phone. Standalone: imports none of the app's views.
-import { authApi } from './api.js';
+import { authApi, safeNext } from './api.js';
 import { qrSvg } from './qr.js';
 import { esc, icon } from './ui.js';
 // Remote-control navigation for a TV signing in — loaded optionally, so these pages still work against a
@@ -11,11 +11,7 @@ const card = document.getElementById('card');
 const tvMode = document.documentElement.classList.contains('tv-mode');
 const params = new URLSearchParams(location.search);
 
-// Only a path on this site: "/x" yes, "//evil.example" or "/\evil.example" (both protocol-relative) no.
-const next = (() => {
-  const n = params.get('next') || '/';
-  return /^\/(?![/\\])/.test(n) ? n : '/';
-})();
+const next = safeNext(params.get('next'), location.origin);
 const go = () => location.replace(next);
 
 const brand = '<div class="auth-mark" aria-hidden="true"><span class="brand-mark"></span></div>';

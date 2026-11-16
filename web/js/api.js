@@ -8,6 +8,23 @@ export function signInAgain() {
   location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
 }
 
+/** Where to go after signing in: `next` only if it is a path on this site, else "/". Judged the way the browser
+ * will read it, not by its spelling: URLs drop tabs and newlines and treat "\\" as "/", so "/<tab>/evil.example"
+ * looks like a local path and loads //evil.example. So resolve it against this origin and require the result to
+ * still be on it — then return only its path, query and hash, never the string that was passed in. */
+export function safeNext(next, origin) {
+  if (typeof next !== 'string' || !next.startsWith('/')) return '/';
+  try {
+    const here = new URL(origin).origin;
+    const u = new URL(next, origin);
+    if (u.origin !== here) return '/';
+    // The path that comes back can itself start "//" ("/.//evil.example" normalises to "//evil.example" on this
+    // origin), which would be protocol-relative when used — so check what is actually returned, again.
+    const out = u.pathname + u.search + u.hash;
+    return new URL(out, origin).origin === here ? out : '/';
+  } catch { return '/'; }
+}
+
 /** Set by main.js: an admin who must set up two-factor first (403 code 2fa_required). */
 export const authHooks = { needs2fa: () => {} };
 

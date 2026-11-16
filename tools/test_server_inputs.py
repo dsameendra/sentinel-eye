@@ -295,6 +295,12 @@ def exports():
         recorder_guard.clear()
         r = c.post("/api/export", json=body)
         check("export: accepted", r.status_code == 200, r.text)
+        real_count = server.exportmod.active_count
+        server.exportmod.active_count = lambda: server.exportmod.MAX_ACTIVE_JOBS
+        n = len(started)
+        r = c.post("/api/export", json=body)
+        check("export: refused with 429 once the queue is full, nothing started", r.status_code == 429 and len(started) == n, r.text)
+        server.exportmod.active_count = real_count
         job_id, chans, start, end, package = started[0][0], started[0][1], started[0][2], started[0][3], started[0][4]
         check("export: times normalised to aware UTC (naive taken as UTC)",
               (start, end) == ("2026-05-01T10:00:00+00:00", "2026-05-01T10:05:00+00:00"), (start, end))
@@ -364,7 +370,19 @@ def breaker_routes_and_settings_audit():
           r.status_code == 200 and r.json()["was_blocked"] is True and not recorder_guard.tripped() and pb.reloads == [False], (r.text, pb.reloads))
     check("audit: retry recorded", (last_audit("recorder.retry") or {}).get("detail", {}).get("was_blocked") is True)
 
+    # A save that leaves the connection alone must not lift the breaker: each lift is one more failed login.
     recorder_guard.trip(recorder_guard.fingerprint("10.0.0.9", "admin", PW), "test")
+    s = c.get("/api/settings").json()
+    s["channels"][0]["name"] = "Renamed while blocked"
+    pb.reloads.clear()
+    r = c.put("/api/settings", json=s)
+    check("settings save (no connection change): ok, and the breaker stays tripped", r.status_code == 200 and recorder_guard.tripped(), r.text[:120])
+    s = c.get("/api/settings").json()
+    s["display"]["fit"] = "contain" if s["display"]["fit"] == "cover" else "cover"
+    pb.reloads.clear()
+    c.put("/api/settings", json=s)
+    check("settings save (display only): breaker stays tripped, nothing reloaded", recorder_guard.tripped() and pb.reloads == [], pb.reloads)
+
     s = c.get("/api/settings").json()
     s["connection"]["password"] = "a-new-pw-value"
     s["channels"][1]["name"] = "Back gate"

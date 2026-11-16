@@ -817,7 +817,7 @@ grown noise reduction and auto white balance beyond its original set, still real
 
 **Operations (2026-11).** A recorder-lockout breaker (`app/recorder_guard.py`): the first rejection of credentials
 actually sent stops every automatic login — background loops, the alertStream, live relays, playback, thumbnails —
-until Settings are saved or an admin calls `POST /api/recorder/retry` (marker `data/recorder_auth_failed.json`,
+until a changed connection is saved in Settings or an admin calls `POST /api/recorder/retry` (marker `data/recorder_auth_failed.json`,
 holding only a short fingerprint of the rejected credentials; `/api/status` reports `recorder_auth_failed`). Logins
 are serialised across processes so the first rejection stops the rest. Connection and channel changes apply without
 a restart. Nothing guesses the recorder's time zone: playback, exports and thumbnails answer 503 until its UTC

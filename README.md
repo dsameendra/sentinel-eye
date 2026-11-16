@@ -542,7 +542,7 @@ Camera **More** opens a bounded menu for zoom, quality, snapshots, replay and pi
 
 ![Event review in the light theme](docs/screenshots/light-events.jpg)
 
-Online updates use a network-first static shell (`adaptive-v35`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
+Online updates use a network-first static shell (`adaptive-v36`), with unchanged install identity and routes. Completely close and relaunch the installed app online to refresh it; reinstalling is not required. iPhone portrait navigation includes destination titles; landscape stays icon-only, and the iPad/iPhone landscape navigation and account controls stay anchored across pages. Playback fullscreen uses a bottom chrome panel on desktop and a safe-area-aware dock on touch devices. The [validation record](docs/adaptive-ui-validation.md) distinguishes local checks from pending native-device and recorder acceptance.
 
 ### Channel-zero: the recorder's own overview
 
@@ -594,6 +594,7 @@ node tools/test_pwa_bootstrap.mjs                   # installed Apple detection
 node tools/test_codecs.mjs                          # WebCodecs codec strings (H.265 / H.264)
 node tools/test_eventspans.mjs                      # Skip empty spans, previous/next event
 node tools/test_exportjobs.mjs                      # Exports panel wording and order
+node tools/test_safenext.mjs                        # sign-in page only redirects within this site
 .venv/bin/python tools/pwa_preview.py               # synthetic UI; no recorder or production writes
 ```
 

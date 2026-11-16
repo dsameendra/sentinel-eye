@@ -64,7 +64,7 @@ export class SettingsView {
 
   setTab(tab) {
     const list = !tab && phone();
-    if (list !== this.listMode) { this.listMode = list; if (tab) this.tab = tab; this.build(); return; }
+    if (list !== this.listMode) { this.listMode = list; if (this.hasTab(tab)) this.tab = tab; this.build(); return; }   // only a real tab: the name comes from the URL
     if (this.hasTab(tab) && tab !== this.tab) { this.tab = tab; this.build(); }
   }
 
