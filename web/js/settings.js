@@ -113,12 +113,28 @@ export class SettingsView {
     this.render();
   }
 
+  /** The current tab's markup. A switch rather than a table of functions looked up and called by name: the tab
+   * name comes from the URL, and calling whatever a name finds on an object is how "constructor" or "__proto__"
+   * reach something that was never meant to run. An unknown tab renders nothing (setTab/the constructor only
+   * accept real ones, so this is the second line). Security and Account build their own panels in render(). */
+  paneHTML() {
+    switch (this.tab) {
+      case 'connection': return this.connectionTab();
+      case 'overview': return this.overviewTab();
+      case 'channels': return this.channelsTab();
+      case 'display': return this.displayTab();
+      case 'enhancement': return this.enhancementTab();
+      case 'status': return this.statusTab();
+      case 'device': return this.deviceTab();
+      default: return '';
+    }
+  }
+
   render() {
     clearInterval(this.statusTimer);
     this.security?.destroy(); this.security = null;
     this.account?.destroy(); this.account = null;
-    const fn = { connection: () => this.connectionTab(), overview: () => this.overviewTab(), channels: () => this.channelsTab(), display: () => this.displayTab(), enhancement: () => this.enhancementTab(), status: () => this.statusTab(), security: () => '', account: () => '', device: () => this.deviceTab() }[this.tab];
-    this.pane.innerHTML = fn();
+    this.pane.innerHTML = this.paneHTML();
     this.pane.classList.toggle('wide', this.tab === 'channels' || this.tab === 'status');
     if (this.tab === 'security') { this.bar.hidden = true; this.security = new SecurityPanel(this.pane, this.ctx); return; }   // saves as it goes: no draft
     if (this.tab === 'enhancement' && this.models === undefined && !this._modelsLoading) { this._modelsLoading = true; this.loadModels().finally(() => { this._modelsLoading = false; }); }
